@@ -1,0 +1,21 @@
+#!/bin/bash
+set -e
+set -o pipefail
+
+coro() {
+  local gendreport="$(mktemp --suffix=".${0##*/}" <&-)"
+  genminotree "$1" <&- | tee -- "$gendreport" >&-
+  if ! git diff --no-index --exit-code -- - "$gendreport"; then
+    >&2 printf '[%s] verification failed.' "${0##*/}"
+    return 1
+  fi
+}
+
+if [[ -t 0 || $# -gt 1 ]]; then
+  >&2 printf %s\\n "usage: cat minotree | ${0##*/} [rootpath]"
+  false
+elif [[ $# -eq 0 ]]; then
+  coro .
+else
+  coro "$1"
+fi
