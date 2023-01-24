@@ -1,0 +1,10 @@
+#!/bin/bash
+set -e
+set -o pipefail
+
+if [[ -t 0 || $# -gt 0 ]]; then
+  >&2 printf %s\\n "usage: cat ... | ${0##*/}"
+  false
+fi
+
+md5sum | head -c 32 | sed -e y/abcdef/ABCDEF/ | basenc --base16 -d | basenc -w0 --base32hex | sed -Ee 's%=%%g;s%([A-Z])%\L&%g' && echo

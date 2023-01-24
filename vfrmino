@@ -1,21 +1,19 @@
-#!/bin/bash
-set -e
-set -o pipefail
+#!/usr/bin/env -S bash --noprofile --norc -eo pipefail --
 
 coro() {
   local gendreport="$(mktemp --suffix=".${0##*/}" <&-)"
-  genminotree "$1" <&- | tee -- "$gendreport" >&-
+  lsrmino "$@" <&- | tee -- "$gendreport" >&-
   if ! git diff --no-index --exit-code -- - "$gendreport"; then
     >&2 printf '[%s] verification failed.' "${0##*/}"
     return 1
   fi
 }
 
-if [[ -t 0 || $# -gt 1 ]]; then
-  >&2 printf %s\\n "usage: cat minotree | ${0##*/} [rootpath]"
+if [[ -t 0 ]]; then
+  >&2 printf %s\\n "usage: cat listToVerify | ${0##*/} [targets]"
   false
 elif [[ $# -eq 0 ]]; then
   coro .
 else
-  coro "$1"
+  coro "$@"
 fi
