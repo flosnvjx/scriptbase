@@ -5,19 +5,39 @@ if [[ $# -eq 0 || -t 0 ]]; then
 fi
 doit() {
   local +x hit=0
-  local -a inputlines
-  mapfile -tn 0 inputlines
+  local -a inputlines=()
+  mapfile -tn 0 inputlines && 
   if [[ ${#inputlines[@]} == 0 ]]; then false; fi
   while [[ $# -ne 0 ]]; do
     local +x i=0
     while [[ $i -le ${#inputlines[@]} ]]; do
-      if [[ "${inputlines[$i]}" == $1 ]]; then
-        printf '%s\n' "${inputlines[$i]}"
-        hit=1
+      if [[ "${0##*/}" == *v ]]; then
+        if [[ "${inputlines[$i]}" != $1 && "${#inputlines[$i]}" -ne 0 ]]; then
+          printf '%s\n' "${inputlines[$i]}"
+          hit=1
+        fi
+      else
+        if [[ "${inputlines[$i]}" == $1 && "${#inputlines[$i]}" -ne 0 ]]; then
+          printf '%s\n' "${inputlines[$i]}"
+          hit=1
+        fi
       fi
       i=$(( $i+1 ))
     done
     shift
   done
 }
+if [[ "${0##*/}" == flhgrep* ]]; then
+  set -- "${@//\\/\\\\}"
+  set -- "${@//\*/\\*}"
+  set -- "${@//\?/\\?}"
+  set -- "${@//\[/\\[}"
+  set -- "${@/%?/&\*}"
+elif [[ "${0##*/}" == flegrep* ]]; then
+  set -- "${@//\\/\\\\}"
+  set -- "${@//\*/\\*}"
+  set -- "${@//\?/\\?}"
+  set -- "${@//\[/\\[}"
+  set -- "${@/#?/\*&}"
+fi
 doit "$@"
