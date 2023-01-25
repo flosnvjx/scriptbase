@@ -1,0 +1,21 @@
+#!/usr/bin/env -S bash --noprofile --norc -eo pipefail --
+if [[ -t 0 ]]; then
+  >&2 printf '%s\n' "usage: echo any-string | ${0##*/}"
+  false
+fi
+
+perl -0777pe 's%^\.%．%g;
+             s%\.lock$%．lock%;
+             s%/%／%g;
+             s%~%～%g;
+             s%:%：%g;
+             s%\^%＾%g;
+             s%\?%？%g;
+             s%\*%＊%g;
+             s%\[%［%g;
+             s%]%］%g;
+             s%\\%＼%g;
+             s%@%＠%g;
+             s%[[:cntrl:]]%%g;
+             s/ +([A-Za-z]+)/\u\L$1/g' | \
+perl -0777pe 's%[ 　]%%g'

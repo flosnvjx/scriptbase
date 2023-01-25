@@ -1,0 +1,163 @@
+#!/usr/bin/env -S bash --noprofile --norc -eo pipefail --
+shopt -s expand_aliases
+
+gh() {
+  command gh -R "$GITHUB_REPOSITORY" "$@"
+}
+
+printusage() {
+  >&2 printf '%s\n' "usage: ${0##*/} action [bucket] [target]
+
+action:
+  up    upload files to a bucket
+  dl    download all or given files in a bucket
+  ls    list files in a bucket
+  rm    remove a bucket, or remove files in that bucket
+  log   append annotation as log from stdin to a bucket
+  tee   use annotation from stdin in a bucket"
+}
+
+getemptycommit() {
+  alias git='git -C "$GITHUB_WORKSPACE"'
+  local +x commitHash= ifok=0
+  git rev-list --reverse HEAD | while read commitHash; do if [ $(git diff-tree --name-status --no-commit-id $commitHash | wc -l) -eq 0 ]; then echo $commitHash; ifok=1; break; fi; done
+  if [ "$ifok" -ne 1 ]; then
+    return 1
+  fi
+  unalias git
+}
+
+if [ "$CI" != true ] || [ -z "$GITHUB_REPOSITORY" ]; then
+  >&2 printf 'script shall be placed on GitHub runner.\n'
+  printusage
+  exit 120
+fi
+
+dlact() {
+  if [ $# -lt 1 ]; then printusage; return 1; fi
+  local +x bucket="$(printf "$1" | abistring-to-gitname)"; shift
+  local -a patternsargv
+  if [[ $# -eq 0 ]]; then
+    patternsargv+=($(lsact "$bucket"))
+    set -- "${patternsargv[@]}"
+  fi
+  if [[ $# -ne 0 ]]; then while [[ $# -ne 0 ]]; do
+    curl -qgsfvLOR -- https://github.com/"$GITHUB_REPOSITORY"/releases/download/"$bucket"/"$1" || {
+      printf '[%s] failed to download `%q`\n' "${0##*/}" "$GITHUB_REPOSITORY": "$bucket"/"$1" >&2
+      return 1
+    }
+    shift
+  done; else
+    printf %s 'no files to download: `%q`\n' "$GITHUB_REPOSITORY": "$bucket" >&2
+    return 1
+  fi
+}
+
+lsact() {
+  if [ $# -eq 1 ]; then
+    local +x bucket="$(printf "$1" | abistring-to-gitname)"; shift
+    gh release view --json assets -q .assets[].name -- "$bucket"
+  else
+    printusage
+    return 1
+  fi
+}
+
+upact() {
+  if [ $# -lt 2 ]; then printusage; return 1; fi
+  local +x bucket="$(printf "$1" | abistring-to-gitname)"; shift
+  if ! lsact "$bucket" &>/dev/null; then
+    mdact "$bucket"
+    printf 'created release: %q\n' "$bucket"
+  fi
+  while [[ $# -ne 0 ]]; do
+    gh release upload -- "$bucket" "$1" || {
+      >&2 printf '[%s] failure during uploading `%s` to `%s`\n' \
+      "${0##*/}" "$1" "$bucket ($GITHUB_REPOSITORY)"
+      return 1
+    }
+    shift
+  done
+}
+
+mdact() {
+  local +x tcommit="$(getemptycommit)"
+  if [ ${#tcommit} -eq 40 ]; then
+    gh release create -d --target "$tcommit" -- "$1" <&-
+  else
+    gh release create -d -- "$1" <&-
+  fi
+}
+
+rmact() {
+  if [ $# -ge 1 ]; then
+  local +x bucket="$(printf "$1" | abistring-to-gitname)"; shift
+  else
+    return 1
+  fi
+  if [ $# -eq 1 ]; then
+    gh release delete -y -- "$bucket"
+  else while [ $# -ne 0 ]; do
+    gh release delete-asset -y -- "$bucket" "$1"
+    shift
+  done; fi
+}
+
+logact() {
+  if ! [[ $# -ge 1 && $# -le 2 ]]; then
+    return 1
+  fi
+  local +x bucket="$(printf "$1" | abistring-to-gitname)"; shift
+  local +x prevrelnote="$(mktemp --suffix=".${0##*/}" <&-)"
+  gh release view --json body -q .body -- "$bucket" > "$prevrelnote" <&-
+  sed -e '1d;$d' -i "$prevrelnote" <&-
+  tee -a -- "$prevrelnote"
+  tail -n "${1:-9}" -- "$prevrelnote" | \
+    sed -e '1i ```' -e '$a ```' -i "$prevrelnote" | \
+    gh release edit --draft -F - -- "$bucket"
+}
+
+teeact() {
+  if [ $# -eq 1 ]; then
+    {
+      local +x bucket="$(printf "$1" | abistring-to-gitname)"; shift
+    } <&-
+  else
+    return 1
+  fi
+  if ! lsact "$bucket" &>/dev/null <&-; then
+    mdact "$bucket" <&-
+  fi
+  sed -e '1i ```' -e '$a ```' | gh release edit --draft -F - -- "$bucket"
+}
+
+parseact() {
+  case "$1" in
+    up)
+      shift; if [[ $# -ne 0 ]]; then upact "$@"; else return 1; fi
+      ;;
+    dl)
+      shift; if [[ $# -ne 0 ]]; then dlact "$@"; else return 1; fi
+      ;;
+    ls)
+      shift; if [[ $# -ne 0 ]]; then lsact "$@"; else return 1; fi
+      ;;
+    rm)
+      shift; if [[ $# -ne 0 ]]; then rmact "$@"; else return 1; fi
+      ;;
+    log)
+      shift; if [[ $# -ne 0 ]]; then logact "$@"; else return 1; fi
+      ;;
+    tee)
+      shift; if [[ $# -ne 0 ]]; then teeact "$@"; else return 1; fi
+      ;;
+    *) printf "[%s] not a valid argument: \`%q\`\\n" "${0##*/}" "$1" >&2; printusage; false;;
+  esac
+}
+
+if [ $# -ne 0 ]; then
+  parseact "$@"
+else
+  printusage
+  false
+fi
