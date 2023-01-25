@@ -1,9 +1,6 @@
 #!/usr/bin/env -S bash --noprofile --norc -eo pipefail --
 shopt -s expand_aliases
-
-gh() {
-  command gh -R "$GITHUB_REPOSITORY" "$@"
-}
+export GH_REPO="$GITHUB_REPOSITORY"
 
 printusage() {
   >&2 printf '%s\n' "usage: ${0##*/} action [bucket] [target]

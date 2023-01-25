@@ -37,7 +37,7 @@ testargv() {
     fi; if [[ ${#files} -ne 0 ]]; then
       printf '%s\0' "${files[@]}"
     fi
-    } | sed -ze 's%^./\+%%' | LC_ALL=C sort -zu | cpio -o0cC1R+0:+0 --reproducible --quiet
+    } | sed -ze 's%^./\+%%' | LC_ALL=C sort -zu | cpio -o0cC1 -R +0:+0 --reproducible --quiet
   fi
 }
 
@@ -48,6 +48,5 @@ printusage() {
 if [ $# -ne 0 ]; then
   testargv "$@"
 else
-  printusage
-  false
+  testargv .
 fi
