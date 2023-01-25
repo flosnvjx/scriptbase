@@ -42,7 +42,13 @@ dlact() {
     set -- "${patternsargv[@]}"
   fi
   if [[ $# -ne 0 ]]; then while [[ $# -ne 0 ]]; do
-    curl -qgsfvLOR -- https://github.com/"$GITHUB_REPOSITORY"/releases/download/"$bucket"/"$1" || {
+    {
+      if [[ -t 1 ]]; then
+      curl -qgsfvLOR -- https://github.com/"$GITHUB_REPOSITORY"/releases/download/"$bucket"/"$1"
+      else
+      curl -qgsfvLR -- https://github.com/"$GITHUB_REPOSITORY"/releases/download/"$bucket"/"$1"
+      fi
+    } || {
       printf '[%s] failed to download `%q`\n' "${0##*/}" "$GITHUB_REPOSITORY": "$bucket"/"$1" >&2
       return 1
     }
