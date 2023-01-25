@@ -1,0 +1,24 @@
+#!/usr/bin/env -S bash --noprofile --norc -eo pipefail --
+shopt -s expand_aliases
+
+if [[ $# -ne 0 ]]; then
+  case "$1" in
+    -)
+      [[ ! -t 0 ]]
+      ! [[ -e "$3.zst.001" ]]
+      split -a3 -b "$2" --numeric-suffixes=1 --filter="${0##*/}" -- "$1" "$3.zst.";;
+    *)
+      [[ -e "$1" && -f "$1" ]]
+      if ! [[ "$(stat -c %s -- "$1")" -le "$2" ]]; then
+        [[ ! -e "$1.zst.001" ]]
+        split -a3 -b "$2" --numeric-suffixes=1 --filter="${0##*/}" -- "$1" "$1.zst." <&-
+        rm -- "$1"
+      fi
+  esac
+else
+  if [[ ! -t 0 && -n "$FILE" ]]; then
+    zstdmt -o "$FILE"
+  else
+    false
+  fi
+fi
