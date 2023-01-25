@@ -1,0 +1,23 @@
+#!/usr/bin/env -S bash --noprofile --norc -eo pipefail --
+shopt -s expand_aliases
+if [[ $# -eq 0 || -t 0 ]]; then
+  false
+fi
+doit() {
+  local +x hit=0
+  local -a inputlines
+  mapfile -tn 0 inputlines
+  if [[ ${#inputlines[@]} == 0 ]]; then false; fi
+  while [[ $# -ne 0 ]]; do
+    local +x i=0
+    while [[ $i -le ${#inputlines[@]} ]]; do
+      if [[ "${inputlines[$i]}" == $1 ]]; then
+        printf '%s\n' "${inputlines[$i]}"
+        hit=1
+      fi
+      i=$(( $i+1 ))
+    done
+    shift
+  done
+}
+doit "$@"
