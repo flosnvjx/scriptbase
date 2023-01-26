@@ -6,7 +6,7 @@ fi
 doit() {
   local +x hit=0
   local -a inputlines=()
-  mapfile -tn 0 inputlines && 
+  mapfile -tn 0 inputlines
   if [[ ${#inputlines[@]} == 0 ]]; then false; fi
   while [[ $# -ne 0 ]]; do
     local +x i=0
