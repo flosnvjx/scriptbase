@@ -1,0 +1,107 @@
+#!/usr/bin/env -S zsh -ef
+setopt pipefail typesettounset
+zmodload -Fa zsh/datetime p:EPOCHSECONDS
+zmodload -Fa zsh/system b:sysseek b:sysread
+
+alias printusage_ret1='typeset -pf main; return 1'
+alias argcisgt0_or_ret1='if [ $# -eq 0 ]; then printusage_ret1; fi'
+
+function main {
+  local +x invoke_which_action
+  case "$1" in
+    (ls|count) invoke_which_action=$1;;
+    (xof) invoke_which_action=xof;;
+    (cof) invoke_which_action=cof;;
+    (trunctail) invoke_which_action=$1;;
+    (*) printusage_ret1;;
+  esac
+  #if [[ "$1" != -?* ]]; then
+    shift
+  #fi
+  argcisgt0_or_ret1
+  invoke_action $invoke_which_action "${(@)argv}"
+}
+
+alias rd='IFS= read -r'
+
+function getzztofs {
+  local +x seek=0 zztsz=0
+  7z l -sae -spd -tzip -- "$1" \
+   | \
+  rg --pcre2 -Ue '^--\n(?:Path = (?:.|\n)+$\nType = zip\n)(?:.*\n)*(?=^Physical Size = )(?:Physical Size = ([0-9]+)\n)(?:Tail Size = ([0-9]+)\n){0,1}(?:.*\n)*' -r '$1'$'\n''$2' | \
+  {
+    rd seek
+    rd zztsz
+  }
+  if [[ "$zztsz" -gt 0 ]]; then
+    echo $seek
+  else
+    echo -1
+  fi
+}
+
+function print_cpio_hdr {
+  setopt localoptions nomultibyte
+  printf %s 070707 000000 000000 100600 000000 000000 000001 000000
+  printf %011o $EPOCHSECONDS
+  printf %06o "${#1}"
+  printf %011o "$2"
+  printf %s'\0' "$1"
+}
+
+function print_cpio_eof {
+  printf '0707070000000000000000000000000000000000010000000000000000000001300000000000TRAILER!!!\0'
+}
+
+alias cat_and_set_catsz='local +x catbuf catsz catarr=(); while :; do
+  sysread catbuf
+  local +x ret=$?
+  case $ret in
+    0) catarr+=($catbuf);;
+    5) if [[ ${(c)#catarr} == 0 ]]; then return; fi
+       break ;;
+    *) return 9;;
+  esac
+done
+if [[ ${#catarr} -ge 1 ]]; then
+  catsz=$(( ${(c)#catarr} - ( ${#catarr} - 1 ) ))
+fi'
+alias seekit='if [[ -z "$zztfd" ]]; then exec {zztfd}<"$zztf"; fi; sysseek -u "$zztfd" "$zztofs"'
+function invoke_action {
+  local +x action=$1 zztf=$2 zztofs=0; shift 2
+  getzztofs "$zztf" | rd zztofs
+  local +x zztfd
+  case $action in
+    (ls|count|xof)
+      if [ "$zztofs" = -1 ]; then false; fi
+      seekit
+      ;|
+    (count)
+      local +x c
+      cat <&$zztfd | bsdtar -tf -  -- "${(@)argv}" | wc -l | rd c
+      echo $c
+      [ "$c" -gt 0 ];;
+    (ls)
+      cat <&$zztfd | bsdtar -tf -  -- "${(@)argv}";;
+    (xof)
+      cat <&$zztfd | bsdtar -xOf - -- "${(@)argv}";;
+    (trunctail|cof)
+      if [ "$zztofs" -gt 0 ]; then
+        truncate -c -s "$zztofs" -- "$zztf"
+        printf 'tail truncated: `%q`\n' "$zztf" >&2
+      fi
+      ;|
+    (cof)
+      cat_and_set_catsz
+      if [[ "${catsz}" -gt 0 ]]; then
+      {
+        print_cpio_hdr "${1:--}" $catsz
+        printf %s "${(@)catarr}"
+        print_cpio_eof
+      } | zstd | rw >> $zztf
+      fi
+      ;;
+  esac
+}
+
+main "${(@)argv}"
