@@ -1,0 +1,87 @@
+#!/bin/zsh
+set -e
+setopt pipefail typesettounset
+## optparse
+{
+	if [[ "$REO_VOLEN" -ge 4194304 ]] {
+		local +x opt_len=$REO_VOLEN
+	} else {
+		local +x opt_len=200000000
+	}
+	if [[ "$REO_NDIGIT" =~ [0-9]+ ]] {
+		local +x opt_ndigit=$REO_NDIGIT
+	} else {
+		local +x opt_ndigit=2
+	}
+	local +x opt_fnformat=${REO_FNFORMAT:-%s%0${opt_ndigit}d%s}
+	local +x opt_basefn=${REO_BASEFN:--.p} opt_fnext=${REO_FNEXT:-.zz}
+}
+alias rd='IFS= builtin read -r'
+zmodload -Fa zsh/system b:sysread
+_rdz() {
+	local +x buf
+	local -i +x buflen
+	local -a bufarr
+	while sysread -c buflen buf; {
+		if [[ $buflen == 0 ]] break
+		bufarr+=($buf)
+	}
+	replyz=($bufarr)
+}
+{
+	local -a stack_atoms
+	[[ $# -ne 0 ]]
+	while [[ $# != 0 ]] {
+		if [[ "$1" == - ]] {
+			[[ ! -t 0 ]]
+			local -a replyz;
+			_rdz
+			stack_atoms+=(${(j::0)replyz})
+		} else {
+			stack_atoms+=($1)
+		}
+		shift
+	}
+}
+_mkcpiozz() {
+	local +x of=$1; shift
+	export TZ=UTC LC_ALL=C
+		while [[ $# -ne 0 ]] {
+			printf '%s\0' $1 | find -H -files0-from - \( -type f -size +0 \) -print0 | sed -ze 's%^\./%%' | sort -zu
+			shift
+		} \
+	| tar -cf - --group 0 --owner 0 --mode 'a+rw' --mtime '1980-01-01' --numeric-owner --no-xattrs --null -T - | bsdtar -cf $of.ing --format zip --no-fflags --numeric-owner --uid 0 --gid 0 --options zip:compression=store -- @-
+	mv -iT -- $of{.ing,}
+}
+{
+	local -a replyz
+	local -a durecords
+	printf '%s\0' $stack_atoms | du --files0-from=- --apparent-size -bs0 | _rdz
+	durecords=(${(j::0)replyz})
+	local -a pushd
+	local -i +x pushd_lensum partseq
+	while (( ${#durecords} > 0 )) {
+		local +x dufn=${durecords[1]#*	}
+		local +x dusz=${${durecords[1]}[1,$((${#durecords[1]} - ${#dufn} - 1 ))]}
+		if (( $pushd_lensum + $dusz <= $opt_len )) {
+			pushd+=($dufn)
+			pushd_lensum+=$dusz
+			shift durecords
+		} else {
+			partseq+=1
+			local +x outfn_str; printf $opt_fnformat'\0' $opt_basefn $partseq $opt_fnext | rd -d '' outfn_str
+			if (( ${#pushd} == 0 )) {
+				_mkcpiozz $outfn_str $dufn
+				shift durecords
+			} else {
+				_mkcpiozz $outfn_str $pushd
+				pushd=(); pushd_lensum=
+			}
+		}
+	}
+	if (( ${#pushd} > 0 )) {
+		partseq+=1
+		local +x outfn_str; printf $opt_fnformat'\0' $opt_basefn $partseq $opt_fnext | rd -d '' outfn_str
+		_mkcpiozz $outfn_str $pushd
+	}
+}

@@ -1,0 +1,72 @@
+#!/usr/bin/env -S zsh -ef
+setopt pipefail typesettounset rematchpcre
+zmodload -Fa zsh/pcre b:pcre_{compile,match}
+## mkxxxinfo $filename
+function mkxxxinfo {
+}
+
+function fnspan_extract_magspan {
+  local -A xxxcomic_magti_wres
+  xxxcomic_magti_wres=(
+    'COMIC BAVEL' 'COMIC BAVEL'
+
+    'COMIC E×E' '(?:コミック|COMIC) *(?:E[x×]E|エグゼ)'
+    'COMIC Hotmilk' '(?:コミック|COMIC) *(?:ホットミルク|Hotmilk)'
+    'COMIC Reboot' '(?:COMIC|コミック) *(?:Reboot|リブート)'
+    'COMIC X-EROS' '(?:COMIC|コミック) *(?:ゼロス|X-EROS)'
+    'COMIC Anthurium' '(?:コミック|COMIC) *(?:Anthurium|アンスリウム)'
+    'COMIC Grape'  '(?:COMIC|コミック) *(?:Grape|グレープ)'
+    'COMIC G-Es' '(?:COMIC|コミック) *(?:ジエス|G-Es)'
+    'COMIC Unreal' '(?:COMIC|コミック) *(?:Unreal|アンリアル)'
+    'Penguin Club' '(?:COMIC|コミック) *(?:ペンギンクラブ|Penguin Club)'
+
+    真激 '(?:コミック|COMIC) *(?:Shingeki|真激)'
+    快楽天 '(?:コミック|COMIC) *(?:Kairakuten|快[楽樂乐]天)'
+    快楽天BEAST '(?:コミック|COMIC) *(?:Kairakuten|快[楽樂乐]天) *(?:快楽天ビースト|BEAST)'
+    WEEKLY快楽天 'Weekly *(?:Kairakuten|快[楽樂乐]天)'
+    失楽天 '(?:コミック|COMIC) *(?:S(?:h|)it(?:s|)urakuten|失[楽樂乐]天)'
+    阿吽   'COMIC *(?:阿吽|AUN)'
+
+    永遠娘 '(?:永[远遠]娘|Towako)'
+    ダンジョン攻略はSEXで'!!' '(?:ダンジョン攻略はSEXで[!！]*)'
+  )
+  magspan_rustre='(?:[(（](?P<magti>'${(j:|:)xxxcomic_magti_wres}') *(?P<magissue>[^)）]+)[)）])'
+
+  printf %s "$1" | rg -iboe $magspan_rustre | read -r REPLY
+  # striped name
+  setopt localoptions
+  setopt nomultibyte
+  ## we use zero based offset here
+  local +x mbegin=${REPLY%%:*}
+  local +x mlen=${#REPLY#*:}
+  local +x mend=$(( mbegin + mlen ))
+  if [[ $mbegin -ge 1 ]]; then
+    printf %s ${1:0:$mbegin}
+  fi
+  if [[ $mend -lt ${#1} ]]; then
+    printf %s ${1:$mend}
+  fi
+  printf '\n'
+
+  local +x magti magti_norm MATCH match=()
+  printf %s "$1" | rg -ioe $magspan_rustre -r '$magti' | read -r magti
+  for magti_norm in ${(k)xxxcomic_magti_wres}; do
+    pcre_compile -i ^"${xxxcomic_magti_wres[$magti_norm]}"$
+    if pcre_match -- $magti; then
+      magti=$magti_norm
+    fi
+  done
+  printf '%s\n' $magti
+  if ! printf %s "$1" | rg -ioe $magspan_rustre -r '$magissue' | sed -Ee 's%^([0-9][0-9][0-9][0-9])-([0-9][0-9])$%\1.\2%;s%^(....)年([1-9])月号%\1.0\2%;s%^(....)年([1-9][0-9])月号%\1.\2%'; then
+    printf '\n'
+  fi
+}
+
+fnspan_extract_if_translation {
+  local +x fn
+  printf '%s\n' $1 | read -r fn
+  local -A tll_wres
+  tllspan_wres=(
+    zh '中[國国文][語翻][譯译訳]|chinese'
+  )
+}
