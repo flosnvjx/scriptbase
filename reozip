@@ -3,7 +3,7 @@ set -e
 setopt pipefail
 {
 	## old coreutils workaround
-	if ! find -files0-from - </dev/null &>/dev/null {
+	if ! find -files0-from - </dev/null &>/dev/null; {
 		local +x oldfind=1
 	} else {
 		local +x oldfind=
