@@ -34,7 +34,7 @@ _rdz() {
 	while [[ $# != 0 ]] {
 		if [[ "$1" == - ]] {
 			[[ ! -t 0 ]]
-			local -a replyz=;
+			local -a replyz;
 			_rdz
 			stack_atoms+=(${(j::0)replyz})
 		} else {
