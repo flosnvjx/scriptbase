@@ -14,7 +14,7 @@ setopt pipefail typesettounset
 		local +x opt_ndigit=2
 	}
 	local +x opt_fnformat=${REO_FNFORMAT:-%s%0${opt_ndigit}d%s}
-	local +x opt_basefn=${REO_BASEFN:--.p} opt_fnext=${REO_FNEXT:-.zz}
+	local +x opt_basefn=${REO_BASEFN:--.p} opt_fnext=${REO_FNEXT:-.bsdzip}
 }
 alias rd='IFS= builtin read -r'
 zmodload -Fa zsh/system b:sysread
