@@ -1,6 +1,6 @@
 #!/bin/zsh
 set -e
-setopt pipefail typesettounset
+setopt pipefail
 ## optparse
 {
 	if [[ "$REO_VOLEN" -ge 4194304 ]] {
@@ -19,7 +19,7 @@ setopt pipefail typesettounset
 alias rd='IFS= builtin read -r'
 zmodload -Fa zsh/system b:sysread
 _rdz() {
-	local +x buf
+	local +x buf=
 	local -i +x buflen
 	local -a bufarr
 	while sysread -c buflen buf; {
@@ -34,7 +34,7 @@ _rdz() {
 	while [[ $# != 0 ]] {
 		if [[ "$1" == - ]] {
 			[[ ! -t 0 ]]
-			local -a replyz;
+			local -a replyz=;
 			_rdz
 			stack_atoms+=(${(j::0)replyz})
 		} else {
@@ -69,7 +69,7 @@ _mkcpiozz() {
 			shift durecords
 		} else {
 			partseq+=1
-			local +x outfn_str; printf $opt_fnformat'\0' $opt_basefn $partseq $opt_fnext | rd -d '' outfn_str
+			local +x outfn_str=; printf $opt_fnformat'\0' $opt_basefn $partseq $opt_fnext | rd -d '' outfn_str
 			if (( ${#pushd} == 0 )) {
 				_mkcpiozz $outfn_str $dufn
 				shift durecords
@@ -81,7 +81,7 @@ _mkcpiozz() {
 	}
 	if (( ${#pushd} > 0 )) {
 		partseq+=1
-		local +x outfn_str; printf $opt_fnformat'\0' $opt_basefn $partseq $opt_fnext | rd -d '' outfn_str
+		local +x outfn_str=; printf $opt_fnformat'\0' $opt_basefn $partseq $opt_fnext | rd -d '' outfn_str
 		_mkcpiozz $outfn_str $pushd
 	}
 }
