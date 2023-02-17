@@ -59,7 +59,7 @@ _mkcpiozz() {
 				if [[ -z "$oldfind" ]] {
 					find -H -files0-from - \( -type f -size +0 \) -print0
 				} else {
-					sed -zEe 's%^([^./])%./\1%' | xargs -0rI @@ find @@ -H \( -type f -size +0 \) -print0
+					sed -zEe 's%^([^./])%./\1%' | xargs -0rI @@ find -H @@ \( -type f -size +0 \) -print0
 				}
 			} | sed -ze 's%^\./%%' | sort -zu
 			shift
