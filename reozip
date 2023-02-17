@@ -1,6 +1,14 @@
 #!/bin/zsh
 set -e
 setopt pipefail
+{
+	## old coreutils workaround
+	if ! find -files0-from - </dev/null &>/dev/null
+		local +x oldfind=1
+	else
+		local +x oldfind=
+	fi
+}
 ## optparse
 {
 	if [[ "$REO_VOLEN" -ge 4194304 ]] {
@@ -47,7 +55,13 @@ _mkcpiozz() {
 	local +x of=$1; shift
 	export TZ=UTC LC_ALL=C
 		while [[ $# -ne 0 ]] {
-			printf '%s\0' $1 | find -H -files0-from - \( -type f -size +0 \) -print0 | sed -ze 's%^\./%%' | sort -zu
+			printf '%s\0' $1 | {
+				if [[ -z "$oldfind" ]] {
+					find -H -files0-from - \( -type f -size +0 \) -print0
+				} else {
+					sed -zEe 's%^([^./])%./\1%' | xargs -0rI @@ find @@ -H \( -type f -size +0 \) -print0
+				}
+			} | sed -ze 's%^\./%%' | sort -zu
 			shift
 		} \
 	| tar -cf - --group 0 --owner 0 --mode 'a+rw' --mtime '1980-01-01' --numeric-owner --no-xattrs --null -T - | bsdtar -cf $of.ing --format zip --no-fflags --numeric-owner --uid 0 --gid 0 --options zip:compression=store -- @-
