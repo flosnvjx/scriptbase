@@ -1,18 +1,18 @@
 readeof() {
-  builtin local +x buf=
-  builtin local +x -i buflen= ERRNO= exit=
-  builtin local +x -a bufarr=()
-  while sysread -c buflen buf; do
-    if [[ $buflen == 0 ]]; then break; fi
-    bufarr+=($buf)
+  local +x __readeof_b_u_f=
+  local +x -i __readeof_b_u_f_l_e_n= ERRNO= __readeof_e_x_i_t=
+  local +x -a __readeof_b_u_f_a_r_r=()
+  while builtin sysread -c __readeof_b_u_f_l_e_n __readeof_b_u_f; do
+    if [[ $__readeof_b_u_f_l_e_n == 0 ]]; then break; fi
+    __readeof_b_u_f_a_r_r+=($__readeof_b_u_f)
   done
   case $? in
     (0|5) true;;
-    (2|3) exit=$ERRNO;;
-    (1|*) exit=1;;
+    (2|3) __readeof_e_x_i_t=$ERRNO;;
+    (1|*) __readeof_e_x_i_t=1;;
   esac
 
-  ${1:-reply}=${(j::)bufarr}
-  return $exit
+  : ${(P)${1:-reply}::=${(j::)__readeof_b_u_f_a_r_r}}
+  return $__readeof_e_x_i_t
 }
 builtin zmodload -Fa zsh/system b:sysread
