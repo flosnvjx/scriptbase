@@ -1,0 +1,18 @@
+readeof() {
+  builtin local +x buf=
+  builtin local +x -i buflen= ERRNO= exit=
+  builtin local +x -a bufarr=()
+  while sysread -c buflen buf; do
+    if [[ $buflen == 0 ]]; then break; fi
+    bufarr+=($buf)
+  done
+  case $? in
+    (0|5) true;;
+    (2|3) exit=$ERRNO;;
+    (1|*) exit=1;;
+  esac
+
+  ${1:-reply}=${(j::)bufarr}
+  return $exit
+}
+builtin zmodload -Fa zsh/system b:sysread

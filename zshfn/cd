@@ -1,0 +1,11 @@
+cd() {
+  local +x CDPATH=
+  local +x -a cdpath=()
+  if [[ $# -ne 1 ]]; then return 1; fi
+  case "$1" in
+    (/*) builtin cd $1;;
+    (?*) builtin cd -- $1;;
+    (*) return 1;;
+  esac
+}
+builtin disable cd
