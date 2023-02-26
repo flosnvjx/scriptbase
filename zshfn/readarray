@@ -1,0 +1,54 @@
+#!/bin/zsh
+## readarray [options] [--|-] [param]
+## options sort by priority:
+## -s, treat each delimiter as an element separator, i.e. do not errout with 5 on value that does not ending with a delimiter
+## -0, treat each ASCII NUL character (instead of the default ASCII LF) as an element delimiter
+## -tab, like -0 but use ASCII HT instead
+## -vtab, like -0 but use ASCII VT instead
+## -rs, like -0 but use ASCII RS instead
+## -unit-sep, like -0 but use ASCII US instead
+readarray() {
+  local -A __readarray_g_e_t_o_p_t_s
+  builtin zparseopts -A __readarray_g_e_t_o_p_t_s -D -F - s 0 tab vtab rs unit-sep || return $?
+  if [[ $# -gt 1 ]]; then return 1; fi
+
+  local +x -i __readarray_e_r_r_n_o=
+  local +x __readarray_r_e_a_d_e_o_f=
+  readeof __readarray_r_e_a_d_e_o_f || return $?
+
+  if [[ ${#__readarray_r_e_a_d_e_o_f} -eq 0 ]]; then
+
+    local -a __readarray_r_e_a_d_e_o_f=()
+    if ! [[ -v __readarray_g_e_t_o_p_t_s[-s] ]]; then
+      __readarray_e_r_r_n_o=5
+    fi
+
+  else
+
+    if [[ -v __readarray_g_e_t_o_p_t_s[-0] ]]; then
+      local -a __readarray_r_e_a_d_e_o_f=("${(@0)__readarray_r_e_a_d_e_o_f}")
+    elif [[ -v __readarray_g_e_t_o_p_t_s[-tab] ]]; then
+      local -a __readarray_r_e_a_d_e_o_f=("${(@ps:\t:)__readarray_r_e_a_d_e_o_f}")
+    elif [[ -v __readarray_g_e_t_o_p_t_s[-vtab] ]]; then
+      local -a __readarray_r_e_a_d_e_o_f=("${(@ps:\v:)__readarray_r_e_a_d_e_o_f}")
+    elif [[ -v __readarray_g_e_t_o_p_t_s[-rs] ]]; then
+      local -a __readarray_r_e_a_d_e_o_f=("${(@ps:\x1E:)__readarray_r_e_a_d_e_o_f}")
+    elif [[ -v __readarray_g_e_t_o_p_t_s[-unit-sep] ]]; then
+      local -a __readarray_r_e_a_d_e_o_f=("${(@ps:\x1F:)__readarray_r_e_a_d_e_o_f}")
+    else
+      local -a __readarray_r_e_a_d_e_o_f=("${(@ps:\n:)__readarray_r_e_a_d_e_o_f}")
+    fi
+    if [[ ! -v __readarray_g_e_t_o_p_t_s[-s] ]]; then
+      if [[ ${#__readarray_r_e_a_d_e_o_f} -gt 1 ]] && [[ "${__readarray_r_e_a_d_e_o_f[-1]}" == "" ]]; then
+        __readarray_r_e_a_d_e_o_f=("${(@)__readarray_r_e_a_d_e_o_f[1,-2]}")
+      else
+        __readarray_e_r_r_n_o=5
+      fi
+    fi
+
+  fi
+
+  set -A ${1:-replies} "${(@)__readarray_r_e_a_d_e_o_f}" || return $?
+  return $__readarray_e_r_r_n_o
+}
+builtin zmodload -Fa zsh/zutil b:zparseopts
