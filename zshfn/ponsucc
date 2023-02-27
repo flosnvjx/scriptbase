@@ -4,7 +4,6 @@
 ## -w, default to 0 (todo: emulate waitretry as in wget(1))
 ##
 ## (todo: redesign, for following features)
-## -b, eval argv1, for execute builtins
 ## todo: -exit-trace, name of an array, to place exit status codes for later analyze
 ## todo: -1, instead of nullifying stdout on unsuccessful runs, save them into this arrays, plus the last successful runs (in case it is successful)
 ## todo: -2, like below, but for stderr (by default, stderr is kept and untouch, with this opt it is redirect to save into array)
@@ -26,12 +25,25 @@ ponsucc() {
     __ponsucc_retryonlyonstatus=(${(s:,:)__ponsucc_getopts[-m]})
   fi
 
+  {
+    [[ $# -gt 1 ]] && {
+      (( ${(@)${(k)aliases}[(Ie)${argv[1]}]} != 0 )) || \
+      (( ${(@)${(k)commands}[(Ie)${argv[1]}]} != 0 )) || \
+      (( ${(@)${(k)builtins}[(Ie)${argv[1]}]} != 0 )) || \
+      (( ${(@)${(k)functions}[(Ie)${argv[1]}]} != 0 ))
+  } || return 128
   local +x -i __ponsucc_runcount=
   while (( __ponsucc_runcount < 1 + __ponsucc_maxretry )); do
     local +x __ponsucc_stdout=
     local +x -i __ponsucc_run_status=
     {
-      "${(@)argv}" || __ponsucc_run_status=$?
+      {
+        if [[ $# -gt 1 ]]; then
+          eval "${(q)argv[1]}" '"${(@)argv[2,-1]}"'
+        else
+          eval "${(q)argv[1]}"
+        fi
+      } || __ponsucc_run_status=$?
     } | readeof __ponsucc_stdout
     __ponsucc_runcount+=1
     if (( __ponsucc_run_status == 0 )); then
