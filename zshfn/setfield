@@ -1,0 +1,83 @@
+#!/bin/zsh
+## -t field sep
+## -v varname (higher precedence)
+## -s textstring
+setfield() {
+  local -A __setfield_getopts
+  builtin zparseopts -A __setfield_getopts -D -F - t: v: s: exceed-fields: || return $?
+  local +x __setfield_sep='\t'
+  if [[ -v __setfield_getopts[-t] ]]; then
+    if function {
+        local +x MATCH MBEGIN MEND
+        builtin setopt localoptions
+        local +x LC_ALL=C
+        [[ "${__setfield_getopts[-v]}" =~ '[[:cntrl:]]' ]]
+      }; then
+      return 1
+    fi
+    __setfield_sep=${__setfield_getopts[-t]}
+  fi
+
+  local +x __setfield_fields=
+  if [[ -v __setfield_getopts[-v] ]]; then
+    if [[ -v "${__setfield_getopts[-v]}" ]]; then
+      __setfield_fields=${(P)__setfield_getopts[-v]}
+    else return 5; fi
+  elif [[ -v __setfield_getopts[-s] ]]; then
+      __setfield_fields=${__setfield_getopts[-s]}
+  else
+    return 1
+  fi
+
+  [[ $# -gt 0 ]] || return $?
+
+  eval 'local -a __setfield_fields=("${(@ps'${__setfield_sep}')__setfield_fields}")'
+
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      (a:?*|p:?*)
+        if ! [[ "${(Pt)${1#?:}}" == '' || "${(Pt)${1#?:}}" == array* ]] || [[ "$1" == *'['* ]]; then
+          return 1
+        fi
+        ;|
+      (a:?*)
+        if [[ ${(P)#1#?:} -gt 0 ]]; then
+        set -A "${1#?:}" "${(P@)${1#?:}}" "${__setfield_fields[1]}"
+        else
+        set -A "${1#?:}" "${__setfield_fields[1]}"
+        fi
+        ;;
+      (p:?*)
+        if [[ ${(P)#1#?:} -gt 0 ]]; then
+        set -A "${1#?:}" "${__setfield_fields[1]}" "${(P@)${1#?:}}"
+        else
+        set -A "${1#?:}" "${__setfield_fields[1]}"
+        fi
+        ;;
+      (A:?*|s:?*)
+        : ${(P)${1#?:}::=${__setfield_fields[1]}}
+        ;;
+      (cs:?*|c:?*)
+        : ${(P)${1#*:}::=${(P)${1#*:}}${__setfield_fields[1]}}
+        ;;
+      (ps:?*)
+        : ${(P)${1#*:}::=${__setfield_fields[1]}${(P)${1#*:}}}
+        ;;
+      (*)
+        : ${(P)1::=${__setfield_fields[1]}}
+        ;;
+    esac
+    shift __setfield_fields
+    shift
+  done
+  if [[ ${#__setfield_fields} -gt 0 ]]; then
+    if [[ -v __setfield_getopts[-exceed-fields] ]]; then
+      set -A "${__setfield_getopts[-exceed-fields]}" "${(@)__setfield_fields}"
+    else
+      return 2
+    fi
+  elif [[ -v __setfield_getopts[-exceed-fields] ]]; then
+      set -A "${__setfield_getopts[-exceed-fields]}"
+  fi
+}
+builtin zmodload -Fa zsh/zutil b:zparseopts
