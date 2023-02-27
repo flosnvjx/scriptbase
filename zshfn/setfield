@@ -2,9 +2,10 @@
 ## -t field sep
 ## -v varname (higher precedence)
 ## -s textstring
+## -min,max-fields
 setfield() {
   local -A __setfield_getopts
-  builtin zparseopts -A __setfield_getopts -D -F - t: v: s: exceed-fields: || return $?
+  builtin zparseopts -A __setfield_getopts -D -F - t: v: s: exceed-fields: min-fields: max-fields: || return $?
   local +x __setfield_sep='\t'
   if [[ -v __setfield_getopts[-t] ]]; then
     if function {
@@ -32,6 +33,9 @@ setfield() {
   [[ $# -gt 0 ]] || return $?
 
   eval 'local -a __setfield_fields=("${(@ps'${__setfield_sep}')__setfield_fields}")'
+
+  if [[ -v __setfield_getopts[-min-fields] ]] && [[ ${#__setfield_fields} -lt "${__setfield_fields[-min-fields]}" ]]; then return 4; fi
+  if [[ -v __setfield_getopts[-max-fields] ]] && [[ ${#__setfield_fields} -gt "${__setfield_fields[-min-fields]}" ]]; then return 6; fi
 
   while [[ $# -gt 0 ]]; do
     case "$1" in
