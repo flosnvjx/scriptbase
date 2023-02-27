@@ -8,7 +8,7 @@ function {
   setopt extendedglob
   local -a zshfns=(${ZSH_ARGZERO%/*}/zshfn/*(.N))
   if [[ ${#zshfns} -gt 0 ]]; then
-    autoload -kUr -- $zshfns
+    autoload -kr -- $zshfns
   fi
 }
 
