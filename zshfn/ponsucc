@@ -4,6 +4,7 @@
 ## -w, default to 0 (todo: emulate waitretry as in wget(1))
 ##
 ## (todo: redesign, for following features)
+## -b, eval argv1, for execute builtins
 ## todo: -exit-trace, name of an array, to place exit status codes for later analyze
 ## todo: -1, instead of nullifying stdout on unsuccessful runs, save them into this arrays, plus the last successful runs (in case it is successful)
 ## todo: -2, like below, but for stderr (by default, stderr is kept and untouch, with this opt it is redirect to save into array)
