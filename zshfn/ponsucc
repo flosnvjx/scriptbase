@@ -1,0 +1,42 @@
+#!/bin/zsh
+## -n, max num of retries, default to 0
+## -m, only retry when exit status match one o these comma separated value
+##
+## (todo: redesign, for following features)
+## todo: -exit-trace, name of an array, to place exit status codes for later analyze
+## todo: -1, instead of nullifying stdout on unsuccessful runs, save them into this arrays, plus the last successful runs (in case it is successful)
+## todo: -2, like below, but for stderr (by default, stderr is kept and untouch, with this opt it is redirect to save into array)
+ponsucc() {
+  local -A __ponsucc_getopts
+  local -a __ponsucc_retryonlyonstatus=()
+  local +x -i __ponsucc_maxretry=
+
+  if ! builtin zparseopts -A __ponsucc_getopts -D -F - n: m: || [[ $# -eq 0 ]]; then return 128; fi
+
+  if [[ -v __ponsucc_getopts[-n] ]]; then
+    __ponsucc_maxretry=${__ponsucc_getopts[-n]}
+  fi
+  if [[ -v __ponsucc_getopts[-m] && ${#__ponsucc_getopts[-m]} -gt 0 ]]; then
+    __ponsucc_retryonlyonstatus=(${(s:,:)__ponsucc_getopts[-m]})
+  fi
+
+  local +x -i __ponsucc_runcount=
+  while (( __ponsucc_runcount < 1 + __ponsucc_maxretry )); do
+    local +x __ponsucc_stdout=
+    local +x -i __ponsucc_run_status=
+    {
+      "${(@)argv}" || __ponsucc_run_status=$?
+    } | readeof __ponsucc_stdout
+    __ponsucc_runcount+=1
+    if (( __ponsucc_run_status == 0 )); then
+      builtin printf %s ${__ponsucc_stdout}
+      break
+    elif [[ -v __ponsucc_getopts[-m] ]]; then
+      if ! (( ${__ponsucc_retryonlyonstatus[(Ie)$__ponsucc_run_status]} )); then
+        break
+      fi
+    fi
+  done
+  return $__ponsucc_run_status
+}
+builtin zmodload -Fa zsh/zutil b:zparseopts
