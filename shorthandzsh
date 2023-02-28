@@ -66,4 +66,7 @@ setopt emacs && {
 }
 
 ## --
-source "${(@)argv}"
+ZSH_ARGZERO=$1
+0=$1
+shift
+source "$ZSH_ARGZERO" "${(@)argv}"

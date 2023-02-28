@@ -1,6 +1,18 @@
 #!/usr/bin/env shorthandzsh
-set -e
+set -ex
 builtin zmodload -Fa zsh/zutil b:zparseopts
+
+usage() {
+  printj "usage: ${ZSH_ARGZERO##*?} [flags] archives...
+
+flags:
+  -todir DIR, write to DIR instead of source archive directory
+  -x LEVEL, zip comp level int 1 >= LEVEL >= 9
+  -p (TO BE IMPL)
+  -f, do not detect if archive is in order, always perform reorder
+  -rm, rm source archive after sorting
+"
+}
 
 main() {
   local -A getopts
@@ -19,6 +31,10 @@ main() {
     (( complevel >= 0 )) && (( complevel <= 9 )) || return 128
   fi
 
+  if [[ $# -eq 0 ]]; then
+    usage
+    return 128
+  fi
   while [[ $# -gt 0 ]]; do
     local +x if=$1
     [[ -r "$if" ]] || {
