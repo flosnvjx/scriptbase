@@ -1,14 +1,14 @@
 #!/usr/bin/env shorthandzsh
-set -ex
+set -e
 builtin zmodload -Fa zsh/zutil b:zparseopts
 
 usage() {
-  printj "usage: ${ZSH_ARGZERO##*?} [flags] archives...
+  printj "usage: ${ZSH_ARGZERO##*/} [flags] archives...
 
 flags:
   -todir DIR, write to DIR instead of source archive directory
-  -x LEVEL, zip comp level int 1 >= LEVEL >= 9
-  -p (TO BE IMPL)
+  -x LEVEL, zip comp level int 0 <= LEVEL <= 9
+  -p (TO BE IMPL) prefixing member name in output
   -f, do not detect if archive is in order, always perform reorder
   -rm, rm source archive after sorting
 "
