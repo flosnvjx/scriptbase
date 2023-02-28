@@ -14,6 +14,10 @@ main() {
   if [[ -v getopts[-todir] ]]; then
     [[ -d "${getopts[-todir]}" ]]
   fi
+  if [[ -v getopts[-x] ]]; then
+    complevel=${getopts[-x]}
+    (( complevel >= 0 )) && (( complevel <= 9 )) || return 128
+  fi
 
   while [[ $# -gt 0 ]]; do
     local +x if=$1
@@ -32,7 +36,7 @@ main() {
     local -a of_members=()
 
     command bsdtar -cf - --format mtree --options mtree:!all,type,size @$if | sed -nEe '/^\.\/.+ type=file/s%^\./([^ ]+) type=file size=([0-9]+)$%\2:\1%p' | readarray if_members && let '#if_members > 1' || {
-      printf '[E] broken input: `%q`\n' $if >&2
+      printf '[E] broken: `%q`\n' $if >&2
       exit=2
       shift
       continue
@@ -94,7 +98,7 @@ main() {
       done
         printf '0707070000000000000000000000000000000000010000000000000000000001300000000000TRAILER!!!\0'
       } | {
-        if [[ -v getopts[-x] ]]; then
+        if (( complevel > 0 )); then
           command bsdtar -cf - --format zip --options zip:compression-level=${getopt[-x]} @-
         else
           command bsdtar -cf - --format zip --options zip:compression=store @-
