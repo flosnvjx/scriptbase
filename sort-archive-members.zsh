@@ -7,10 +7,10 @@ usage() {
 
 flags:
   -todir DIR, write to DIR instead of source archive directory
-  -x LEVEL, zip comp level int 0 <= LEVEL <= 9
+  -x LEVEL, default to 0, zip comp level int 0 <= LEVEL <= 9
   -p (TO BE IMPL) prefixing member name in output
-  -f, do not detect if archive is in order, always perform reorder
-  -rm, rm source archive after sorting
+  -f, do not detect if archive is correctly sorted, always write sorted archive
+  -rm, rm source archive after successful sorting
 "
 }
 
