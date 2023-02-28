@@ -19,7 +19,7 @@ main() {
   local +x -i complevel=
   local +x prefix=
   local +x -i exit=
-  builtin zparseopts -A getopts -D -F - todir x: p f rm
+  builtin zparseopts -A getopts -D -F - todir: x: p f rm
   if [[ -v getopts[-x] ]]; then
     complevel=$(( getopts[-x] ))
   fi
@@ -44,14 +44,16 @@ main() {
       continue
     }
     local +x of=${if%.*}.cbz
-    if [[ -v getopts[-d] ]]; then
+    if [[ -v getopts[-todir] ]]; then
       of=${getopts[-todir]}/${of##*/}
     fi
 
     local -a if_members=()
     local -a of_members=()
+    local +x if_tf=
 
-    command bsdtar -cf - --format mtree --options mtree:!all,type,size @$if | sed -nEe '/^\.\/.+ type=file/s%^\./([^ ]+) type=file size=([0-9]+)$%\2:\1%p' | readarray if_members && let '#if_members > 1' || {
+    command bsdtar -cf - --format mtree --options mtree:!all,type,size @$if | sed -nEe '/^\.\/.+ type=file/s%^\./([^ ]+) type=file size=([0-9]+)$%\2:\1%p' | readarray if_members && let '#if_members > 1' && \
+    command bsdtar -tf $if | readeof if_tf || {
       printf '[E] broken: `%q`\n' $if >&2
       exit=2
       shift
@@ -61,7 +63,8 @@ main() {
     printf '%s\0' ${(@)if_members} | LC_ALL=C sort -zV -t : -k 2 | readarray -t '\0' of_members
     (( ${#if_members} == ${#of_members} )) || return 3
     if [[ ! -v getopts[-f] ]]; then
-      if [[ "${(@pj:\0:)if_members#*:}" == "${(@pj:\0:)of_members#*:}" ]]; then
+      ## if_tf is unsorted, while if_members is sorted by mtree writer, since we use -V for sorting (diff than mtree writer), it will produce unexpected result if we use mtree output for comparison.
+      if printf %s $if_tf | cmp -s - <(printf %s $if_tf | LC_ALL=C sort -V); then
         printf '[I] skip already sorted: `%q`\n' $if
         shift
         continue
@@ -115,7 +118,7 @@ main() {
         printf '0707070000000000000000000000000000000000010000000000000000000001300000000000TRAILER!!!\0'
       } | {
         if (( complevel > 0 )); then
-          command bsdtar -cf - --format zip --options zip:compression-level=${getopt[-x]} @-
+          command bsdtar -cf - --format zip --options zip:compression-level=$complevel @-
         else
           command bsdtar -cf - --format zip --options zip:compression=store @-
         fi
