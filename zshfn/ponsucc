@@ -13,7 +13,7 @@ ponsucc() {
   local +x -i __ponsucc_maxretry=
   local +x -i __ponsucc_maxwait=
 
-  if ! builtin zparseopts -A __ponsucc_getopts -D -F - n: m: || [[ $# -eq 0 ]]; then return 128; fi
+  if ! builtin zparseopts -A __ponsucc_getopts -D -F - n: m: w: || [[ $# -eq 0 ]]; then return 128; fi
 
   if [[ -v __ponsucc_getopts[-n] ]]; then
     __ponsucc_maxretry=${__ponsucc_getopts[-n]}
@@ -25,12 +25,11 @@ ponsucc() {
     __ponsucc_retryonlyonstatus=(${(s:,:)__ponsucc_getopts[-m]})
   fi
 
-  {
-    [[ $# -gt 1 ]] && {
-      (( ${(@)${(k)aliases}[(Ie)${argv[1]}]} != 0 )) || \
-      (( ${(@)${(k)commands}[(Ie)${argv[1]}]} != 0 )) || \
-      (( ${(@)${(k)builtins}[(Ie)${argv[1]}]} != 0 )) || \
-      (( ${(@)${(k)functions}[(Ie)${argv[1]}]} != 0 ))
+  [[ $# -gt 1 ]] && {
+    (( ${(@)${(k)aliases}[(Ie)${argv[1]}]} != 0 )) || \
+    (( ${(@)${(k)commands}[(Ie)${argv[1]}]} != 0 )) || \
+    (( ${(@)${(k)builtins}[(Ie)${argv[1]}]} != 0 )) || \
+    (( ${(@)${(k)functions}[(Ie)${argv[1]}]} != 0 ))
   } || return 128
   local +x -i __ponsucc_runcount=
   while (( __ponsucc_runcount < 1 + __ponsucc_maxretry )); do
