@@ -112,7 +112,7 @@ main() {
         printf %06o $fnlen
         printf %011o ${of_members[1]%%:*}
         printf '%s\0' ${of_members[1]#*:}
-        printf '%s\0' ${${${${${of_members[1]#*:}//\\/\\\\}//\[/\\[}//\*/\\*}//\?/\\?} | command bsdtar -x --null -T /dev/fd/0 -f $if -O
+        printf '%s\0' ${${${${${of_members[1]#*:}//\\/\/}//\[/\\[}//\*/\\*}//\?/\\?} | command bsdtar -x --null -T /dev/fd/0 -f $if -O
         shift of_members
       done
         printf '0707070000000000000000000000000000000000010000000000000000000001300000000000TRAILER!!!\0'
