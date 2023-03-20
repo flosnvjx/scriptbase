@@ -1,0 +1,70 @@
+#!/bin/zsh
+zmodload -Fa zsh/system b:sysread
+zmodload zsh/datetime
+
+function main {
+  if [[ -t 0 ]]; then
+    printf '%s\n' '!isatty(stdout)'
+    return 90
+  fi
+
+  >&2 printf 'teefiles: '
+  if [[ $# -gt 1 ]]; then
+    >&2 echo
+    >&2 printf '- %s\n' "${argv[@]}"
+  elif [[ $# -gt 0 ]]; then
+    >&2 printf '%s\n' "${argv[@]}"
+  elif [[ ! -t 1 ]]; then
+    >&2 printf '-\n'
+  else
+    return 9
+  fi
+
+  local +x buf= bufarr=()
+  while :; do
+    sysread buf
+    local +x ret=$?
+    case $ret in
+      0) bufarr+=($buf);;
+      5) >&2 printf "length: ${(c)#bufarr}\n"
+         if [[ ${(c)#bufarr} == 0 ]]; then return; fi
+         break ;;
+      *) return 92;;
+    esac
+  done
+
+  local +x repl= nth=1
+  while :; do
+
+    timeout 0.1 cat &>/dev/null
+    read -rk1 'repl?> ' || return 127
+    timeout 0.1 cat &>/dev/null
+
+    case "$repl" in
+      1|2|3|4|5|6|7|8|9)
+        nth=$repl
+	echo >&2 ;;
+      ' '|.)
+	echo >&2 ;;
+      $'\n') :;;
+      *) echo '?' >&2; continue;;
+    esac
+
+    if [[ $# -gt 0 ]]; then
+      repeat $nth {
+        printf %s $bufarr
+      } | tee -- "${argv[@]}" >&-
+    elif [[ ! -t 1 ]]; then
+      repeat $nth {
+        printf %s $bufarr
+      } | tee
+    else
+      return 93
+    fi
+
+    strftime '  %F %T' >&2
+
+  done
+}
+
+main "${argv[@]}"
