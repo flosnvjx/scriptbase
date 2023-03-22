@@ -1,5 +1,4 @@
 readeof() {
-set +x
   local +x __readeof_b_u_f=
   local +x -i __readeof_b_u_f_l_e_n= ERRNO= __readeof_e_x_i_t=
   local +x -a __readeof_b_u_f_a_r_r=()
@@ -15,6 +14,5 @@ set +x
 
   : ${(P)${1:-reply}::=${(j::)__readeof_b_u_f_a_r_r}}
   return $__readeof_e_x_i_t
-set -x
 }
 builtin zmodload -Fa zsh/system b:sysread

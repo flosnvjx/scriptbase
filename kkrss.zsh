@@ -52,11 +52,16 @@ update() {
       local -a these_ids=()
       local +x reply
       eval getlist.${(q)1} '$pn' | readeof reply
-      printj $reply | cut -f6 | grep -ve '^[ ]*$' | anewer <(zstdcat -- $1.sfeed | cut -f6) | readarray these_ids || if [[ $?==5 ]]; then
-        break
+      if [[ -e $1.sfeed ]]; then
+        printj $reply | cut -f6 | grep -ve '^[ ]*$' \
+        | anewer <(zstdcat -- $1.sfeed | cut -f6) | readarray these_ids
       else
-        return 1
-      fi
+        printj $reply | cut -f6 | readarray these_ids
+      fi || if [[ $?==5 ]]; then
+          break
+        else
+          return 1
+        fi
       these_ids=(${(@)these_ids})
       local +x sfeed_tbw=
       printj $reply | expand.list $these_ids | readeof sfeed_tbw
@@ -139,9 +144,9 @@ eval "$(typeset -pf getlist.kk-pchtml-series-cn | perl -0777pe 's%getlist.kk-pch
 s.region=2.region=1.;
 s.state=1.state=0.;
 s.update_status=1.update_status=0.;
-s.label_dimension_origin=2.label_dimension_origin=1&tag_id=76.')"
+s.label_dimension_origin=2.label_dimension_origin=1.;
+s.tag_id=0.tag_id=76.')"
 
-set -x
 if [[ $# -ne 0 ]]; then
   main "${(@)argv}"
 else
