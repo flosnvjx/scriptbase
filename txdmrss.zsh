@@ -18,6 +18,8 @@ main() {
       shift; update "${(@)argv}";;
     (us|update-and-syncxml)
       shift; update-and-syncxml "${(@)argv}";;
+    (getlist*)
+      $argv;;
     (*)
       usage; exit 128;;
   esac
@@ -47,8 +49,8 @@ update-and-syncxml() {
 
 update() {
   while (( $# != 0 )); do
-    local +x -i actpn= pn=257
-    while (( pn <= 465 )); do
+    local +x -i actpn= pn=1
+    while (( pn <= 22 )); do
       local -a these_ids=()
       local +x reply
       eval getlist.${(q)1} '$pn' | readeof reply
@@ -64,11 +66,14 @@ update() {
         fi
       these_ids=(${(@)these_ids})
       local +x sfeed_tbw=
-      printj $reply | expand.list $these_ids | readeof sfeed_tbw
+      printj $reply | expand.list.$1 $these_ids | readeof sfeed_tbw
+      if (( ${#sfeed_tbw}<=6 )) && (( pn != 1 )); then break; fi
       printj $sfeed_tbw | tac | zstd | rw -a -- $1.sfeed
-      say page:$pn>&2
-      if (( actpn > pn )); then
-        pn=$((actpn+1))
+      say '['$1']'page:$pn>&2
+      #if (( actpn > pn )); then
+      #  pn=$((actpn+1))
+      if [[ "$1" == txdm-noncomm ]]; then
+        pn+=$((RANDOM%20))
       else
         pn+=1
       fi
@@ -78,7 +83,7 @@ update() {
   done
 }
 
-expand.list() {
+expand.list.txdm-newserial() {
   local +x readline=; while IFS= read -r readline; do
     if [[ ${#readline} -eq 0 ]]; then break; fi
     local -a columns=(${readline})
@@ -96,11 +101,87 @@ expand.list() {
       columns[3]="<div>${${${${${${desc//</&lt;}//>/&gt;}//&/&amp;}//
 /<br>}//	/ }//\\}</div>${vcover:+<div><img src=\"}${vcover}${vcover:+\"></div>}${columns[3]}"
       printj $htmlreply | pup '.head-info-author .author-list' 'text{}' | sed -e '/^[ \t]*$/d;s%^[\t ]*%%;s%[ \t]*$%%' | readarray auts
-      say $ts$'\t'"${(@pj:\t:)columns}"$'\t'"${(@pj:、:)auts}"$'\t\t'
+      say $ts$'\t'"${(@pj:\t:)columns}"$'\t'"${${${(@pj:、:)auts//
+}//	}//\\}"$'\t\t'
     else
       continue
     fi
   done
+}
+
+expand.list.txdm-noncomm() {
+  printf '%s\n' $@ | shuf | readarray argv
+  argv=($argv)
+  while (( $# > 0 )); do
+    local +x htmlreply= desc= ti=
+    local -a columns=()
+    local +x -i id=${1#txdm:}
+    if (( id==0 )); then
+      return 4
+    fi
+    fie --compressed "https://m.ac.qq.com/comic/index/id/$id" | readeof htmlreply
+    local +x -i ts=$EPOCHSECONDS
+    columns[1]=$ts
+    printj $htmlreply | pup -p 'html head meta[property=og:title]' 'attr{content}' | IFS= read -r ti || {
+      local +x reply=
+      if printj $htmlreply | html2data - 'div.err-type2' | grep -oe 拐跑了 | IFS= read reply && (( ${#reply}>0 )); then
+        :
+      else
+        say irr-resp:$id>&2
+      fi
+      shift; continue
+    }
+    columns[2]=${${ti//	}//\\}
+    if (( ${#columns[2]}==0 )); then shift; continue; fi
+    printj $htmlreply | html2data - 'div.head-info-desc' | readeof desc
+    printj $htmlreply | pup 'html head meta[property=og:image]' 'attr{content}' | IFS= read -r vcover
+    columns[4]="<div>${${${${${${desc//</&lt;}//>/&gt;}//&/&amp;}//
+/<br>}//	/ }//\\}</div>${vcover:+<div><img src=\"}${vcover}${vcover:+\"></div>}"
+    printj $htmlreply | pup '.head-info-author .author-list' 'text{}' | sed -e '/^[ \t]*$/d;s%^[\t ]*%%;s%[ \t]*$%%' | readarray auts
+    columns[7]=${${${${(@pj:、:)auts}//	}//
+}//\\}
+    columns[5]=html
+    columns[6]=txdm:$id
+    columns[3]="https://ac.qq.com/Comic/comicInfo/id/$id"
+    say "${(@pj:\t:)columns}"
+    shift
+  done
+}
+
+getlist.txdm-noncomm() {
+  local +x -i argpn=${1:-1} ps=200
+  local +x -i \
+    sed_begin_linenum=$(( (argpn-1)*ps+1 ))
+    sed_end_linenum=$(( argpn*ps+2 ))
+  if [[ -e txdm-newserial.sfeed ]]; then
+    local +x knownids
+    zstdcat txdm-newserial.sfeed | \
+    cut -f6 | \
+    LC_ALL=C sort -rk6V,6 | \
+    sed -ne $sed_begin_linenum,${sed_end_linenum}p | \
+    readeof knownids
+    local -a knownids=(${(ps:\n:)knownids})
+    knownids=(${(@)knownids#txdm:})
+    local +x -i num_knownids=${#knownids}
+    local +x -a unknownids=()
+    if (( num_knownids > 0 )); then
+      local +x -i walkid= counter=
+      for walkid in $knownids; do
+        counter+=1
+        if (( counter>=num_knownids || walkid<600000)); then break; fi
+        walkid=$(( walkid - 1 ))
+
+        while (( ${(@)knownids[(ie)$walkid]}>num_knownids)); do
+          unknownids+=($walkid)
+          say txdm:$walkid
+          walkid=$(( walkid - 1 ))
+          if (( walkid<600000 )); then break 2; fi
+        done
+      done
+    fi
+  else
+    return 44
+  fi
 }
 
 getlist.txdm-newserial() {
@@ -139,5 +220,5 @@ getlist.txdm-newserial() {
 if [[ $# -ne 0 ]]; then
   main "${(@)argv}"
 else
-  main us txdm-newserial
+  main us txdm-newserial txdm-noncomm
 fi
