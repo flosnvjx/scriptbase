@@ -1,10 +1,10 @@
 #!/usr/bin/env -S zsh --emulate zsh -f
-[[ $ZSH_ARGZERO == /*/shorthandzsh ]] || exit 1
+[[ $ZSH_ARGZERO == /*/shorthandzsh ]] || exit 128
 
 ## zshmisc
 ### autoload
 function {
-  setopt localoptions
+  emulate -L zsh
   setopt extendedglob
   local -a zshfns=(${ZSH_ARGZERO%/*}/zshfn/*(.N))
   if [[ ${#zshfns} -gt 0 ]]; then
@@ -17,7 +17,8 @@ setopt cdsilent
 setopt posixcd
 setopt errexit
 setopt pipefail
-setopt emacs && {
+setopt emacs
+function {
   # Make sure that the terminal is in application mode when zle is active, since only then values from $terminfo are valid
   if (( ${+terminfo[smkx]} )) && (( ${+terminfo[rmkx]} )) {
     function zle-line-init() {

@@ -1,3 +1,4 @@
 printj() {
   builtin printf %s "${(@)argv}"
 }
+functions +t printj

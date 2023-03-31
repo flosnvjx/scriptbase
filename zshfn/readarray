@@ -1,4 +1,3 @@
-#!/bin/zsh
 ## readarray [options] [--|-] [param]
 ## options sort by priority:
 ## -s, treat each delimiter as an element separator, i.e. do not errout with 5 on value that does not ending with a delimiter
@@ -45,3 +44,4 @@ readarray() {
   return $__readarray_e_r_r_n_o
 }
 builtin zmodload -Fa zsh/zutil b:zparseopts
+functions +t readarray

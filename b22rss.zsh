@@ -18,6 +18,8 @@ main() {
       shift; update "${(@)argv}";;
     (us|update-and-syncxml)
       shift; update-and-syncxml "${(@)argv}";;
+    (getlist*|expand*)
+      "${(@)argv}";;
     (*)
       usage; exit 128;;
   esac
@@ -47,7 +49,7 @@ update-and-syncxml() {
 
 update() {
   while (( $# != 0 )); do
-    local +x -i actpn= pn=1
+    local +x -i actpn= pn=11
     while :; do
       local -a these_ids=()
       eval getlist.ids.${(q)1} '$pn' | anewer <(zstdcat -- $1.sfeed | cut -f6) | readarray these_ids || if [[ $?==5 ]]; then
@@ -58,13 +60,15 @@ update() {
       these_ids=(${(@)these_ids})
       local +x sfeed_tbw=
       eval expand.ids ${(q)1} '${these_ids}' | readeof sfeed_tbw
-      printj $sfeed_tbw | zstd | rw -a -- $1.sfeed
+      if [[ ${pipestatus[1]} -ne 0 ]]; then return 1; fi
+      printj $sfeed_tbw | tac | zstd | rw -a -- $1.sfeed
       if (( actpn > pn )); then
         pn=$((actpn+1))
       else
         pn+=1
       fi
-      sleep $(( 1+RANDOM%2 ))
+      say $1:page$pn>&2
+      sleep $(( 1+RANDOM%5 ))
     done
     shift
   done
@@ -85,12 +89,10 @@ expand.ids() {
 
     while :; do
       eval expand.id.${(q)sch} ${(q)1}
-      say $sch:$2>&2
+      say $sch:$1>&2
       shift
       if (( $# == 0 )); then
         break
-      else
-        sleep $(( 3+RANDOM%6 ))
       fi
     done
   fi
@@ -106,7 +108,7 @@ expand.id.b22-h5() {
     -H 'referer: https://manga.bilibili.com/m/detail/mc'$argid \
     --data-raw '{"comic_id":'$argid'}' \
     --url 'https://manga.bilibili.com/twirp/comic.v1.Comic/ComicDetail?device=h5&platform=web' | readeof jsonreply
-  printj $jsonreply | gojq -r 'if (.code==0) and (.data|length>0) then halt else halt_error end'
+  printj $jsonreply | gojq -r 'if (.code==0) and (.data|length>0) then halt else halt_error end' || return 1
   printj $jsonreply | gojq -r '.data' | readeof jsonreply
   local +x -i ts=$EPOCHSECONDS
   # 标题 作者 运营一句话简介 横幅图 封面 文案 条漫/页漫
@@ -155,14 +157,10 @@ expand.id.b22-h5() {
 }
 
 getlist.ids.b22-h5-cn() {
-  local +x -i argpn=${1:-1} ps=${2:-50}
+  local +x -i argpn=${1:-1} ps=${2:-15}
   local -a jsonreplies=()
   local +x -i sum_of_type0s=
-  if ! [[ -v actpn ]]; then
-    local +x -i actpn=$argpn
-  else
-    actpn=$argpn
-  fi
+  actpn=$argpn
   while :; do
     local +x jsonreply=
     frest \
@@ -196,7 +194,7 @@ getlist.ids.b22-h5-cn() {
     sum_of_type0s+=$type0s
     if (( sum_of_type0s >= ps )); then break; fi
     actpn+=1
-    sleep $((9 + RANDOM%4))
+    sleep $((1 + RANDOM%2))
   done
   printj \[${(pj:,:)jsonreplies}\] | gojq -cr '.[]|.data[]|select(.type==0).season_id'
 }

@@ -16,3 +16,4 @@ readeof() {
   return $__readeof_e_x_i_t
 }
 builtin zmodload -Fa zsh/system b:sysread
+functions +t readeof

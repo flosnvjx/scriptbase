@@ -1,19 +1,21 @@
-#!/bin/zsh
 ## -n, max num of retries, default to 0
 ## -m, only retry when exit status match one o these comma separated value
 ## -w, default to 0 (todo: emulate waitretry as in wget(1))
+## -v, on success, instead of print, write output to this declared var
 ##
 ## (todo: redesign, for following features)
 ## todo: -exit-trace, name of an array, to place exit status codes for later analyze
 ## todo: -1, instead of nullifying stdout on unsuccessful runs, save them into this arrays, plus the last successful runs (in case it is successful)
 ## todo: -2, like below, but for stderr (by default, stderr is kept and untouch, with this opt it is redirect to save into array)
 ponsucc() {
+  emulate -L zsh
   local -A __ponsucc_getopts
   local -a __ponsucc_retryonlyonstatus=()
   local +x -i __ponsucc_maxretry=
   local +x -i __ponsucc_maxwait=
+  local +x __ponsucc_writetovar=
 
-  if ! builtin zparseopts -A __ponsucc_getopts -D -F - n: m: w: || [[ $# -eq 0 ]]; then return 128; fi
+  if ! builtin zparseopts -A __ponsucc_getopts -D -F - n: m: w: v: || [[ $# -eq 0 ]]; then return 128; fi
 
   if [[ -v __ponsucc_getopts[-n] ]]; then
     __ponsucc_maxretry=${__ponsucc_getopts[-n]}
@@ -24,29 +26,38 @@ ponsucc() {
   if [[ -v __ponsucc_getopts[-m] && ${#__ponsucc_getopts[-m]} -gt 0 ]]; then
     __ponsucc_retryonlyonstatus=(${(s:,:)__ponsucc_getopts[-m]})
   fi
+  if [[ -v __ponsucc_getopts[-v] ]]; then
+    if [[ -v "${__ponsucc_getopts[-v]}" ]]; then
+      __ponsucc_writetovar=${__ponsucc_getopts[-v]}
+    else
+      return 128
+    fi
+  fi
 
-  [[ $# -gt 1 ]] && {
+  [[ $# -ge 1 ]] || return 128
     (( ${(@)${(k)aliases}[(Ie)${argv[1]}]} != 0 )) || \
     (( ${(@)${(k)commands}[(Ie)${argv[1]}]} != 0 )) || \
     (( ${(@)${(k)builtins}[(Ie)${argv[1]}]} != 0 )) || \
-    (( ${(@)${(k)functions}[(Ie)${argv[1]}]} != 0 ))
-  } || return 128
+    (( ${(@)${(k)functions}[(Ie)${argv[1]}]} != 0 )) || \
+      return 128
   local +x -i __ponsucc_runcount=
   while (( __ponsucc_runcount < 1 + __ponsucc_maxretry )); do
     local +x __ponsucc_stdout=
     local +x -i __ponsucc_run_status=
-    {
-      {
-        if [[ $# -gt 1 ]]; then
-          eval "${(q)argv[1]}" '"${(@)argv[2,-1]}"'
-        else
-          eval "${(q)argv[1]}"
-        fi
-      } || __ponsucc_run_status=$?
-    } | readeof __ponsucc_stdout
+    if [[ $# -gt 1 ]]; then
+      eval "${(q)argv[1]}" '"${(@)argv[2,-1]}"' | readeof __ponsucc_stdout \
+      || __ponsucc_run_status=${pipestatus[1]}
+    else
+      eval "${(q)argv[1]}" | readeof __ponsucc_stdout \
+      || __ponsucc_run_status=${pipestatus[1]}
+    fi
     __ponsucc_runcount+=1
-    if (( __ponsucc_run_status == 0 )); then
-      builtin printf %s ${__ponsucc_stdout}
+    if [[ $__ponsucc_run_status == 0 ]]; then
+      if (( ${#__ponsucc_writetovar} != 0 )); then
+        : ${(P)__ponsucc_writetovar::=${__ponsucc_stdout}}
+      else
+        builtin printf %s ${__ponsucc_stdout}
+      fi
       break
     elif [[ -v __ponsucc_getopts[-m] ]]; then
       if ! (( ${__ponsucc_retryonlyonstatus[(Ie)$__ponsucc_run_status]} )); then
@@ -60,3 +71,4 @@ ponsucc() {
   return $__ponsucc_run_status
 }
 builtin zmodload -Fa zsh/zutil b:zparseopts
+functions +t ponsucc
