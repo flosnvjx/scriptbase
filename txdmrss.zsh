@@ -1,5 +1,5 @@
 #!/usr/bin/env shorthandzsh
-alias furl='command curl -qgsf'
+alias furl='command curl -qgsf --compressed'
 alias fie='ponsucc -n 3 -w 40 -m 22,56 furl -A "Mozilla/5.0 (Windows NT 6.3; Trident/7.0; rv 11.0) like Gecko"'
 alias frest='ponsucc -n 3 -w 20 -m 22,56 furl'
 builtin zmodload -Fa zsh/datetime p:EPOCHSECONDS
@@ -91,7 +91,7 @@ expand.list.txdm-newserial() {
     if [[ ${#columns[5]#kkmh:} -gt 0 ]] && [[ ${(@)argv[(Ie)${columns[5]}]} -gt 0 ]]; then
       local +x htmlreply= desc= vcover=
       local -a auts
-      fie "https://m.ac.qq.com/comic/index/id/${columns[2]##?*/id/}" | readeof htmlreply
+      fie "https://m.ac.qq.com/comic/index/id/${columns[2]##?*/id/}" | rw | uconv -x ':: NFKC; [[:General_Category=Format:][:General_Category=Nonspacing_Mark:][:print=No:][:Cc:]] >;' | readeof htmlreply
       printj $htmlreply| pup 'html head meta[property=og:description]' 'attr{content}'|readeof desc
       if ! {printj $htmlreply | pup 'html head meta[property=og:image]' 'attr{content}' | IFS= read -r vcover}
       then
@@ -119,7 +119,7 @@ expand.list.txdm-noncomm() {
     if (( id==0 )); then
       return 4
     fi
-    fie --compressed "https://m.ac.qq.com/comic/index/id/$id" | readeof htmlreply
+    fie "https://m.ac.qq.com/comic/index/id/$id" | rw | uconv -x ':: NFKC; [[:General_Category=Format:][:General_Category=Nonspacing_Mark:][:print=No:][:Cc:]] >;' | readeof htmlreply
     local +x -i ts=$EPOCHSECONDS
     columns[1]=$ts
     printj $htmlreply | pup -p 'html head meta[property=og:title]' 'attr{content}' | IFS= read -r ti || {
@@ -192,7 +192,7 @@ getlist.txdm-newserial() {
     -H 'accept: text/html, application/xhtml+xml, application/xml, */*' \
     -H 'accept-language: zh-CN,zh;q=0.9,en-US;q=0.8,en;q=0.7' \
     -H 'referer: https://ac.qq.com/Comic/all/search/time/page/1' \
-    --url 'https://ac.qq.com/Comic/all/search/time/page/'$argpn --compressed | readeof htmlreply
+    --url 'https://ac.qq.com/Comic/all/search/time/page/'$argpn | readeof htmlreply
   local +x reply=
   printj $htmlreply | pup '.ret-works-cover > a' 'attr{href}' | readeof reply
   local -a ids=(${(ps:\n:)reply})
