@@ -1,7 +1,7 @@
 #!/usr/bin/env shorthandzsh
-alias furl='command curl -qgsf'
+alias furl='command curl -qgsf --compressed'
 alias fie='ponsucc -n 3 -w 40 -m 22,56 furl -A "Mozilla/5.0 (Windows NT 6.3; Trident/7.0; rv 11.0) like Gecko"'
-alias frest='ponsucc -n 3 -w 20 -m 22,56 furl'
+alias frest='ponsucc -n 3 -w 25 -m 22,56 furl'
 builtin zmodload -Fa zsh/datetime p:EPOCHSECONDS
 builtin zmodload -Fa zsh/zutil b:zparseopts
 
@@ -49,24 +49,23 @@ update-and-syncxml() {
 
 update() {
   while (( $# != 0 )); do
-    local +x -i actpn= pn=11
+    local +x -i pn=${pn:-1}
     while :; do
       local -a these_ids=()
-      eval getlist.ids.${(q)1} '$pn' | anewer <(zstdcat -- $1.sfeed | cut -f6) | readarray these_ids || if [[ $?==5 ]]; then
-        break
+      local +x reply=  psstat=
+      getlist.ids.${1} $pn | readeof reply
+      printj $reply | anewer <(zstdcat -- $1.sfeed | cut -f6) | readarray these_ids || psstat=${pipestatus[3]}
+      if [[ "$psstat" == 5 ]]; then
+          break
+      elif [[ "$psstat" == "" || "$psstat" == 0 ]]; then :
       else
         return 1
       fi
       these_ids=(${(@)these_ids})
       local +x sfeed_tbw=
-      eval expand.ids ${(q)1} '${these_ids}' | readeof sfeed_tbw
-      if [[ ${pipestatus[1]} -ne 0 ]]; then return 1; fi
+      expand.ids ${1} ${these_ids} | readeof sfeed_tbw
       printj $sfeed_tbw | tac | zstd | rw -a -- $1.sfeed
-      if (( actpn > pn )); then
-        pn=$((actpn+1))
-      else
-        pn+=1
-      fi
+      pn+=1
       say $1:page$pn>&2
       sleep $(( 1+RANDOM%5 ))
     done
@@ -88,8 +87,10 @@ expand.ids() {
     shift
 
     while :; do
-      eval expand.id.${(q)sch} ${(q)1}
-      say $sch:$1>&2
+      if [[ "$1" != \#* ]]; then
+        expand.id.${sch} ${1}
+        say $sch:$1>&2
+      fi
       shift
       if (( $# == 0 )); then
         break
@@ -139,11 +140,8 @@ expand.id.b22-h5() {
   content=(${${${${${(@)content//\\/\\\\}//\t/\\t}//&/&amp;}//</&lt;}//>/&gt;})
   ## 先双掉text block,然后扫清原文本中的newline
   content=(${(@j:<br>:)${(@ps:\n:)${(@j:<br><br>:)content}}})
-  function {
-    setopt localoptions
-    local +x -a imguris=($hc $vc)
-    content+=( "<p><img src=\""${(@)^imguris}"\"></p>" )
-  }
+  local +x -a imguris=($hc $vc)
+  content+=( "<p><img src=\""${(@)^imguris}"\"></p>" )
   content=(${(j::)content})
 
   ## man 5 sfeed
@@ -158,49 +156,36 @@ expand.id.b22-h5() {
 
 getlist.ids.b22-h5-cn() {
   local +x -i argpn=${1:-1} ps=${2:-15}
-  local -a jsonreplies=()
-  local +x -i sum_of_type0s=
-  actpn=$argpn
-  while :; do
-    local +x jsonreply=
-    frest \
-      -H 'accept: application/json, text/plain, */*' \
-      -H 'content-type: application/json;charset=UTF-8' \
-      -H 'referer: https://manga.bilibili.com/m/classify?status=0&areas=1&styles=-1&orders=3&prices=-1' \
-      --data-raw '{"style_id":-1,"area_id":1,"is_finish":0,"order":3,"is_free":-1,"page_num":'$actpn',"page_size":'$ps'}' \
-      --url 'https://manga.bilibili.com/twirp/comic.v1.Comic/ClassPage?device=h5&platform=web' | readeof jsonreply
-    local +x -i type0s=
-    printj $jsonreply | gojq -r '
-      if (.code==0) and has("data") then
-        if (.data|length=='$ps') then
-          if ([.data[]|select(.type==1)]|length>0) then
-            [.data[]|select(.type==0)]|length
-          else
-            ""|halt_error(90)
-          end
-        else
-          ""|halt_error(90)
-        end
-      else
-        "exception: non-zero REST API status.\n" | halt_error(1)
-      end
-' | read type0s || case ${pipestatus[2]} in
-    (90)
-        jsonreplies+=($jsonreply)
-        break;;
-    (*) false;;
-    esac
-    jsonreplies+=($jsonreply)
-    sum_of_type0s+=$type0s
-    if (( sum_of_type0s >= ps )); then break; fi
-    actpn+=1
-    sleep $((1 + RANDOM%2))
-  done
-  printj \[${(pj:,:)jsonreplies}\] | gojq -cr '.[]|.data[]|select(.type==0).season_id'
+  local +x jsonreply=
+  frest \
+    -H 'accept: application/json, text/plain, */*' \
+    -H 'content-type: application/json;charset=UTF-8' \
+    -H 'referer: https://manga.bilibili.com/m/classify?status=0&areas=1&styles=-1&orders=3&prices=-1' \
+    --data-raw '{"style_id":-1,"area_id":1,"is_finish":0,"order":3,"is_free":-1,"page_num":'$argpn',"page_size":'$ps'}' \
+    --url 'https://manga.bilibili.com/twirp/comic.v1.Comic/ClassPage?device=h5&platform=web' | readeof jsonreply
+  local +x -i totals=
+  printj $jsonreply | gojq -r '
+    if (.code==0) and has("data") then
+      [.data[].season_id]|length|tostring
+    else
+      "exception: non-zero REST API status.\n" | halt_error(1)
+    end
+' | read -r totals
+  if (( totals == 0 )); then
+    break
+  elif (( totals>0 )); then
+    :
+  else
+    return 1
+  fi
+  if (( ${#jsonreply}>0 )); then
+    printj ${jsonreply} | gojq -cr '[(.data[]|select(.type==1).season_id|tostring|sub("^"; "#")),(.data[]|select(.type==0).season_id)]|.[]'
+  fi
 }
 eval "$(typeset -pf getlist.ids.b22-h5-cn | sed -e '1s%b22-h5-cn%b22-h5-kr%' | sed -ze 's%"area_id":1,%"area_id":6,%')"
 eval "$(typeset -pf getlist.ids.b22-h5-cn | sed -e '1s%b22-h5-cn%b22-h5-jp%' | sed -ze 's%"area_id":1,%"area_id":2,%')"
 
+#functions -T ${(k)functions}
 if [[ $# -ne 0 ]]; then
   main "${(@)argv}"
 else

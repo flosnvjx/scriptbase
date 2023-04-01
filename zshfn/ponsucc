@@ -71,4 +71,3 @@ ponsucc() {
   return $__ponsucc_run_status
 }
 builtin zmodload -Fa zsh/zutil b:zparseopts
-functions +t ponsucc

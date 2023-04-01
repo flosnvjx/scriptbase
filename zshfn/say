@@ -1,4 +1,3 @@
 say() {
   builtin print -r -- "${(@)argv}"
 }
-functions +t say

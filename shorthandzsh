@@ -1,16 +1,13 @@
-#!/usr/bin/env -S zsh --emulate zsh -f
+#!/usr/bin/env -S zsh -f
 [[ $ZSH_ARGZERO == /*/shorthandzsh ]] || exit 128
 
 ## zshmisc
 ### autoload
-function {
-  emulate -L zsh
-  setopt extendedglob
-  local -a zshfns=(${ZSH_ARGZERO%/*}/zshfn/*(.N))
-  if [[ ${#zshfns} -gt 0 ]]; then
-    autoload -kr -- $zshfns
-  fi
-}
+setopt extendedglob
+local -a zshfns=(${ZSH_ARGZERO%/*}/zshfn/*(.N))
+if [[ ${#zshfns} -gt 0 ]]; then
+  autoload -kr -- $zshfns
+fi
 
 ## zshoptions
 setopt cdsilent

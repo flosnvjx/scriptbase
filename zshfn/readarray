@@ -44,4 +44,3 @@ readarray() {
   return $__readarray_e_r_r_n_o
 }
 builtin zmodload -Fa zsh/zutil b:zparseopts
-functions +t readarray
