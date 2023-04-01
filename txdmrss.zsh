@@ -49,8 +49,8 @@ update-and-syncxml() {
 
 update() {
   while (( $# != 0 )); do
-    local +x -i actpn= pn=1
-    while (( pn <= 22 )); do
+    local +x -i actpn= pn=${pn:-1}
+    while :; do
       local -a these_ids=()
       local +x reply
       eval getlist.${(q)1} '$pn' | readeof reply
@@ -67,7 +67,7 @@ update() {
       these_ids=(${(@)these_ids})
       local +x sfeed_tbw=
       printj $reply | expand.list.$1 $these_ids | readeof sfeed_tbw
-      if (( ${#sfeed_tbw}<=6 )) && (( pn != 1 )); then break; fi
+      if (( pn != 1 )) && (( ${#sfeed_tbw} <= 6 )); then break; fi
       printj $sfeed_tbw | tac | zstd | rw -a -- $1.sfeed
       say '['$1']'page:$pn>&2
       #if (( actpn > pn )); then
@@ -77,7 +77,11 @@ update() {
       else
         pn+=1
       fi
-      sleep $(( 1+RANDOM%2 ))
+      if (( pn%8 == 0 )); then
+        sleep $(( 5+RANDOM%15 ))
+      else
+        sleep $(( 1+RANDOM%2 ))
+      fi
     done
     shift
   done
@@ -164,7 +168,7 @@ getlist.txdm-noncomm() {
     knownids=(${(@)knownids#txdm:})
     local +x -i num_knownids=${#knownids}
     local +x -a unknownids=()
-    if (( num_knownids > 0 )); then
+    if (( num_knownids > 1 )); then
       local +x -i walkid= counter=
       for walkid in $knownids; do
         counter+=1
