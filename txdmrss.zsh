@@ -60,6 +60,11 @@ update() {
       else
         printj $reply | cut -f5 | readarray these_ids
       fi || if [[ $?==5 ]]; then
+          if [[ "$1" == txdm-noncomm && "$pn" == 1 ]]; then
+            setlistgeom.txdm-noncomm
+            pn+=$(shuf -i 1-$nonc_maxpn -n 1)
+            continue
+          fi
           break
         else
           return 1
@@ -69,11 +74,12 @@ update() {
       printj $reply | expand.list.$1 $these_ids | readeof sfeed_tbw
       if (( pn != 1 )) && (( ${#sfeed_tbw} <= 6 )); then break; fi
       printj $sfeed_tbw | tac | zstd | rw -a -- $1.sfeed
-      say '['$1']'page:$pn>&2
+      say '['$1']'page:$pn.>&2
       #if (( actpn > pn )); then
       #  pn=$((actpn+1))
       if [[ "$1" == txdm-noncomm ]]; then
-        pn+=$((RANDOM%20))
+        setlistgeom.txdm-noncomm
+        pn+=$(shuf -i 1-$nonc_maxpn -n 1)
       else
         pn+=1
       fi
@@ -116,7 +122,9 @@ expand.list.txdm-newserial() {
 expand.list.txdm-noncomm() {
   printf '%s\n' $@ | shuf | readarray argv
   argv=($argv)
+  local +x -i counter=-1
   while (( $# > 0 )); do
+    counter+=1
     local +x htmlreply= desc= ti=
     local -a columns=()
     local +x -i id=${1#txdm:}
@@ -149,43 +157,66 @@ expand.list.txdm-noncomm() {
     columns[3]="https://ac.qq.com/Comic/comicInfo/id/$id"
     say "${(@pj:\t:)columns}"
     shift
+    if (( $#>0 )); then
+      if (( counter%60==0 )); then
+        sleep $((1+RANDOM%3))
+      elif (( counter%120==0 )); then
+        sleep $((3+RANDOM%5))
+      elif (( counter%500==0 )); then
+        sleep $((60+RANDOM%60))
+      fi
+    fi
   done
 }
 
-getlist.txdm-noncomm() {
-  local +x -i argpn=${1:-1} ps=200
-  local +x -i \
-    sed_begin_linenum=$(( (argpn-1)*ps+1 ))
-    sed_end_linenum=$(( argpn*ps+2 ))
-  if [[ -e txdm-newserial.sfeed ]]; then
-    local +x knownids
-    zstdcat txdm-newserial.sfeed | \
-    cut -f6 | \
-    LC_ALL=C sort -rk6V,6 | \
-    sed -ne $sed_begin_linenum,${sed_end_linenum}p | \
-    readeof knownids
-    local -a knownids=(${(ps:\n:)knownids})
-    knownids=(${(@)knownids#txdm:})
-    local +x -i num_knownids=${#knownids}
-    local +x -a unknownids=()
-    if (( num_knownids > 1 )); then
-      local +x -i walkid= counter=
-      for walkid in $knownids; do
-        counter+=1
-        if (( counter>=num_knownids || walkid<600000)); then break; fi
-        walkid=$(( walkid - 1 ))
+integer +x -g nonc_news_highest_knownid=-1 \
+  nonc_news_lowest_knownid=-1 \
+  nonc_news_num_knownids=-1
+  nonc_maxpn=-1
+integer +x -g nonc_ps=$(shuf -i 100-500 -n 1)
 
-        while (( ${(@)knownids[(ie)$walkid]}>num_knownids)); do
-          unknownids+=($walkid)
-          say txdm:$walkid
-          walkid=$(( walkid - 1 ))
-          if (( walkid<600000 )); then break 2; fi
-        done
-      done
+setlistgeom.txdm-noncomm() {
+  if [[ ! -e txdm-newserial.sfeed ]]; then return 1; fi
+  if (( nonc_news_lowest_knownid==-1 && nonc_news_highest_knownid==-1 )); then
+    local -a reply=()
+    zstdcat txdm-newserial.sfeed | cut -f6 | rg -e '^txdm:[4-9][0-9]{5,}$' | sort -Vr | sed -ne '1s%^txdm:%%p;$s%^txdm:%%p;$=' | readarray reply
+    if (( ${#reply}==3 )); then
+      nonc_news_highest_knownid=${reply[1]}
+      nonc_news_lowest_knownid=${reply[2]}
+      nonc_news_num_knownids=${reply[3]}
+    else
+      return 4
     fi
-  else
-    return 44
   fi
+  if (( nonc_news_num_knownids<2||nonc_news_highest_knownid<400000 )); then
+    return 4
+  fi
+  if (( nonc_maxpn==-1 )); then
+    if (( nonc_news_highest_knownid - nonc_news_lowest_knownid + 1 > nonc_ps && ( nonc_news_highest_knownid - nonc_news_lowest_knownid + 1 )%nonc_ps>0 )); then
+      nonc_maxpn=$((${$((( nonc_news_highest_knownid - nonc_news_lowest_knownid + 1 )/nonc_ps))%.*}+1))
+    elif (( ( nonc_news_highest_knownid - nonc_news_lowest_knownid + 1 )<=nonc_ps )); then
+      nonc_maxpn=1
+    else
+      nonc_maxpn=$(( ( nonc_news_highest_knownid - nonc_news_lowest_knownid + 1 ) / nonc_ps ))
+    fi
+  fi
+  if (( nonc_maxpn<=0 )); then return 4; fi
+}
+
+
+getlist.txdm-noncomm() {
+  local +x -i argpn=${1:-1} ps=$nonc_ps
+  setlistgeom.txdm-noncomm
+  local +x -i \
+    seq_hi=$(($nonc_news_highest_knownid-(argpn-1)*ps)) \
+    seq_lo=$(($nonc_news_highest_knownid-argpn*ps+1))
+  if (( seq_hi<nonc_news_lowest_knownid )); then
+    return
+  fi
+  if (( seq_lo<nonc_news_lowest_knownid )); then
+    seq_lo=$nonc_news_lowest_knownid
+  fi
+  seq $seq_hi -1 $seq_lo | sed -e 's%^%txdm:%' | anewer <(zstdcat txdm-newserial.sfeed | cut -f6)
 }
 
 getlist.txdm-newserial() {
