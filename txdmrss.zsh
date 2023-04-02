@@ -179,7 +179,7 @@ setlistgeom.txdm-noncomm() {
   if [[ ! -e txdm-newserial.sfeed ]]; then return 1; fi
   if (( nonc_news_lowest_knownid==-1 && nonc_news_highest_knownid==-1 )); then
     local -a reply=()
-    zstdcat txdm-newserial.sfeed | cut -f6 | rg -e '^txdm:[4-9][0-9]{5,}$' | sort -Vr | sed -ne '1s%^txdm:%%p;$s%^txdm:%%p;$=' | readarray reply
+    zstdcat txdm-newserial.sfeed | cut -f6 | grep -e '^txdm:[4-9][0-9][0-9][0-9][0-9][0-9][0-9]*$' | sort -Vr | sed -ne '1s%^txdm:%%p;$s%^txdm:%%p;$=' | readarray reply
     if (( ${#reply}==3 )); then
       nonc_news_highest_knownid=${reply[1]}
       nonc_news_lowest_knownid=${reply[2]}
