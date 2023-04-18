@@ -2,7 +2,7 @@
 alias furl='command curl -qgsf --compressed'
 alias fie='ponsucc -n 3 -w 40 -m 22,56 furl -A "Mozilla/5.0 (Windows NT 6.3; Trident/7.0; rv 11.0) like Gecko"'
 alias frest='ponsucc -n 3 -w 25 -m 22,56 furl'
-builtin zmodload -Fa zsh/datetime p:EPOCHSECONDS
+builtin zmodload -Fa zsh/datetime p:EPOCHSECONDS b:strftime
 builtin zmodload -Fa zsh/zutil b:zparseopts
 
 main() {
@@ -67,7 +67,7 @@ update() {
       printj $sfeed_tbw | tac | zstd | rw -a -- $1.sfeed
       pn+=1
       say $1:page$pn>&2
-      sleep $(( 1+RANDOM%5 ))
+      sleep $(( 3+RANDOM%5 ))
     done
     shift
   done
@@ -113,7 +113,7 @@ expand.id.b22-h5() {
   printj $jsonreply | gojq -r '.data' | readeof jsonreply
   local +x -i ts=$EPOCHSECONDS
   # 标题 作者 运营一句话简介 横幅图 封面 文案 条漫/页漫
-  local +x {tit,auts,intro,hc,vc,text,layout}=
+  local +x {tit,auts,intro,hc,vc,sc,text,layout}=
   # 分类 标签
   local +x {cats,tags}=
   printj $jsonreply|gojq -r .title|read -r tit
@@ -121,10 +121,35 @@ expand.id.b22-h5() {
   printj $jsonreply|gojq -j 'if (.introduction|length>0) then .introduction else halt end'|readeof intro
   printj $jsonreply|gojq -r 'if (.horizontal_cover|length>0) then .horizontal_cover else halt end'|read -r hc||:
   printj $jsonreply|gojq -r 'if (.vertical_cover|length>0) then .vertical_cover else halt end'|read -r vc||:
+  printj $jsonreply|gojq -r 'if (.square_cover|length>0) then .square_cover else halt end'|read -r sc||:
   printj $jsonreply|gojq -j 'if (.evaluate|length>0) then .evaluate else halt end'|readeof text
   printj $jsonreply|gojq -r '.comic_type'|read -r layout
   printj $jsonreply|gojq -r 'if (.styles|length>0) then .styles|join("、") else "BL/GL/其他" end'|read -r cats
   printj $jsonreply|gojq -r 'if (.tags|length>0) then [.tags[]|.name]|join("、") else halt end'|read -r tags||:
+
+  local +x -i literal_release_time_epoch=
+  printj $jsonreply|TZ=Asia/Shanghai gojq -r 'if (.release_time|length>=8) then .release_time|strptime("%Y.%m.%d")|mktime else halt end'|read -r literal_release_time_epoch||:
+  if (( literal_release_time_epoch>0 )); then
+    ts=$literal_release_time_epoch
+  else
+    local +x -a coveruris=($vc $sc $hc)
+    local +x -a covertss=()
+    while (( ${#coveruris}>0 )); do
+      local +x safets= tsresp=
+      local +x -i this_cover_epoch=
+      LC_ALL=C builtin strftime -s safets '%Y%m%d %H:%M:%S %z' $((EPOCHSECONDS+86400))
+      fie -Lo /dev/null -z $safets -w '%header{last-modified}\n' --url ${coveruris[1]} | read -r tsresp
+      builtin strftime -r -s this_cover_epoch -- '%a, %d %b %Y %H:%M:%S %Z' $tsresp&>/dev/null || date -d "$tsresp" +%s | read -r this_cover_epoch
+      if (( this_cover_epoch>0 )); then
+        covertss+=($this_cover_epoch)
+      fi
+      shift coveruris
+    done
+    if (( ${#covertss}>0 )); then
+      covertss=(${(n)covertss})
+      ts=${covertss[1]}
+    fi
+  fi
 
   local -a content=(${intro:+——}$intro $text)
   local -a tagline=($cats)
@@ -185,7 +210,7 @@ getlist.ids.b22-h5-cn() {
 eval "$(typeset -pf getlist.ids.b22-h5-cn | sed -e '1s%b22-h5-cn%b22-h5-kr%' | sed -ze 's%"area_id":1,%"area_id":6,%')"
 eval "$(typeset -pf getlist.ids.b22-h5-cn | sed -e '1s%b22-h5-cn%b22-h5-jp%' | sed -ze 's%"area_id":1,%"area_id":2,%')"
 
-#functions -T ${(k)functions}
+#functions -T expand.id.b22-h5
 if [[ $# -ne 0 ]]; then
   main "${(@)argv}"
 else
