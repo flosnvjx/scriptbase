@@ -131,8 +131,16 @@ expand.list.txdm-newserial() {
            printj $htmlreply | pup '.chapter-item img.chapter-img' 'attr{src}' | readarray chapcovs && \
            (( ${#chaptis} == ${#chapcovs} && ${#chaptis}>0 )); then
           local +x -i walknumofchaps=1
+          local +x -a excluded_chapti_regex=(
+            '敬请期待|先导|前瞻|预告|预热|预览|放料|人物|人设|介绍|新作|上线|连载'
+            '福利|抽奖|开奖|中奖|兑奖|月票|投喂|活动|加料|订阅|关注|不见不散|平台|序$|说明|通知|通告|请假|假条|更新|延迟|延更|开更'
+            '周边|抱枕|明信片|立牌|Q币|好礼'
+            '背景|设定|图鉴|鉴赏|百科'
+            '贺图|(祝|贺)(—|:|：)|祝贺|庆祝'
+            '周年|元旦|新年|佳节|春节|新春|清明节|端午|中秋|国庆|祖国|圣诞'
+          )
           while (( walknumofchaps <= ${#chapcovs} )); do
-            if ! [[ "${chaptis[$walknumofchaps]}" =~ '(预告|预热|预览|放料|人物|人设|介绍|新作|上线|连载|抽奖|开奖|中奖|兑奖|月票|投喂|活动|加料|订阅|关注|不见不散|周边|平台|序$|说明|通知|通告|请假|假条|更新|延迟|延更|开更|背景|设定|图鉴|鉴赏|百科)' ]]; then
+            if ! [[ "${chaptis[$walknumofchaps]}" =~ '('"${(j:|:)excluded_chapti_regex}"')' ]]; then
               usable_chaptis+=("${chaptis[$walknumofchaps]}")
               usable_chapcovs+=("${chapcovs[$walknumofchaps]}")
             fi
@@ -293,17 +301,21 @@ getlist.txdm-newserial() {
     : needs maintain
     return 1
   fi
-  local -a titles=() vcovers=()
+  local -a titles=() vcovers=() tags=()
   printj $htmlreply | pup '.ret-works-cover > a' 'attr{title}' | readarray titles
   printj $htmlreply | pup '.ret-works-cover > a > img' 'attr{data-original}' | readarray vcovers
+  printj $htmlreply | html2data - '.ret-works-tags span' | perl -0777pe 's%人气：[^\n]+\n%\0%g;s%\n%、%g;s%\0%\n%g;s%、\n%\n%g' | readarray tags
   if ! (( ${#ids} == ${#titles} && ${#ids} == ${#vcovers} )); then
     return 1
+  fi
+  if (( ${#ids} != ${#tags} )); then
+    tags=()
   fi
   if (( ${#ids} > 0 )); then
     local +x -i counter=
     while (( counter < ${#ids} )); do
       counter+=1
-      local -a column=("${${titles[$counter]//\\}//	/ }" "https://ac.qq.com/Comic/comicInfo/id/${ids[$counter]}" "<div><img src=\"${vcovers[$counter]%/420}/0\"></div>" html "txdm:${ids[counter]}")
+      local -a column=("${${titles[$counter]//\\}//	/ }" "https://ac.qq.com/Comic/comicInfo/id/${ids[$counter]}" "<div><p>${tags[$counter]}</p></div><div><img src=\"${vcovers[$counter]%/420}/0\"></div>" html "txdm:${ids[counter]}")
       say "${(@pj:\t:)column}"
     done
   fi
