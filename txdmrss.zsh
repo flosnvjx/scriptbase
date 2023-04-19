@@ -2,7 +2,7 @@
 alias furl='command curl -qgsf --compressed'
 alias fie='ponsucc -n 3 -w 40 -m 22,56 furl -A "Mozilla/5.0 (Windows NT 6.3; Trident/7.0; rv 11.0) like Gecko"'
 alias frest='ponsucc -n 3 -w 20 -m 22,56 furl'
-builtin zmodload -Fa zsh/datetime p:EPOCHSECONDS
+builtin zmodload -Fa zsh/datetime p:EPOCHSECONDS b:strftime
 builtin zmodload -Fa zsh/zutil b:zparseopts
 
 main() {
@@ -38,7 +38,7 @@ update-and-syncxml() {
     if update "$1"; then
       md5.b32x < "$1.sfeed" | read -r after_md5
       if [[ "$before_md5" != "$after_md5" ]] || ! xmllint --recover --noent --nonet --noblanks --encode utf-8 --dropdtd --nsclean --nocatalogs --nocdata --oldxml10 -- "$1.atom.xml" &>/dev/null; then
-        zstdcat "$1.sfeed" | sfeed_atom | dasel put -r xml -t string -s '.feed.author.name' -v "$1" | dasel put -r xml -t string -s '.feed.title.#text' -v "$1" | rw "$1.atom.xml"
+        zstdcat "$1.sfeed" | grep -ve '^#' | sfeed_atom | dasel put -r xml -t string -s '.feed.author.name' -v "$1" | dasel put -r xml -t string -s '.feed.title.#text' -v "$1" | rw "$1.atom.xml"
       fi
     else
       return $?
@@ -50,9 +50,9 @@ update-and-syncxml() {
 update() {
   while (( $# != 0 )); do
     local +x -i actpn= pn=${pn:-1}
-    while :; do
+    while ((pn<=${maxpn:-50})); do
       local -a these_ids=()
-      local +x reply
+      local +x reply=
       eval getlist.${(q)1} '$pn' | readeof reply
       if [[ -e $1.sfeed ]]; then
         printj $reply | cut -f5 | grep -ve '^[ ]*$' \
@@ -98,20 +98,77 @@ expand.list.txdm-newserial() {
     if [[ ${#readline} -eq 0 ]]; then break; fi
     local -a columns=(${readline})
     columns=("${(@ps:\t:)columns}")
-    if [[ ${#columns[5]#kkmh:} -gt 0 ]] && [[ ${(@)argv[(Ie)${columns[5]}]} -gt 0 ]]; then
+    if [[ ${#columns[5]#txdm:} -gt 0 ]] && [[ ${(@)argv[(Ie)${columns[5]}]} -gt 0 ]]; then
       local +x htmlreply= desc= vcover=
-      local -a auts
+      local -a auts=()
       fie "https://m.ac.qq.com/comic/index/id/${columns[2]##?*/id/}" | rw | uconv -x ':: NFKC; [[:General_Category=Format:][:General_Category=Nonspacing_Mark:][:print=No:][:Cc:]] >;' | readeof htmlreply
-      printj $htmlreply| pup 'html head meta[property=og:description]' 'attr{content}'|readeof desc
-      if ! {printj $htmlreply | pup 'html head meta[property=og:image]' 'attr{content}' | IFS= read -r vcover}
+      printj $htmlreply | html2data - '.head-info-author .author-list .author-wr' | readarray auts
+
+      local +x this_serial_is_excluded=
+      local +x -a excluded_auts=(
+        '快看漫画'
+        '国漫'
+        '钢笔头'
+        'ecomix 负责人诸葛真'
+      )
+      while (( ${#excluded_auts}>0 )); do
+        if [[ "${(@)auts[(Ie)${excluded_auts[1]}]}" -gt 0 ]]; then
+          this_serial_is_excluded='## @'
+          break
+        fi
+        shift excluded_auts
+      done
+
+      printj $htmlreply | html2data - 'div.head-info-desc' | readeof desc
+      if ! {printj $htmlreply | pup 'html head meta[property=og:image]' 'attr{content}' | IFS= read -r vcover} || [[ "$vcover" == */operation/* ]]
       then
         vcover=
       fi
-      local +x -i ts=$EPOCHSECONDS
+      if [[ -z "$this_serial_is_excluded" ]]; then
+        local +x -i ts=$((EPOCHSECONDS + 315360000))
+        local +x -a chaptis=() chapcovs=() usable_chaptis=() usable_chapcovs=()
+        if printj $htmlreply | perl -pe 's%\n%%gms;s%  +% %g' | html2data - '.chapter-title' | readarray chaptis && \
+           printj $htmlreply | pup '.chapter-item img.chapter-img' 'attr{src}' | readarray chapcovs && \
+           (( ${#chaptis} == ${#chapcovs} && ${#chaptis}>0 )); then
+          local +x -i walknumofchaps=1
+          while (( walknumofchaps <= ${#chapcovs} )); do
+            if ! [[ "${chaptis[$walknumofchaps]}" =~ '(预告|预热|预览|放料|人物|人设|介绍|新作|上线|连载|抽奖|开奖|中奖|兑奖|月票|投喂|活动|加料|订阅|关注|不见不散|周边|平台|序$|说明|通知|通告|请假|假条|更新|延迟|延更|开更|背景|设定|图鉴|鉴赏|百科)' ]]; then
+              usable_chaptis+=("${chaptis[$walknumofchaps]}")
+              usable_chapcovs+=("${chapcovs[$walknumofchaps]}")
+            fi
+            walknumofchaps=$((walknumofchaps+1))
+          done
+          walknumofchaps=1
+          local +x -a covertss=()
+          while (( walknumofchaps<=${#usable_chapcovs} && ${#covertss}<=5 )); do
+            local +x safets= tsresp=
+            local +x -i this_cover_epoch=
+            LC_ALL=C builtin strftime -s safets '%Y%m%d %H:%M:%S %z' $((EPOCHSECONDS+86400))
+            if fie -Lo /dev/null -z $safets -w '%header{last-modified}\n' --url ${usable_chapcovs[$walknumofchaps]} | read -r tsresp; then
+              builtin strftime -r -s this_cover_epoch -- '%a, %d %b %Y %H:%M:%S %Z' $tsresp&>/dev/null || date -d "$tsresp" +%s | read -r this_cover_epoch
+              if (( this_cover_epoch>0 )); then
+                local +x -i tshrs=
+                local +x -i offset=86400
+                TZ=Asia/Shanghai strftime -s tshrs -- '%H' $this_cover_epoch
+                if (( tshrs<10 || tshrs>17 )); then
+                  offset+=86400
+                fi
+                covertss+=( $((this_cover_epoch + offset)) )
+              fi
+            fi
+            walknumofchaps=$((walknumofchaps+1))
+          done
+          if (( ${#covertss}>0 )); then
+            covertss=(${(n)covertss})
+            ts=${covertss[1]}
+          fi
+        fi
+      else
+        local +x -i ts=$EPOCHSECONDS
+      fi
       columns[3]="<div>${${${${${${desc//</&lt;}//>/&gt;}//&/&amp;}//
 /<br>}//	/ }//\\}</div>${vcover:+<div><img src=\"}${vcover}${vcover:+\"></div>}${columns[3]}"
-      printj $htmlreply | pup '.head-info-author .author-list' 'text{}' | sed -e '/^[ \t]*$/d;s%^[\t ]*%%;s%[ \t]*$%%' | readarray auts
-      say $ts$'\t'"${(@pj:\t:)columns}"$'\t'"${${${(@pj:、:)auts//
+      say ${this_serial_is_excluded}$ts$'\t'"${(@pj:\t:)columns}"$'\t'"${${${(@pj:、:)auts//
 }//	}//\\}"$'\t\t'
     else
       continue
@@ -236,7 +293,7 @@ getlist.txdm-newserial() {
     : needs maintain
     return 1
   fi
-  local -a {title,vcover}s
+  local -a titles=() vcovers=()
   printj $htmlreply | pup '.ret-works-cover > a' 'attr{title}' | readarray titles
   printj $htmlreply | pup '.ret-works-cover > a > img' 'attr{data-original}' | readarray vcovers
   if ! (( ${#ids} == ${#titles} && ${#ids} == ${#vcovers} )); then
