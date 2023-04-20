@@ -38,7 +38,7 @@ update-and-syncxml() {
     if update "$1"; then
       md5.b32x < "$1.sfeed" | read -r after_md5
       if [[ "$before_md5" != "$after_md5" ]] || ! xmllint --recover --noent --nonet --noblanks --encode utf-8 --dropdtd --nsclean --nocatalogs --nocdata --oldxml10 -- "$1.atom.xml" &>/dev/null; then
-        zstdcat "$1.sfeed" | sfeed_atom | dasel put -r xml -t string -s '.feed.author.name' -v "$1" | dasel put -r xml -t string -s '.feed.title.#text' -v "$1" | rw "$1.atom.xml"
+        zstdcat "$1.sfeed" | grep -ve '^#' | sfeed_atom | dasel put -r xml -t string -s '.feed.author.name' -v "$1" | dasel put -r xml -t string -s '.feed.title.#text' -v "$1" | rw "$1.atom.xml"
       fi
     else
       return $?
@@ -50,7 +50,7 @@ update-and-syncxml() {
 update() {
   while (( $# != 0 )); do
     local +x -i pn=${pn:-1}
-    while :; do
+    while (( pn <= ${maxpn:-50} )); do
       local -a these_ids=()
       local +x reply=  psstat=
       getlist.ids.${1} $pn | readeof reply
@@ -87,6 +87,7 @@ expand.ids() {
     shift
 
     while :; do
+      ## filter out vcomic
       if [[ "$1" != \#* ]]; then
         expand.id.${sch} ${1}
         say $sch:$1>&2
@@ -99,6 +100,7 @@ expand.ids() {
   fi
 }
 
+source "${ZSH_ARGZERO%/*}/mangarss.zsh.inc"
 expand.id.b22-h5() {
   local +x -i argid=$1
   if (( argid <= 0 )); then false; fi
@@ -109,15 +111,28 @@ expand.id.b22-h5() {
     -H 'referer: https://manga.bilibili.com/m/detail/mc'$argid \
     --data-raw '{"comic_id":'$argid'}' \
     --url 'https://manga.bilibili.com/twirp/comic.v1.Comic/ComicDetail?device=h5&platform=web' | readeof jsonreply
+  local +x -i ts=$EPOCHSECONDS
   printj $jsonreply | gojq -r 'if (.code==0) and (.data|length>0) then halt else halt_error end' || return 1
   printj $jsonreply | gojq -r '.data' | readeof jsonreply
-  local +x -i ts=$EPOCHSECONDS
-  # 标题 作者 运营一句话简介 横幅图 封面 文案 条漫/页漫
-  local +x {tit,auts,intro,hc,vc,sc,text,layout}=
+  # 标题 运营一句话简介 横幅图 封面 文案 条漫/页漫
+  local +x {tit,intro,hc,vc,sc,text,layout}=
   # 分类 标签
   local +x {cats,tags}=
   printj $jsonreply|gojq -r .title|read -r tit
-  printj $jsonreply|gojq -r '.author_name|join("、")'|read -r auts
+
+  # 作者
+  local +x -a auts=()
+  printj $jsonreply | gojq -r '.author_name[]' | readarray auts
+  local +x this_serial_is_excluded=
+  local +x -a excluded_auts=($excluded_auts)
+  while (( ${#excluded_auts}>0 )); do
+    if [[ "${(@)auts[(Ie)${excluded_auts[1]}]}" -gt 0 ]]; then
+      this_serial_is_excluded='## @'
+      break
+    fi
+    shift excluded_auts
+  done
+
   printj $jsonreply|gojq -j 'if (.introduction|length>0) then .introduction else halt end'|readeof intro
   printj $jsonreply|gojq -r 'if (.horizontal_cover|length>0) then .horizontal_cover else halt end'|read -r hc||:
   printj $jsonreply|gojq -r 'if (.vertical_cover|length>0) then .vertical_cover else halt end'|read -r vc||:
@@ -128,26 +143,28 @@ expand.id.b22-h5() {
   printj $jsonreply|gojq -r 'if (.tags|length>0) then [.tags[]|.name]|join("、") else halt end'|read -r tags||:
 
   local +x -i literal_release_time_epoch=
-  printj $jsonreply|TZ=Asia/Shanghai gojq -r 'if (.release_time|length>=8) then .release_time|strptime("%Y.%m.%d")|mktime else halt end'|read -r literal_release_time_epoch||:
+  printj $jsonreply | gojq -r 'if (.release_time|length>=8) then .release_time+" +0800"|strptime("%Y.%m.%d %z")|mktime else halt end'|read -r literal_release_time_epoch||:
   if (( literal_release_time_epoch>0 )); then
     ts=$literal_release_time_epoch
   else
-    local +x -a coveruris=($vc $sc $hc)
-    local +x -a covertss=()
-    while (( ${#coveruris}>0 )); do
-      local +x safets= tsresp=
-      local +x -i this_cover_epoch=
-      LC_ALL=C builtin strftime -s safets '%Y%m%d %H:%M:%S %z' $((EPOCHSECONDS+86400))
-      fie -Lo /dev/null -z $safets -w '%header{last-modified}\n' --url ${coveruris[1]} | read -r tsresp
-      builtin strftime -r -s this_cover_epoch -- '%a, %d %b %Y %H:%M:%S %Z' $tsresp&>/dev/null || date -d "$tsresp" +%s | read -r this_cover_epoch
-      if (( this_cover_epoch>0 )); then
-        covertss+=($this_cover_epoch)
-      fi
-      shift coveruris
-    done
-    if (( ${#covertss}>0 )); then
-      covertss=(${(n)covertss})
-      ts=${covertss[1]}
+    local +x -i exact_pubdate=
+    printj $jsonreply | gojq -r 'if (.ep_list|length>0) and (
+  [.ep_list[] | select(
+      (.ord>=1) and (
+        (.title | test("'${(j:|:)excluded_chapti_regex}'"; "")) or (.short_title | test("'${(j:|:)excluded_chapti_regex}'"; "")) | not
+      )
+    )
+  ] | length>0
+) then [.ep_list[] | select(
+      (.ord>=1) and (
+        (.title | test("'${(j:|:)excluded_chapti_regex}'"; "")) or (.short_title | test("'${(j:|:)excluded_chapti_regex}'"; "")) | not
+      )
+    )
+  ] | sort_by(.ord) | .[:100] | sort_by(.pub_time) | .[0].pub_time+" +0800" | strptime("%F %T %z") | mktime else -1 end' | read -r exact_pubdate||:
+    if (( exact_pubdate>0 )); then
+      ts=$exact_pubdate
+    else
+      ts=$((ts + 315360000))
     fi
   fi
 
@@ -176,7 +193,7 @@ expand.id.b22-h5() {
   else
     printline+=("条漫")
   fi
-  printj "${(@pj:\t:)printline}" $'\n'
+  printj $this_serial_is_excluded"${(@pj:\t:)printline}" $'\n'
 }
 
 getlist.ids.b22-h5-cn() {
@@ -204,6 +221,7 @@ getlist.ids.b22-h5-cn() {
     return 1
   fi
   if (( ${#jsonreply}>0 )); then
+    ## mark vcomic
     printj ${jsonreply} | gojq -cr '[(.data[]|select(.type==1).season_id|tostring|sub("^"; "#")),(.data[]|select(.type==0).season_id)]|.[]'
   fi
 }

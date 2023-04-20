@@ -93,6 +93,7 @@ update() {
   done
 }
 
+source "${ZSH_ARGZERO%/*}/mangarss.inc.zsh"
 expand.list.txdm-newserial() {
   local +x readline=; while IFS= read -r readline; do
     if [[ ${#readline} -eq 0 ]]; then break; fi
@@ -106,10 +107,7 @@ expand.list.txdm-newserial() {
 
       local +x this_serial_is_excluded=
       local +x -a excluded_auts=(
-        '快看漫画'
-        '国漫'
-        '钢笔头'
-        'ecomix 负责人诸葛真'
+        ${excluded_auts}
       )
       while (( ${#excluded_auts}>0 )); do
         if [[ "${(@)auts[(Ie)${excluded_auts[1]}]}" -gt 0 ]]; then
@@ -131,16 +129,8 @@ expand.list.txdm-newserial() {
            printj $htmlreply | pup '.chapter-item img.chapter-img' 'attr{src}' | readarray chapcovs && \
            (( ${#chaptis} == ${#chapcovs} && ${#chaptis}>0 )); then
           local +x -i walknumofchaps=1
-          local +x -a excluded_chapti_regex=(
-            '敬请期待|先导|前瞻|预告|预热|预览|放料|人物|人设|介绍|新作|上线|连载'
-            '福利|抽奖|开奖|中奖|兑奖|月票|投喂|活动|加料|订阅|关注|不见不散|平台|序$|说明|通知|通告|请假|假条|更新|延迟|延更|开更'
-            '周边|抱枕|明信片|立牌|Q币|好礼'
-            '背景|设定|图鉴|鉴赏|百科'
-            '贺图|(祝|贺)(—|:|：)|祝贺|庆祝'
-            '周年|元旦|新年|佳节|春节|新春|清明节|端午|中秋|国庆|祖国|圣诞'
-          )
           while (( walknumofchaps <= ${#chapcovs} )); do
-            if ! [[ "${chaptis[$walknumofchaps]}" =~ '('"${(j:|:)excluded_chapti_regex}"')' ]]; then
+            if ! [[ "${chaptis[$walknumofchaps]#?* - }" =~ '('"${(j:|:)excluded_chapti_regex}"')' ]]; then
               usable_chaptis+=("${chaptis[$walknumofchaps]}")
               usable_chapcovs+=("${chapcovs[$walknumofchaps]}")
             fi
