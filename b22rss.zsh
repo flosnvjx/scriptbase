@@ -67,7 +67,13 @@ update() {
       printj $sfeed_tbw | tac | zstd | rw -a -- $1.sfeed
       pn+=1
       say $1:page$pn>&2
-      sleep $(( 3+RANDOM%5 ))
+      if (( pn <= ${maxpn:-50} )); then
+        if (( pn%8 == 0 )); then
+          sleep $(( 5+RANDOM%15 ))
+        else
+          sleep $(( 2+RANDOM%2 ))
+        fi
+      fi
     done
     shift
   done
