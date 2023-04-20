@@ -1,11 +1,11 @@
-local +x -a excluded_auts=(
+readonly +x -ga excluded_auts=(
   '快看漫画'
   '国漫'
   '爱奇艺漫画'
   '钢笔头'
   'ecomix 负责人诸葛真'
 )
-local +x -a excluded_chapti_regex=(
+readonly +x -ga excluded_chapti_regex=(
   '敬请期待|先导|前瞻|预告|预热|预览|放料|人物|人设|介绍|新作|上线|连载'
   '福利|抽奖|开奖|中奖|兑奖|月票|投喂|活动|加料|订阅|关注|不见不散|平台|^序$|说明|通知|通告|请假|假条|更新|延迟|延更|开更|开刊'
   '内测|(新|星)势力|主站'

@@ -130,14 +130,9 @@ expand.id.b22-h5() {
   local +x -a auts=()
   printj $jsonreply | gojq -r '.author_name[]' | readarray auts
   local +x this_serial_is_excluded=
-  local +x -a excluded_auts=($excluded_auts)
-  while (( ${#excluded_auts}>0 )); do
-    if [[ "${(@)auts[(Ie)${excluded_auts[1]}]}" -gt 0 ]]; then
-      this_serial_is_excluded='## @'
-      break
-    fi
-    shift excluded_auts
-  done
+  if printf %s\\n "${(@)auts}" | grep -Eqe "^(${(j.|.)excluded_auts})$" >/dev/null; then
+    this_serial_is_excluded='## @'
+  fi
 
   printj $jsonreply|gojq -j 'if (.introduction|length>0) then .introduction else halt end'|readeof intro
   printj $jsonreply|gojq -r 'if (.horizontal_cover|length>0) then .horizontal_cover else halt end'|read -r hc||:

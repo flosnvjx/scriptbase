@@ -106,16 +106,9 @@ expand.list.txdm-newserial() {
       printj $htmlreply | html2data - '.head-info-author .author-list .author-wr' | readarray auts
 
       local +x this_serial_is_excluded=
-      local +x -a excluded_auts=(
-        ${excluded_auts}
-      )
-      while (( ${#excluded_auts}>0 )); do
-        if [[ "${(@)auts[(Ie)${excluded_auts[1]}]}" -gt 0 ]]; then
-          this_serial_is_excluded='## @'
-          break
-        fi
-        shift excluded_auts
-      done
+      if printf %s\\n "${(@)auts}" | grep -Eqe "^(${(j.|.)excluded_auts})$" >/dev/null; then
+        this_serial_is_excluded='## @'
+      fi
 
       printj $htmlreply | html2data - 'div.head-info-desc' | readeof desc
       if ! {printj $htmlreply | pup 'html head meta[property=og:image]' 'attr{content}' | IFS= read -r vcover} || [[ "$vcover" == */operation/* ]]
@@ -130,7 +123,7 @@ expand.list.txdm-newserial() {
            (( ${#chaptis} == ${#chapcovs} && ${#chaptis}>0 )); then
           local +x -i walknumofchaps=1
           while (( walknumofchaps <= ${#chapcovs} )); do
-            if ! [[ "${chaptis[$walknumofchaps]#?* - }" =~ '('"${(j:|:)excluded_chapti_regex}"')' ]]; then
+            if ! printf %s "${chaptis[$walknumofchaps]#?* - }" | grep -Eiqe '('"${(j:|:)excluded_chapti_regex}"')' >/dev/null; then
               usable_chaptis+=("${chaptis[$walknumofchaps]}")
               usable_chapcovs+=("${chapcovs[$walknumofchaps]}")
             fi
