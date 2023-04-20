@@ -202,6 +202,7 @@ expand.id.b22-h5() {
   printj $this_serial_is_excluded"${(@pj:\t:)printline}" $'\n'
 }
 
+local +x listfin=$listfin
 getlist.ids.b22-h5-cn() {
   local +x -i argpn=${1:-1} ps=${2:-15}
   local +x jsonreply=
@@ -209,7 +210,7 @@ getlist.ids.b22-h5-cn() {
     -H 'accept: application/json, text/plain, */*' \
     -H 'content-type: application/json;charset=UTF-8' \
     -H 'referer: https://manga.bilibili.com/m/classify?status=0&areas=1&styles=-1&orders=3&prices=-1' \
-    --data-raw '{"style_id":-1,"area_id":1,"is_finish":0,"order":3,"is_free":-1,"page_num":'$argpn',"page_size":'$ps'}' \
+    --data-raw '{"style_id":-1,"area_id":1,"is_finish":'${${listfin:+1}:-0}',"order":3,"is_free":-1,"page_num":'$argpn',"page_size":'$ps'}' \
     --url 'https://manga.bilibili.com/twirp/comic.v1.Comic/ClassPage?device=h5&platform=web' | readeof jsonreply
   local +x -i totals=
   printj $jsonreply | gojq -r '
