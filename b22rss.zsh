@@ -143,30 +143,24 @@ expand.id.b22-h5() {
   printj $jsonreply|gojq -r 'if (.styles|length>0) then .styles|join("、") else "BL/GL/其他" end'|read -r cats
   printj $jsonreply|gojq -r 'if (.tags|length>0) then [.tags[]|.name]|join("、") else halt end'|read -r tags||:
 
-  local +x -i literal_release_time_epoch=
-  printj $jsonreply | gojq -r 'if (.release_time|length>=8) then .release_time+" +0800"|strptime("%Y.%m.%d %z")|mktime else halt end'|read -r literal_release_time_epoch||:
-  if (( literal_release_time_epoch>0 )); then
-    ts=$literal_release_time_epoch
-  else
-    local +x -i exact_pubdate=
-    printj $jsonreply | gojq -r 'if (.ep_list|length>0) and (
-  [.ep_list[] | select(
-      (.ord>=1) and (
-        (.title | test("'${(j:|:)excluded_chapti_regex}'"; "")) or (.short_title | test("'${(j:|:)excluded_chapti_regex}'"; "")) | not
-      )
+  local +x -i exact_pubdate=
+  printj $jsonreply | gojq -r 'if (.ep_list|length>0) and (
+[.ep_list[] | select(
+    (.ord>=1) and (
+      (.title | test("'${(j:|:)excluded_chapti_regex}'"; "")) or (.short_title | test("'${(j:|:)excluded_chapti_regex}'"; "")) | not
     )
-  ] | length>0
+  )
+] | length>0
 ) then [.ep_list[] | select(
-      (.ord>=1) and (
-        (.title | test("'${(j:|:)excluded_chapti_regex}'"; "")) or (.short_title | test("'${(j:|:)excluded_chapti_regex}'"; "")) | not
-      )
+    (.ord>=1) and (
+      (.title | test("'${(j:|:)excluded_chapti_regex}'"; "")) or (.short_title | test("'${(j:|:)excluded_chapti_regex}'"; "")) | not
     )
-  ] | sort_by(.ord) | .[:100] | sort_by(.pub_time) | .[0].pub_time+" +0800" | strptime("%F %T %z") | mktime else -1 end' | read -r exact_pubdate||:
-    if (( exact_pubdate>0 )); then
-      ts=$exact_pubdate
-    else
-      ts=$((ts + 315360000))
-    fi
+  )
+] | sort_by(.ord) | .[:100] | sort_by(.pub_time) | .[0].pub_time+" +0800" | strptime("%F %T %z") | mktime else -1 end' | read -r exact_pubdate||:
+  if (( exact_pubdate>0 )); then
+    ts=$exact_pubdate
+  else
+    ts=$((ts + 315360000))
   fi
 
   local -a content=(${intro:+——}$intro $text)
