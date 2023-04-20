@@ -38,7 +38,7 @@ update-and-syncxml() {
     if update "$1"; then
       md5.b32x < "$1.sfeed" | read -r after_md5
       if [[ "$before_md5" != "$after_md5" ]] || ! xmllint --recover --noent --nonet --noblanks --encode utf-8 --dropdtd --nsclean --nocatalogs --nocdata --oldxml10 -- "$1.atom.xml" &>/dev/null; then
-        zstdcat "$1.sfeed" | grep -ve '^#' | sfeed_atom | dasel put -r xml -t string -s '.feed.author.name' -v "$1" | dasel put -r xml -t string -s '.feed.title.#text' -v "$1" | rw "$1.atom.xml"
+        zstdcat "$1.sfeed" | grep -ve '^#' | sed -Ee 's%\v[^\t]*\t%\t%' | sfeed_atom | dasel put -r xml -t string -s '.feed.author.name' -v "$1" | dasel put -r xml -t string -s '.feed.title.#text' -v "$1" | rw "$1.atom.xml"
       fi
     else
       return $?
@@ -54,7 +54,7 @@ update() {
       local -a these_ids=()
       local +x reply=  psstat=
       getlist.ids.${1} $pn | readeof reply
-      printj $reply | anewer <(zstdcat -- $1.sfeed | cut -f6) | readarray these_ids || psstat=${pipestatus[3]}
+      printj $reply | anewer <(zstdcat -- $1.sfeed | grep -vEe '^#(~|\.)@' | cut -f6) | readarray these_ids || psstat=${pipestatus[3]}
       if [[ "$psstat" == 5 ]]; then
           break
       elif [[ "$psstat" == "" || "$psstat" == 0 ]]; then :
@@ -64,7 +64,7 @@ update() {
       these_ids=(${(@)these_ids})
       local +x sfeed_tbw=
       expand.ids ${1} ${these_ids} | readeof sfeed_tbw
-      printj $sfeed_tbw | tac | zstd | rw -a -- $1.sfeed
+      printj $sfeed_tbw | tac | anewer <(zstdcat -- $1.sfeed) | zstd | rw -a -- $1.sfeed
       pn+=1
       say $1:page$pn>&2
       if (( pn <= ${maxpn:-50} )); then
@@ -131,7 +131,7 @@ expand.id.b22-h5() {
   printj $jsonreply | gojq -r '.author_name[]' | readarray auts
   local +x this_serial_is_excluded=
   if printf %s\\n "${(@)auts}" | grep -Eqe "^(${(j.|.)excluded_auts})$" >/dev/null; then
-    this_serial_is_excluded='## @'
+    this_serial_is_excluded='#### '
   fi
 
   printj $jsonreply|gojq -j 'if (.introduction|length>0) then .introduction else halt end'|readeof intro
@@ -140,8 +140,9 @@ expand.id.b22-h5() {
   printj $jsonreply|gojq -r 'if (.square_cover|length>0) then .square_cover else halt end'|read -r sc||:
   printj $jsonreply|gojq -j 'if (.evaluate|length>0) then .evaluate else halt end'|readeof text
   printj $jsonreply|gojq -r '.comic_type'|read -r layout
-  printj $jsonreply|gojq -r 'if (.styles|length>0) then .styles|join("、") else "BL/GL/其他" end'|read -r cats
+  printj $jsonreply|gojq -r 'if (.styles|length>0) then .styles|join("、") else "" end'|read -r cats
   printj $jsonreply|gojq -r 'if (.tags|length>0) then [.tags[]|.name]|join("、") else halt end'|read -r tags||:
+  local +x -a covers=($vc $hc $sc)
 
   local +x -i exact_pubdate=
   printj $jsonreply | gojq -r 'if (.ep_list|length>0) and (
@@ -160,11 +161,19 @@ expand.id.b22-h5() {
   if (( exact_pubdate>0 )); then
     ts=$exact_pubdate
   else
-    ts=$((ts + 315360000))
+    local +x -i literal_release_time_epoch=
+    printj $jsonreply | gojq -r 'if (.release_time|length>=8) then .release_time+" +0800"|strptime("%Y.%m.%d %z")|mktime else halt
+ end'|read -r literal_release_time_epoch||:
+    if (( literal_release_time_epoch>0 )); then
+      ts=$literal_release_time_epoch
+      this_serial_is_excluded='#~@'
+    else
+      this_serial_is_excluded='#.@'
+    fi
   fi
 
   local -a content=(${intro:+——}$intro $text)
-  local -a tagline=($cats)
+  local -a tagline=(${cats:+BL/GL/其他})
   if [[ ${#tags} -ne 0 && ${#tagline} -ne 0 ]]; then
     tagline+=(：)
   fi
@@ -181,13 +190,15 @@ expand.id.b22-h5() {
   content+=( "<p><img src=\""${(@)^imguris}"\"></p>" )
   content=(${(j::)content})
 
-  ## man 5 sfeed
-  local -a printline=($ts "$tit" "https://manga.bilibili.com/detail/mc$argid" "$content" html $argid "$auts" "")
+  local +x -a sfeed_cat_column=($cats)
   if [[ "$layout" == 1 ]]; then
-    printline+=("漫画")
+    sfeed_cat_column+=('页漫')
   else
-    printline+=("条漫")
+    sfeed_cat_column+=('条漫')
   fi
+  sfeed_cat_column+=($tags)
+  ## man 5 sfeed
+  local -a printline=($ts "$tit" "https://manga.bilibili.com/detail/mc$argid" "$content" html $argid "$auts" "${(pj:\v:)covers}" "${(j:|:)sfeed_cat_column//、/|}")
   printj $this_serial_is_excluded"${(@pj:\t:)printline}" $'\n'
 }
 

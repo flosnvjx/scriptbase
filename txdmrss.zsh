@@ -50,7 +50,7 @@ update-and-syncxml() {
 update() {
   while (( $# != 0 )); do
     local +x -i actpn= pn=${pn:-1}
-    while ((pn<=${maxpn:-50})); do
+    while [[ "$1" == txdm-noncomm ]] || ((pn<=${maxpn:-50})); do
       local -a these_ids=()
       local +x reply=
       eval getlist.${(q)1} '$pn' | readeof reply

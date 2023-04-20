@@ -48,7 +48,7 @@ update-and-syncxml() {
 update() {
   while (( $# != 0 )); do
     local +x -i actpn= pn=1
-    while :; do
+    while (( pn <= ${maxpn:-10} )); do
       local -a these_ids=()
       local +x reply
       eval getlist.${(q)1} '$pn' | readeof reply
