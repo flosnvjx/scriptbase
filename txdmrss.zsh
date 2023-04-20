@@ -93,7 +93,7 @@ update() {
   done
 }
 
-source "${ZSH_ARGZERO%/*}/mangarss.inc.zsh"
+source "${ZSH_ARGZERO%/*}/mangarss.zsh.inc"
 expand.list.txdm-newserial() {
   local +x readline=; while IFS= read -r readline; do
     if [[ ${#readline} -eq 0 ]]; then break; fi
