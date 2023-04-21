@@ -43,11 +43,8 @@ ponsucc() {
   while (( __ponsucc_runcount < 1 + __ponsucc_maxretry )); do
     local +x __ponsucc_stdout=
     local +x -i __ponsucc_run_status=
-    if [[ $# -gt 1 ]]; then
-      eval "${(q)argv[1]}" '"${(@)argv[2,-1]}"' | readeof __ponsucc_stdout \
-      || __ponsucc_run_status=${pipestatus[1]}
-    else
-      eval "${(q)argv[1]}" | readeof __ponsucc_stdout \
+    if [[ $# -ge 1 ]]; then
+      "${(@)argv}" | readeof __ponsucc_stdout \
       || __ponsucc_run_status=${pipestatus[1]}
     fi
     __ponsucc_runcount+=1

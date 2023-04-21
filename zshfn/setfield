@@ -1,7 +1,14 @@
 ## -t field sep
 ## -v varname (higher precedence)
 ## -s textstring
-## -min,max-fields
+## -min,max-fields: return 4,5 early if num of fields mismatch
+## -exceed-fields: set exceed fields to this array
+##
+## a:param, append field to this array
+## p:param, prepend to this array
+## A/s:param, set to assoc/scalar
+## cs: concat string var
+## ps: prep string var
 setfield() {
   local -A __setfield_getopts
   builtin zparseopts -A __setfield_getopts -D -F - t: v: s: exceed-fields: min-fields: max-fields: || return $?
@@ -75,8 +82,6 @@ setfield() {
   if [[ ${#__setfield_fields} -gt 0 ]]; then
     if [[ -v __setfield_getopts[-exceed-fields] ]]; then
       set -A "${__setfield_getopts[-exceed-fields]}" "${(@)__setfield_fields}"
-    else
-      return 2
     fi
   elif [[ -v __setfield_getopts[-exceed-fields] ]]; then
       set -A "${__setfield_getopts[-exceed-fields]}"
