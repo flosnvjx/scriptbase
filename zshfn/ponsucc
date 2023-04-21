@@ -8,7 +8,6 @@
 ## todo: -1, instead of nullifying stdout on unsuccessful runs, save them into this arrays, plus the last successful runs (in case it is successful)
 ## todo: -2, like below, but for stderr (by default, stderr is kept and untouch, with this opt it is redirect to save into array)
 ponsucc() {
-  emulate -L zsh
   local -A __ponsucc_getopts
   local -a __ponsucc_retryonlyonstatus=()
   local +x -i __ponsucc_maxretry=

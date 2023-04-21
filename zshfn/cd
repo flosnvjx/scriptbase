@@ -1,6 +1,5 @@
 cd() {
-  emulate -L zsh
-  local +x CDPATH=
+  local +x CDPATH
   local +x -a cdpath=()
   if (( # != 1 )); then return 1; fi
   case "$1" in

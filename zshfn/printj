@@ -1,3 +1,0 @@
-printj() {
-  builtin printf %s "${(@)argv}"
-}

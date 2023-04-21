@@ -1,67 +1,72 @@
 #!/usr/bin/env -S zsh -f
-[[ $ZSH_ARGZERO == /*/shorthandzsh ]] || exit 128
-
-## zshmisc
-### autoload
-setopt extendedglob
-local -a zshfns=(${ZSH_ARGZERO%/*}/zshfn/*(.N))
-if [[ ${#zshfns} -gt 0 ]]; then
-  autoload -kr -- $zshfns
+if [[ "$ZSH_ARGZERO" != /*/shorthandzsh ]]; then
+  exit 128
 fi
 
 ## zshoptions
 setopt cdsilent
 setopt posixcd
-setopt errexit
+setopt extendedglob
+setopt errreturn
 setopt pipefail
-setopt emacs
-function {
+setopt emacs && function {
   # Make sure that the terminal is in application mode when zle is active, since only then values from $terminfo are valid
   if (( ${+terminfo[smkx]} )) && (( ${+terminfo[rmkx]} )) {
     function zle-line-init() {
-      echoti smkx
+      builtin echoti smkx
     }
     function zle-line-finish() {
-      echoti rmkx
+      builtin echoti rmkx
     }
-    zle -N zle-line-init
-    zle -N zle-line-finish
+    builtin zle -N zle-line-init
+    builtin zle -N zle-line-finish
   }
   # [PageUp] - Up a line of history
   if [[ -n "${terminfo[kpp]}" ]] {
-    bindkey -M emacs "${terminfo[kpp]}" up-line-or-history
+    builtin bindkey -M emacs "${terminfo[kpp]}" up-line-or-history
   }
   # [PageDown] - Down a line of history
   if [[ -n "${terminfo[knp]}" ]] {
-    bindkey -M emacs "${terminfo[knp]}" down-line-or-history
+    builtin bindkey -M emacs "${terminfo[knp]}" down-line-or-history
   }
   # Start typing + [Up-Arrow] - fuzzy find history forward
   if [[ -n "${terminfo[kcuu1]}" ]] {
-    autoload -U up-line-or-beginning-search
-    zle -N up-line-or-beginning-search
-    bindkey -M emacs "${terminfo[kcuu1]}" up-line-or-beginning-search
+    builtin autoload -U up-line-or-beginning-search
+    builtin zle -N up-line-or-beginning-search
+    builtin bindkey -M emacs "${terminfo[kcuu1]}" up-line-or-beginning-search
   }
   # Start typing + [Down-Arrow] - fuzzy find history backward
   if [[ -n "${terminfo[kcud1]}" ]] {
-    autoload -U down-line-or-beginning-search
-    zle -N down-line-or-beginning-search
-    bindkey -M emacs "${terminfo[kcud1]}" down-line-or-beginning-search
+    builtin autoload -U down-line-or-beginning-search
+    builtin zle -N down-line-or-beginning-search
+    builtin bindkey -M emacs "${terminfo[kcud1]}" down-line-or-beginning-search
   }
   # [Home] - Go to beginning of line
   if [[ -n "${terminfo[khome]}" ]] {
-    bindkey -M emacs "${terminfo[khome]}" beginning-of-line
+    builtin bindkey -M emacs "${terminfo[khome]}" beginning-of-line
   }
   # [End] - Go to end of line
   if [[ -n "${terminfo[kend]}" ]] {
-    bindkey -M emacs "${terminfo[kend]}"  end-of-line
+    builtin bindkey -M emacs "${terminfo[kend]}"  end-of-line
   }
   # [Delete] - delete forward
   if [[ -n "${terminfo[kdch1]}" ]] {
-    bindkey -M emacs "${terminfo[kdch1]}" delete-char
+    builtin bindkey -M emacs "${terminfo[kdch1]}" delete-char
   }
-  bindkey '^I' expand-word
-  zstyle -e ':completion::complete:-value-*:*' use-compctl 'reply=no'
+  builtin bindkey '^I' expand-word
+  builtin zstyle -e ':completion::complete:-value-*:*' use-compctl 'reply=no'
 }
+
+## zshmisc
+### aliases
+alias printj='builtin printf %s'
+alias say='builtin print -r --'
+
+### autoload
+local +x -a zshfns=(${ZSH_ARGZERO%/*}/zshfn/*(.N))
+if [[ ${#zshfns} -gt 0 ]]; then
+  builtin autoload -kr -- $zshfns
+fi
 
 ## --
 ZSH_ARGZERO=$1
