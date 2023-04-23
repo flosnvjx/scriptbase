@@ -1,4 +1,23 @@
+## -o, only retry on status
+## -x, fail ealy on status (comma sep value)
+## retry [flags] count cmd
 retry() {
+  local -A __retry_getopts
+  builtin zparseopts -A __retry_getopts -D -E - o: x: || return 128
+  local +x walk_patternflag=
+  local -a +x __retry_o=() __retry_x=()
+  for walk_patternflag in {o,x}; do
+    if [[ -v __retry_getopts[-$walk_patternflag] ]]; then
+      set -A __retry_$walk_patternflag "${(s.,.)__retry_getopts[-$walk_patternflag]}"
+      if (( #__retry_$walk_patternflag == 0 )) || \
+         eval '[[ "${__retry_'$walk_patternflag'[(I)*~<0->]}" -gt 0 ]]'; then
+        return 128
+      fi
+    fi
+  done
+  if (( #__retry_o > 0 && #__retry_x > 0 )); then
+    return 128
+  fi
   if [[ $# -lt 2 || $#2 -eq 0 ]]; then return 128; fi
   integer +x __retry_status=
   repeat 1+"$1" {
@@ -7,7 +26,13 @@ retry() {
       break
     else
       __retry_status=$?
+      if (( #__retry_o > 0 )); then
+        (( ${__retry_o[(I)$__retry_status]} > 0 )) || return $__retry_status
+      elif (( #__retry_x > 0 )) && (( ${__retry_x[(I)$__retry_status]} > 0 )); then
+        return $__retry_status
+      fi
     fi
   }
   return $__retry_status
 }
+builtin zmodload -Fa zsh/zutil b:zparseopts
