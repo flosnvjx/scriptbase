@@ -1,4 +1,9 @@
 readeof() {
+  case "$1" in
+    (__readeof_*)
+      return 9
+    ;;
+  esac
   local +x __readeof_b_u_f=
   local +x -i __readeof_b_u_f_l_e_n= ERRNO= __readeof_e_x_i_t=
   local +x -a __readeof_b_u_f_a_r_r=()

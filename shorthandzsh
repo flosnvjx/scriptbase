@@ -9,6 +9,9 @@ setopt posixcd
 setopt extendedglob
 setopt errreturn
 setopt pipefail
+if [[ "${options[interactive]}" == off ]]; then
+  setopt no_monitor
+fi
 setopt emacs && function {
   # Make sure that the terminal is in application mode when zle is active, since only then values from $terminfo are valid
   if (( ${+terminfo[smkx]} )) && (( ${+terminfo[rmkx]} )) {

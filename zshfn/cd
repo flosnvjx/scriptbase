@@ -1,7 +1,7 @@
 cd() {
-  local +x CDPATH
+  local +x CDPATH=
   local +x -a cdpath=()
-  if (( # != 1 )); then return 1; fi
+  (( # == 1 )) || return
   case "$1" in
     (/*) builtin cd $1;;
     (?*) builtin cd -- $1;;

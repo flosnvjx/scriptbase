@@ -14,14 +14,11 @@ setfield() {
   builtin zparseopts -A __setfield_getopts -D -F - t: v: s: exceed-fields: min-fields: max-fields: || return $?
   local +x __setfield_sep='\t'
   if [[ -v __setfield_getopts[-t] ]]; then
-    if function {
-        local +x MATCH MBEGIN MEND
-        local +x LC_ALL=C
-        [[ "${__setfield_getopts[-v]}" =~ '[[:cntrl:]]' ]]
-      }; then
+    if [[ "${__setfield_getopts[-v]}" =~ *$'\x1b'* ]]; then
       return 1
+    else
+      __setfield_sep=${__setfield_getopts[-t]}
     fi
-    __setfield_sep=${__setfield_getopts[-t]}
   fi
 
   local +x __setfield_fields=

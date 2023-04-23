@@ -1,0 +1,5 @@
+delay() {
+  [[ "$1" == <0->(|.<0->) ]]
+  noerr builtin zselect -t "$(( 100*argv[1] ))"
+}
+builtin zmodload -Fa zsh/zselect b:zselect

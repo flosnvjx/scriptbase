@@ -1,0 +1,76 @@
+pipe() {
+  [[ $# == 2 ]] || return 128
+  case "${(Pt)1}+${(Pt)2}" in
+    (*readonly*|*unique*|*special*|*+|+*)
+      return 128
+      ;;
+  esac
+  function {
+    local +x walk=
+    for walk in "${(@)argv}"; do
+      [[ "${(Pt)walk}" == (scalar|integer)* ]] || return 128
+      case "$walk" in
+        (__pipe_*)
+          return 22
+        ;;
+      esac
+    done
+  } "${(@)argv}"
+
+  local -a +x __pipe_thisshell_fdlinks=() __pipe_walk_thisshell_fdlinks=()
+  local +x __pipe_walk_thisshell_fdlink=
+  for __pipe_walk_thisshell_fdlink in /proc/self/fd/{0,1}; do
+    if [[ -h "$__pipe_walk_thisshell_fdlink" ]] && builtin zstat -NLA __pipe_walk_thisshell_fdlinks +link $__pipe_walk_thisshell_fdlink; then
+      __pipe_thisshell_fdlinks+=("$__pipe_walk_thisshell_fdlinks")
+    else
+      __pipe_thisshell_fdlinks+=("")
+    fi
+  done
+
+  integer +x __pipe_rand=$RANDOM
+  integer +x __pipe_exec_at=$EPOCHSECONDS
+  local +x __pipe_evalstring="NYANID=${(q)__pipe_exec_at}~${(q)__pipe_rand} command sleep inf | command sleep inf"
+  eval "${__pipe_evalstring} &"
+  integer +x __pipe_slice2_pid=${!}
+  (( __pipe_slice2_pid ))
+
+  local +x __pipe_slice1_pid=
+  integer +x __pipe_loop_count=
+  local -a +x match=() mbegin=() mend=()
+  repeat 6 {
+    match=() mbegin=() mend=()
+    if [[ "${jobstates[%${__pipe_evalstring%% |*}]}" == running:([+-]|):(#b)(<1->)(#B)=running:${__pipe_slice2_pid}=running ]]; then
+      __pipe_slice1_pid=${match[1]}
+      break
+    fi
+    delay $__pipe_loop_count
+    __pipe_loop_count+=1
+  }
+  (( __pipe_slice1_pid > 0 ))
+
+  local -a +x __pipe_slice12_fd10links=()
+  __pipe_loop_count=
+  local +x __pipe_setup_ok=
+  local +x __pipe_walk_slice_fdlink=
+  repeat 6 {
+    if [[ -h /proc/$__pipe_slice1_pid/fd/1 && -h /proc/$__pipe_slice2_pid/fd/0 ]] && \
+    builtin zstat -NLA __pipe_slice12_fd10links +link /proc/$__pipe_slice1_pid/fd/1 /proc/$__pipe_slice2_pid/fd/0 && \
+    [[ "${__pipe_slice12_fd10links[2]}" != "${__pipe_thisshell_fdlinks[2]}" && "${__pipe_slice12_fd10links[1]}" != "${__pipe_thisshell_fdlinks[1]}" ]] && [[ "${__pipe_slice12_fd10links[1]}" == "${__pipe_slice12_fd10links[2]}" && "${__pipe_slice12_fd10links[1]}" == pipe:'['<1->']' ]]; then
+      __pipe_setup_ok=yes
+      break
+    fi
+    delay $__pipe_loop_count
+    __pipe_loop_count+=1
+  }
+  if [[ -n "$__pipe_setup_ok" ]]; then
+    builtin sysopen -wu "$1" /proc/$__pipe_slice1_pid/fd/1
+    builtin sysopen -ru "$2" /proc/$__pipe_slice2_pid/fd/0
+    disown "%${__pipe_evalstring%% |*}"
+    noerr builtin kill -s KILL $__pipe_slice1_pid $__pipe_slice2_pid
+  else
+    return 2
+  fi
+}
+zmodload -Fa zsh/datetime p:EPOCHSECONDS
+zmodload -Fa zsh/stat b:zstat
+zmodload -Fa zsh/system b:sysopen

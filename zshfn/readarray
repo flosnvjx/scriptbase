@@ -4,16 +4,22 @@
 ## -t, delimiter
 readarray() {
   local -A __readarray_g_e_t_o_p_t_s
-  builtin zparseopts -A __readarray_g_e_t_o_p_t_s -D -F - s t: || return $?
-  if [[ $# -gt 1 ]]; then return 1; fi
+  builtin zparseopts -A __readarray_g_e_t_o_p_t_s -D -F - s t:
+  (( # <= 1 ))
   local +x __readarray_delim='\n'
   if [[ -v __readarray_g_e_t_o_p_t_s[-t] ]]; then
     if [[ "${__readarray_g_e_t_o_p_t_s[-t]}" == *''* ]]; then
       return 1
+    else
+      __readarray_delim=${__readarray_g_e_t_o_p_t_s[-t]}
     fi
-    __readarray_delim=${__readarray_g_e_t_o_p_t_s[-t]}
   fi
-  if [[ "${(Pt)${1:-replies}}" == association* ]]; then return 1; fi
+  if [[ "${(Pt)${1:-replies}}" == (association*|*special*) ]]; then return 1; fi
+  case "$1" in
+    (__readarray_e_r_r_n_o|__readarray_r_e_a_d_e_o_f|__readarray_g_e_t_o_p_t_s|__readarray_delim)
+      return 1
+      ;;
+  esac
 
   local +x -i __readarray_e_r_r_n_o=
   local +x __readarray_r_e_a_d_e_o_f=
