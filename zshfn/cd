@@ -3,8 +3,8 @@ cd() {
   local +x -a cdpath=()
   (( # == 1 )) || return
   case "$1" in
-    (/*) builtin cd $1;;
-    (?*) builtin cd -- $1;;
+    (/*) builtin cd $1 || return ;;
+    (?*) builtin cd -- $1 || return ;;
     (*) return 1;;
   esac
 }

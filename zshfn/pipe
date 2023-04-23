@@ -30,9 +30,9 @@ pipe() {
   integer +x __pipe_rand=$RANDOM
   integer +x __pipe_exec_at=$EPOCHSECONDS
   local +x __pipe_evalstring="NYANID=${(q)__pipe_exec_at}~${(q)__pipe_rand} command sleep inf | command sleep inf"
-  eval "${__pipe_evalstring} &"
+  eval "${__pipe_evalstring} &" || return
   integer +x __pipe_slice2_pid=${!}
-  (( __pipe_slice2_pid ))
+  (( __pipe_slice2_pid )) || return
 
   local +x __pipe_slice1_pid=
   integer +x __pipe_loop_count=
@@ -46,7 +46,7 @@ pipe() {
     delay $__pipe_loop_count
     __pipe_loop_count+=1
   }
-  (( __pipe_slice1_pid > 0 ))
+  (( __pipe_slice1_pid > 0 )) || return
 
   local -a +x __pipe_slice12_fd10links=()
   __pipe_loop_count=
@@ -63,8 +63,8 @@ pipe() {
     __pipe_loop_count+=1
   }
   if [[ -n "$__pipe_setup_ok" ]]; then
-    builtin sysopen -wu "$1" /proc/$__pipe_slice1_pid/fd/1
-    builtin sysopen -ru "$2" /proc/$__pipe_slice2_pid/fd/0
+    builtin sysopen -wu "$1" /proc/$__pipe_slice1_pid/fd/1 || return
+    builtin sysopen -ru "$2" /proc/$__pipe_slice2_pid/fd/0 || return
     disown "%${__pipe_evalstring%% |*}"
     noerr builtin kill -s KILL $__pipe_slice1_pid $__pipe_slice2_pid
   else

@@ -11,7 +11,7 @@
 ## ps: prep string var
 setfield() {
   local -A __setfield_getopts
-  builtin zparseopts -A __setfield_getopts -D -F - t: v: s: exceed-fields: min-fields: max-fields: || return $?
+  builtin zparseopts -A __setfield_getopts -D -F - t: v: s: exceed-fields: min-fields: max-fields: || return 128
   local +x __setfield_sep='\t'
   if [[ -v __setfield_getopts[-t] ]]; then
     if [[ "${__setfield_getopts[-v]}" =~ *$'\x1b'* ]]; then
@@ -32,7 +32,7 @@ setfield() {
     return 1
   fi
 
-  [[ $# -gt 0 ]] || return $?
+  [[ $# -gt 0 ]] || return
 
   eval 'local -a __setfield_fields=("${(@ps'${__setfield_sep}')__setfield_fields}")'
 

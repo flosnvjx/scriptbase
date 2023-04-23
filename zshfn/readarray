@@ -4,8 +4,8 @@
 ## -t, delimiter
 readarray() {
   local -A __readarray_g_e_t_o_p_t_s
-  builtin zparseopts -A __readarray_g_e_t_o_p_t_s -D -F - s t:
-  (( # <= 1 ))
+  builtin zparseopts -A __readarray_g_e_t_o_p_t_s -D -F - s t: || return 128
+  (( # <= 1 )) || return 128
   local +x __readarray_delim='\n'
   if [[ -v __readarray_g_e_t_o_p_t_s[-t] ]]; then
     if [[ "${__readarray_g_e_t_o_p_t_s[-t]}" == *''* ]]; then
@@ -23,7 +23,7 @@ readarray() {
 
   local +x -i __readarray_e_r_r_n_o=
   local +x __readarray_r_e_a_d_e_o_f=
-  readeof __readarray_r_e_a_d_e_o_f || return $?
+  readeof __readarray_r_e_a_d_e_o_f || return
 
   if [[ ${#__readarray_r_e_a_d_e_o_f} -eq 0 ]]; then
 
@@ -46,7 +46,7 @@ readarray() {
 
   fi
 
-  set -A ${1:-replies} "${(@)__readarray_r_e_a_d_e_o_f}" || return $?
+  set -A ${1:-replies} "${(@)__readarray_r_e_a_d_e_o_f}" || return
   return $__readarray_e_r_r_n_o
 }
 builtin zmodload -Fa zsh/zutil b:zparseopts

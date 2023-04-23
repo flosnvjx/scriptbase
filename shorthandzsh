@@ -9,8 +9,9 @@ setopt posixcd
 setopt extendedglob
 setopt errreturn
 setopt pipefail
+unsetopt banghist
 if [[ "${options[interactive]}" == off ]]; then
-  setopt no_monitor
+  unsetopt monitor
 fi
 setopt emacs && function {
   # Make sure that the terminal is in application mode when zle is active, since only then values from $terminfo are valid
@@ -68,7 +69,7 @@ alias say='builtin print -r --'
 ### autoload
 local +x -a zshfns=(${ZSH_ARGZERO%/*}/zshfn/*(.N))
 if [[ ${#zshfns} -gt 0 ]]; then
-  builtin autoload -kr -- $zshfns
+  builtin autoload -Ukr -- $zshfns
 fi
 
 ## --

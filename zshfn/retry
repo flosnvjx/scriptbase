@@ -1,22 +1,31 @@
 ## -o, only retry on status
 ## -x, fail ealy on status (comma sep value)
+## -w, delay between retries
 ## retry [flags] count cmd
 retry() {
   local -A __retry_getopts
-  builtin zparseopts -A __retry_getopts -D -E - o: x: || return 128
-  local +x walk_patternflag=
+  builtin zparseopts -A __retry_getopts -D -E - o: x: w: || return 128
+  local +x __retry_walk_patternflag=
   local -a +x __retry_o=() __retry_x=()
-  for walk_patternflag in {o,x}; do
-    if [[ -v __retry_getopts[-$walk_patternflag] ]]; then
-      set -A __retry_$walk_patternflag "${(s.,.)__retry_getopts[-$walk_patternflag]}"
-      if (( #__retry_$walk_patternflag == 0 )) || \
-         eval '[[ "${__retry_'$walk_patternflag'[(I)*~<0->]}" -gt 0 ]]'; then
+  for __retry_walk_patternflag in {o,x}; do
+    if [[ -v __retry_getopts[-$__retry_walk_patternflag] ]]; then
+      set -A __retry_$__retry_walk_patternflag "${(s.,.)__retry_getopts[-$__retry_walk_patternflag]}"
+      if (( #__retry_$__retry_walk_patternflag == 0 )) || \
+         eval '[[ "${__retry_'$__retry_walk_patternflag'[(I)*~<0->]}" -gt 0 ]]'; then
         return 128
       fi
     fi
-  done
+  done; unset __retry_walk_patternflag
   if (( #__retry_o > 0 && #__retry_x > 0 )); then
     return 128
+  fi
+  local +x __retry_delay=
+  if [[ -v __retry_getopts[-w] ]]; then
+    if [[ "${__retry_getopts[-w]}" == <0->(|.<0->) ]]; then
+      __retry_delay="${__retry_getopts[-w]}"
+    else
+      return 128
+    fi
   fi
   if [[ $# -lt 2 || $#2 -eq 0 ]]; then return 128; fi
   integer +x __retry_status=
@@ -30,6 +39,9 @@ retry() {
         (( ${__retry_o[(I)$__retry_status]} > 0 )) || return $__retry_status
       elif (( #__retry_x > 0 )) && (( ${__retry_x[(I)$__retry_status]} > 0 )); then
         return $__retry_status
+      fi
+      if [[ -n "${__retry_delay}" ]]; then
+        delay "${__retry_delay}"
       fi
     fi
   }
