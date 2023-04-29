@@ -30,7 +30,7 @@ retry() {
   if [[ $# -lt 2 || $#2 -eq 0 ]]; then return 128; fi
   integer +x __retry_status=
   repeat 1+"$1" {
-    if "${(@)argv[2,-1]}"; then
+    if eval "${(@q)argv[2,-1]}"; then
       __retry_status=$?
       break
     else

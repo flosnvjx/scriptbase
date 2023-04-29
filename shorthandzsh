@@ -69,7 +69,7 @@ alias say='builtin print -r --'
 ### autoload
 local +x -a zshfns=(${ZSH_ARGZERO%/*}/zshfn/*(.N))
 if [[ ${#zshfns} -gt 0 ]]; then
-  builtin autoload -Ukr -- $zshfns
+  builtin autoload -kr -- $zshfns
 fi
 
 ## --

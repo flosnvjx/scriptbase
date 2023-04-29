@@ -1,5 +1,5 @@
 noerr() {
   builtin setopt localoptions localtraps no_err{exit,return}
   builtin trap - ERR ZERR
-  "${(@)argv}" || return 0
+  eval "${(@q)argv}" || return 0
 }

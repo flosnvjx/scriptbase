@@ -44,7 +44,7 @@ ponsucc() {
     local +x __ponsucc_stdout=
     local +x -i __ponsucc_run_status=
     if [[ $# -ge 1 ]]; then
-      "${(@)argv}" | readeof __ponsucc_stdout \
+      eval "${(@q)argv}" | readeof __ponsucc_stdout \
       || __ponsucc_run_status=${pipestatus[1]}
     fi
     __ponsucc_runcount+=1
