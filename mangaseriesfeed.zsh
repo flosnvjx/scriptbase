@@ -15,7 +15,7 @@ function main {
       shift; get "${(@)argv}" ;;
     (q|query)
       shift; query "${(@)argv}" ;;
-    (rss|generate-atomxml)
+    (rss|generate-xml)
       shift; generate-xml "${(@)argv}" ;;
     (srs)
       shift
@@ -94,6 +94,176 @@ function zstan {
   else
     cat
   fi
+}
+
+function clip-or-print {
+  if [[ -v getopts[-c] ]]; then
+    printj "${(@)argv}" | termux-clipboard-set
+  else
+    printj "${(@)argv}"
+  fi
+}
+function gen:bgmwiki::b22 {
+  set -x
+  local -A getopts
+  zparseopts -A getopts -D -F - c
+  (( $#==1 ))
+  [[ "$1"==<1-> ]]
+  1=$((argv[1]))
+  local +x itemrepl=
+  query:item::b22 $1 | readeof itemrepl
+  if (( $#itemrepl==0 )); then
+    fetch:item::b22 $1 | readeof itemrepl
+  fi
+  local -a +x itemrepl=("${(@ps.\t.)itemrepl}")
+  local +x ti=${itemrepl[2]}
+  local +x -a auts=(${itemrepl[3]})
+  local +x -a intro=(${itemrepl[4]})
+  local +x -a desc=(${itemrepl[5]//\\n/
+})
+  if eval '[[ "${itemrepl[11]#('${(j.|.)b22_region_names}'):}" == .* ]]'; then
+    local +x ts=$(date -d @${itemrepl[15]} +%F)
+    local +x endts=$(date -d @${itemrepl[1]} +%F)
+  else
+    local +x ts=$(date -d @${itemrepl[1]} +%F)
+    local +x endts=
+  fi
+  local -a +x tags=(${itemrepl[13]} ${itemrepl[14]})
+  if [[ "${itemrepl[11]%:*}" == 1* ]]; then
+    tags+=(页漫)
+  fi
+  clip-or-print $ti
+  say '(标题: '$ti' )'
+  if [[ -v getopts[-c] ]]; then
+    local -a +x urlencti=($(printf %s $ti|basenc --base16 -w2))
+    urlencti=(%${^urlencti})
+    termux-open-url "https://manga.bilibili.com/detail/mc${itemrepl[10]#*:}"
+    delay 0.2
+    termux-open-url "https://bangumi.tv/subject_search/${(j..)urlencti}?cat=1&legacy=1"
+  fi
+  local +x infobox=
+  local +x infobox_temp="{{Infobox animanga/Manga
+|原作= $auts
+|作者= 
+|脚本= 
+|分镜= 
+|作画= 
+|监制= 
+|制作= $auts
+|制作协力= 
+|出品= 
+|製作= 
+|责任编辑= 
+|开始= $ts
+|结束= $endts
+|连载杂志= 哔哩哔哩漫画
+|出版社= 
+|发售日= 
+|备注= 
+|ISBN= 
+|话数= 
+|别名={
+}
+}}"
+  say $infobox_temp | vipe | readeof infobox
+  if [[ "$infobox_temp" == "$infobox" || $#infobox == 0 ]]; then
+    return
+  fi
+  clip-or-print $infobox
+  if [[ -v getopts[-c] ]]; then
+    printj '(已复制wiki)...'
+    rlwrap head -n1 &>/dev/null
+  fi
+  local +x descbox=
+  printj ${^intro}——$'\n\n' $desc | readeof descbox
+  if [[ $#descbox -gt 0 ]]; then
+    clip-or-print $descbox
+  if [[ -v getopts[-c] ]]; then
+    printj '(已复制desc: '${descbox[1,10]}')'
+    rlwrap head -n1 &>/dev/null
+  fi
+  fi
+  say ${${${(j. .)tags}//、/ }//：/ }
+  local +x -a tagl=(${(j.、.)tags})
+  local +x coldesc=
+  printj ${^intro}—— $desc 【${^tagl}】 | readeof coldesc
+  clip-or-print $coldesc
+}
+
+# options regions
+function gen:xml::b22 {
+  local +x itemfile=${0##*::}:item.lst
+  local -A getopts
+  zparseopts -A getopts -D -F - mints: maxts:
+  if (( $#==0 )); then
+    local -a +x regions=($b22_region_names)
+  else
+    (( ${argv[(I)^(${(j.|.)b22_region_names})|]} == 0 ))
+    local -a +x regions=($argv)
+  fi
+  local -a +x statuses=(end ing)
+  local +x wreg=; for wreg in $regions; do
+    local +x xmlfile=${0##*::}-$wreg.atom.xml
+    local +x awkprog='$3 !~ /'${(j.|.)excluded_auts}'/ {
+      ts=$1
+      id=$10; sub(/^[^:]+:/,"",id)
+      ti=$2
+      aut=$3
+      intro=$4; gsub(/&/,"&amp;",intro); gsub(/</,"&lt;",intro); gsub(/>/,"&gt;",intro)
+      desc=$5; gsub(/&/,"&amp;",desc); gsub(/</,"&lt;",desc); gsub(/>/,"&gt;",desc); gsub(/\\n/,"<br>",desc)
+
+      hc=$6
+      vc=$7
+      sc=$8
+      cc=$9; split(cc, ccs, /\v/)
+      cchtml=""
+      if (length(ccs)>0) {
+        for (wcc in ccs) {
+          cchtml=cchtml "<img src=\"" ccs[wcc] "\">"
+        }
+      }
+
+      st=$11; sub(/^[a-z][a-z]:/,"",st)
+      ch=st; sub(/^.(:|)/,"",ch); sub(/:[-0-9.]+$/,"",st)
+
+      ym=$12; sub(/(:[-01]+|)$/,"",ym)
+      hot=$12
+      length(hot)>length(ym) ? sub(/^[01]:/,"",hot) : hot=0
+      style=$13; gsub(/ /,"",style)
+      tag=$14; gsub(/ /,"",tag)
+      subts=$15
+
+      print ts,ti,(urlprefix id),( \
+        ((length(intro)>0 && intro!=ti && intro!=desc) ? "<div class=\"intro\">——" intro "</div><br>" : "") \
+        "<div class=\"desc\">" desc "</div><br>" \
+        "<div class=\"tags\">" style ((length(style)>0 && length(tag)>0) ? "：" : "") tag (ym==1 ? "📖" : "") (hot==1 ? "🌟" : "") "</div>" \
+        "<div class=\"chapstat\">" (ch>0 ? ch "话" : "") (st=="'${b22_valid_status_notations[end]}'" ? "✅" : "") (subts>0 ? "（开刊时间：" strftime("%F",subts) "）" : "") "</div>" \
+        "<div class=\"gallery\">" \
+        (length(hc)>0 ? "<img src=\"" hc "\">" : "") \
+        (length(vc)>0 ? "<img src=\"" vc "\">" : "") \
+        (length(sc)>0 ? "<img src=\"" sc "\">" : "") \
+        cchtml "</div>" \
+      ),"html",$10,aut,"",(reg (ym==1 ? "|页漫" : "|条漫") (hot==1 ? "|殿堂" : ""))
+    }'
+    local +x bbuf=
+    query:item::${0##*::} -status ${(j.,.)statuses} -region $wreg | gawk -F $'\t' -v OFS=$'\t' -v urlprefix="https://manga.bilibili.com/detail/mc" -v reg=$wreg -f <(builtin printf %s $awkprog) |sfeed_atom| readeof bbuf
+    if (( $#bbuf>0 )); then
+      local +x md5b= md5a=
+      if [[ -e "$xmlfile" ]]; then
+        printj $bbuf | sha256sum | awk '{print $1}' | IFS= read md5b
+        sha256sum -- $xmlfile | awk '{print $1}' | IFS= read md5a
+        if [[ "$md5b" != "$md5a" ]]; then
+          printj $bbuf|rw -- $xmlfile
+        else
+          say "$0($wreg): nothing written.">&2
+        fi
+      else
+        printj $bbuf|rw -- $xmlfile
+      fi
+    else
+      say "$0($wreg): no records.">&2
+    fi
+  done
 }
 
 function get:item::b22 {
@@ -233,7 +403,6 @@ function query:item::b22 {
     awkprog+=" { if ( ${(j. && .)actexps} ) print }"
   fi
   local +x listfile=${0##*::}:${${0%%::*}#*:}.lst
-  set -x
   zstdcat -- $listfile | grep -ve '^#' | tac | gawk -F $'\t' -f <(builtin printf %s $awkprog) | tac
 }
 
@@ -472,6 +641,44 @@ resp_ok | item_ok | recheck_ts_status | check_redundant_intro | [
   (if (.tags|length>0) then [.tags[]|.name|sanitstr]|join("、") else "" end),
   (.__secondary_ts|sanitstr)
 ]|join("\t")')
+}
+
+function get:nav-banner::b22 {
+  local +x listfile=${0##*::}:${${0%%::*}#*:}.lst
+  local +x resp=
+  fetch:${0#*:} | readeof resp
+  local +x ts=$EPOCHSECONDS
+  if (( $#resp>0 )); then
+    if [[ -e $listfile ]]; then
+      local +x tbw=
+      printj $resp | zstan $listfile | readeof tbw
+      if (( $#tbw >0 )); then
+        local -a +x tbw=(${(s.\n.)tbw})
+        printf %s'\n' $ts$'\t'${(@)^tbw} | zstd | rw -a -- $listfile
+      fi
+    else
+      printj $resp | zstd -qo $listfile
+    fi
+  fi
+}
+
+function fetch:nav-banner::b22 {
+  local +x jsonresp=
+  retry -w $((RANDOM%(${TMOUT:-19}+1))) 2 pipeok fie $b22_restapi_http_hdr \
+    --url 'https://manga.bilibili.com/twirp/comic.v1.Comic/Banner?device=pc&platform=web' \
+    -H 'accept: application/json, text/plain, */*' \
+    -H 'accept-language: zh-CN,zh;q=0.9' \
+    -H 'content-type: application/json;charset=UTF-8' \
+    --data-raw '{"platform":"pc"}' | readeof jsonresp
+  integer +x ts=$EPOCHSECONDS
+  printj $jsonresp | gojq -r --arg site ${0##*::} '
+def resp_ok: if has("code") and has("data") and (.data|length>0) and (.code==0) then
+  .data
+else
+  halt_error
+end;
+
+resp_ok | .[] | select((.jump_value|match("^bilicomic://reader/([0-9]+)")|.captures.[0].string)|length>0)|[$site+":"+(.jump_value|match("^bilicomic://reader/([0-9]+)")|.captures.[0].string),.img]|join("\t")'
 }
 
 function fetch:list::b22 {

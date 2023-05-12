@@ -1,8 +1,8 @@
 readonly +x -ga excluded_auts=(
   '快看漫画'
-  '国漫'
-  '爱奇艺漫画'
-  '钢笔头'
+  '^国漫$'
+  '^爱奇艺漫画$'
+  '^钢笔头$'
   'ecomix 负责人诸葛真'
 )
 readonly +x -ga excluded_chapti_regex=(
