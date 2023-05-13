@@ -1,0 +1,17 @@
+#!/usr/bin/env zsh
+function anzst {
+  local -A getopts
+  zparseopts -A getopts -D -F - pipe:
+  (( $#==1 ))
+
+  if [[ -e "$1" ]]; then
+    [[ -f $1 && -r $1 ]]
+    local +x evalprocsub='zstdcat -- "$1"'
+    if [[ -v getopts[-pipe] ]]; then
+      evalprocsub+=' | '${getopts[-pipe]}
+    fi
+    eval 'anewer <('$evalprocsub')'
+  else
+    anewer
+  fi
+}

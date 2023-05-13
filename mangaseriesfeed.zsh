@@ -651,13 +651,15 @@ function get:nav-banner::b22 {
   if (( $#resp>0 )); then
     if [[ -e $listfile ]]; then
       local +x tbw=
-      printj $resp | zstan $listfile | readeof tbw
+      printj $resp | anzst -pipe 'cut -f2-' -- $listfile | readeof tbw
+      read
       if (( $#tbw >0 )); then
-        local -a +x tbw=(${(s.\n.)tbw})
+        local -a +x tbw=(${(ps.\n.)tbw})
         printf %s'\n' $ts$'\t'${(@)^tbw} | zstd | rw -a -- $listfile
       fi
     else
-      printj $resp | zstd -qo $listfile
+      local -a +x resp=(${(ps.\n.)resp})
+      printf %s'\n' $ts$'\t'${(@)^resp} | zstd -qo $listfile
     fi
   fi
 }
