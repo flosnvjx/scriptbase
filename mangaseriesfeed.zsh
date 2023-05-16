@@ -203,7 +203,8 @@ function gen:xml::b22 {
   fi
   local -a +x statuses=(end ing)
   local +x wreg=; for wreg in $regions; do
-    local +x xmlfile=${0##*::}-$wreg.atom.xml
+    local +x wsta=; for wsta in $statuses; do
+    local +x xmlfile=${0##*::}-$wreg-$wsta.atom.xml
     local +x awkprog='$3 !~ /'${(j.|.)excluded_auts}'/ {
       ts=$1
       id=$10; sub(/^[^:]+:/,"",id)
@@ -246,7 +247,7 @@ function gen:xml::b22 {
       ),"html",$10,aut,"",(reg (ym==1 ? "|页漫" : "|条漫") (hot==1 ? "|殿堂" : ""))
     }'
     local +x bbuf=
-    query:item::${0##*::} -status ${(j.,.)statuses} -region $wreg | gawk -F $'\t' -v OFS=$'\t' -v urlprefix="https://manga.bilibili.com/detail/mc" -v reg=$wreg -f <(builtin printf %s $awkprog) |sfeed_atom| readeof bbuf
+    query:item::${0##*::} -status $wsta -region $wreg | gawk -F $'\t' -v OFS=$'\t' -v urlprefix="https://manga.bilibili.com/detail/mc" -v reg=$wreg -f <(builtin printf %s $awkprog) |sfeed_atom|sed -e '3,4s%[Nn]ewsfeed%'${0##*::}-$wreg-$wsta'%'| readeof bbuf
     if (( $#bbuf>0 )); then
       local +x md5b= md5a=
       if [[ -e "$xmlfile" ]]; then
@@ -255,15 +256,15 @@ function gen:xml::b22 {
         if [[ "$md5b" != "$md5a" ]]; then
           printj $bbuf|rw -- $xmlfile
         else
-          say "$0($wreg): nothing written.">&2
+          say "$0($wreg::$wsta): nothing written.">&2
         fi
       else
         printj $bbuf|rw -- $xmlfile
       fi
     else
-      say "$0($wreg): no records.">&2
+      say "$0($wreg::$wsta): no records.">&2
     fi
-  done
+  done; done
 }
 
 function get:item::b22 {
