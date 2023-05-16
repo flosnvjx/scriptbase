@@ -1,7 +1,6 @@
 #!/usr/bin/env shorthandzsh
 alias furl='command curl -qgsf --compressed'
-alias fie='ponsucc -n 3 -w 40 -m 22,56 furl -A "Mozilla/5.0 (Windows NT 6.3; Trident/7.0; rv 11.0) like Gecko"'
-alias frest='ponsucc -n 3 -w 20 -m 22,56 furl'
+alias fie='furl -A "Mozilla/5.0 (Windows NT 6.3; Trident/7.0; rv 11.0) like Gecko"'
 builtin zmodload -Fa zsh/datetime p:EPOCHSECONDS b:strftime
 builtin zmodload -Fa zsh/zutil b:zparseopts
 
@@ -102,7 +101,7 @@ expand.list.txdm-newserial() {
     if [[ ${#columns[5]#txdm:} -gt 0 ]] && [[ ${(@)argv[(Ie)${columns[5]}]} -gt 0 ]]; then
       local +x htmlreply= desc= vcover=
       local -a auts=()
-      fie "https://m.ac.qq.com/comic/index/id/${columns[2]##?*/id/}" | rw | uconv -x ':: NFKC; [[:General_Category=Format:][:General_Category=Nonspacing_Mark:][:print=No:][:Cc:]] >;' | readeof htmlreply
+      retry -w 15 3 pipeok fie "https://m.ac.qq.com/comic/index/id/${columns[2]##?*/id/}" | rw | uconv -x ':: NFKC; [[:General_Category=Format:][:General_Category=Nonspacing_Mark:][:print=No:][:Cc:]] >;' | readeof htmlreply
       printj $htmlreply | html2data - '.head-info-author .author-list .author-wr' | readarray auts
 
       local +x this_serial_is_excluded=
@@ -135,7 +134,7 @@ expand.list.txdm-newserial() {
             local +x safets= tsresp=
             local +x -i this_cover_epoch=
             LC_ALL=C builtin strftime -s safets '%Y%m%d %H:%M:%S %z' $((EPOCHSECONDS+86400))
-            if fie -Lo /dev/null -z $safets -w '%header{last-modified}\n' --url ${usable_chapcovs[$walknumofchaps]} | read -r tsresp; then
+            if retry -w 15 1 pipeok fie -Lo /dev/null -z $safets -w '%header{last-modified}\n' --url ${usable_chapcovs[$walknumofchaps]} | read -r tsresp; then
               builtin strftime -r -s this_cover_epoch -- '%a, %d %b %Y %H:%M:%S %Z' $tsresp&>/dev/null || date -d "$tsresp" +%s | read -r this_cover_epoch
               if (( this_cover_epoch>0 )); then
                 local +x -i tshrs=
@@ -179,7 +178,7 @@ expand.list.txdm-noncomm() {
     if (( id==0 )); then
       return 4
     fi
-    fie "https://m.ac.qq.com/comic/index/id/$id" | rw | uconv -x ':: NFKC; [[:General_Category=Format:][:General_Category=Nonspacing_Mark:][:print=No:][:Cc:]] >;' | readeof htmlreply
+    retry -w 20 2 pipeok fie "https://m.ac.qq.com/comic/index/id/$id" | rw | uconv -x ':: NFKC; [[:General_Category=Format:][:General_Category=Nonspacing_Mark:][:print=No:][:Cc:]] >;' | readeof htmlreply
     local +x -i ts=$EPOCHSECONDS
     columns[1]=$ts
     printj $htmlreply | pup -p 'html head meta[property=og:title]' 'attr{content}' | IFS= read -r ti || {
@@ -271,7 +270,7 @@ getlist.txdm-newserial() {
   local +x -i argpn=${1:-1} ps=12
   local +x htmlreply=
   local -a ids=()
-  fie \
+  retry -w 15 3 pipeok fie \
     -H 'accept: text/html, application/xhtml+xml, application/xml, */*' \
     -H 'accept-language: zh-CN,zh;q=0.9,en-US;q=0.8,en;q=0.7' \
     -H 'referer: https://ac.qq.com/Comic/all/search/time/page/1' \
