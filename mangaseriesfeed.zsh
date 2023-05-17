@@ -645,9 +645,17 @@ resp_ok | item_ok | recheck_ts_status | check_redundant_intro | [
 }
 
 function get:nav-banner::b22 {
-  local +x listfile=${0##*::}:${${0%%::*}#*:}.lst
+  local -A getopts
+  zparseopts -A getopts -D -F - altsite:
+  (( $#==0 ))
+  if [[ ${#getopts[-altsite]} -ne 0 ]]; then
+    local +x svc=${getopts[-altsite]}
+  else
+    local +x svc=${0##*::}
+  fi
+  local +x listfile=$svc:${${0%%::*}#*:}.lst
   local +x resp=
-  fetch:${0#*:} | readeof resp
+  fetch:${${0%%::*}#*:}::$svc | readeof resp
   local +x ts=$EPOCHSECONDS
   if (( $#resp>0 )); then
     if [[ -e $listfile ]]; then
@@ -702,7 +710,7 @@ function fetch:list::b22 {
     (all)      b22_list_order=3; b22_list_is_finish=-1;;
     (*) return 128;;
   esac
-  (( # == 1 )); [[ "$1" == <1-> ]]; 1=$((argv[1]))
+  (( $# == 1 )); [[ "$1" == <1-> ]]; 1=$((argv[1]))
   local +x jsonresp=
   retry -w $((RANDOM%(${TMOUT:-19}+1))) 2 pipeok fie $b22_restapi_http_hdr \
     -H "referer: https://manga.bilibili.com/classify?styles=-1&areas=$b22_list_area_id&status=$b22_list_is_finish&prices=-1&orders=$b22_list_order" \
@@ -757,6 +765,157 @@ else
     $fn_name+"("+$pn+"): REST API - response error\n" | halt_error
   end
 end')
+}
+
+local -A kkmh_region_map
+kkmh_region_map=(
+  cn 2
+  kr 3
+  jp 4
+)
+local -A kkmh_ord_map
+kkmh_ord_map=(
+  new 3
+  rec 1
+  hot 2
+)
+local -A kkmh_status_map
+kkmh_status_map=(
+  ing 1
+  end 2
+)
+local -a +x kkmh_restapi_http_hdr=(
+  'accept: application/json, text/plain, */*'
+  'accept-language: zh-CN,zh;q=0.9,en-US;q=0.8,en;q=0.7'
+  'referer: https://www.kuaikanmanhua.com/tag/0'
+  'user-agent-pc: PCKuaikan/1.0.0/100000(unknown;unknown;Chrome;pckuaikan;1920*1080;0)'
+)
+kkmh_restapi_http_hdr=(${curl_hdr_flag_arrplh:^^kkmh_restapi_http_hdr})
+function fetch:list::kkmh {
+  integer +x ps=48
+  local -A getopts; zparseopts -A getopts -D -F - region: status: ord:
+  (( $# == 1 )); [[ "$1" == <1-> ]]; 1=$((argv[1]))
+  ## region is requred, cause the response doesnot incl region info.
+  [[ -v getopts[-region] ]]
+   [[ ${${(@k)kkmh_region_map}[(Ie)${getopts[-region]}]} != 0 ]]
+
+  [[ -v getopts[-status] ]]
+  [[ ${${(@k)kkmh_status_map}[(Ie)${getopts[-status]}]} != 0 ]]
+
+  if [[ -v getopts[-ord] ]]; then
+    [[ ${${(@k)kkmh_ord_map}[(Ie)${getopts[-ord]}]} != 0 ]]
+  else
+    getopts[-ord]=new
+  fi
+
+  local +x jsonresp=; retry -w $((RANDOM%(${TMOUT:-19}+1))) 2 pipeok fie $kkmh_restapi_http_hdr \
+    --url "https://www.kuaikanmanhua.com/search/mini/topic/multi_filter?page=$1&size=$ps&tag_id=0&update_status=${kkmh_status_map[${getopts[-status]}]}&pay_status=0&label_dimension_origin=${kkmh_region_map[${getopts[-region]}]}&sort=${kkmh_ord_map[${getopts[-ord]}]}" | readeof jsonresp
+  integer +x ts=$EPOCHSECONDS
+  printj $jsonresp | gojq -r --arg ts $ts --arg status ${b22_valid_status_notations[${getopts[-status]}]} --arg region ${getopts[-region]} --arg pn $1 --arg ord ${getopts[-ord]} --arg fn_name $0 -f <(builtin printf %s 'def resp_ok: if has("code") and (.code==200) and has("total") then
+  if (.hits.topicMessageList|length>0) then .hits.topicMessageList[]
+  else empty end
+else
+  $fn_name+"("+$region+"#"+$ord+":"+$pn+")"|halt_error
+end;
+
+resp_ok | [$ts,
+("kkmh:"+(.id|tostring)),
+(.title|gsub("[[:cntrl:]]"; "")|gsub("(^  *|  *$)";"")|gsub("   *";" "|gsub("\\\\";"\\\\"))),
+(.author_name|gsub("[[:cntrl:]]"; "")|gsub("(^  *|  *$)";"")|gsub("   *";" ")|gsub("(?<a>[^+])[+](?<b>[^+])"; (.a)+"、"+(.b))|gsub("\\\\";"\\\\")),
+($region+":"+$status)+(if $status=="." then ":"+(.comics_count|tostring) else "" end),
+(.first_comic_publish_time),
+(.vertical_image_url|sub("-w[0-9]{3,4}(|\\.w)$";"")),
+(.cover_image_url|sub("-w[0-9]{3,4}(|\\.w)$";"")),
+(if (.category|length>0) then .category|join("、") else empty end)
+] | join("\t")')
+}
+
+function get:list::kkmh {
+  local -A getopts
+  zparseopts -A getopts -D -F - nonstop maxpn: region: status: ord:; (( $# <= 1 ))
+  integer +x startpn=${1:-1} maxpn=${getopts[-maxpn]:--1}
+  (( startpn>0 )); (( maxpn>=startpn||maxpn<0 ))
+  [[ ${${(@k)kkmh_ord_map}[(Ie)${getopts[-ord]}]} != 0 ]]
+  integer +x pn=$startpn
+  local +x listfile=${0##*::}:${${0%%::*}#*:}.lst
+  while ((pn<=maxpn||maxpn<0)); do
+    local +x listresp=
+    printj $0"($pn):? (${(q)getopts[-region]}${getopts[-ord]:+#}${getopts[-ord]}:${(q)getopts[-status]})" >&2
+    fetch:list::${0##*:} -region "${getopts[-region]}" -status "${getopts[-status]}" -ord "${getopts[-ord]}" $pn | readeof listresp
+    if (( $#listresp==0 )); then if (( pn>1 )) || [[ $pn == 1 && "${getopts[-ord]}" != new ]]; then
+      say $'\r'$0"($pn):EOF (${(q)getopts[-region]}${getopts[-ord]:+#}${getopts[-ord]}:${(q)getopts[-status]})" >&2
+      break
+    else
+      say $'\r'$0"($pn):! (${(q)getopts[-region]}${getopts[-ord]:+#}${getopts[-ord]}:${(q)getopts[-status]})" >&2
+      return 1
+    fi; fi
+    if [[ -r "$listfile" && -f "$listfile" && -s "$listfile" ]]; then
+      integer +x listresp_ts="${listresp%%	*}"; (( listresp_ts>0 ))
+      local +x listresp_tbw=
+      ## orig: printj $listresp | cut -f 2-
+      printj "${(@pj.\n.)${(@)${(@ps.\n.)listresp}#*	}}" | anewer <(zstdcat -- $listfile | grep -ve '^#' | cut -f 2-) | readeof listresp_tbw
+      if (( ${#listresp_tbw} > 1 )); then
+        ## orig: printj $listresp_tbw | sed -e '/..*/s%^%'$listresp_ts'%'
+        printf '%s\n' ${listresp_ts}$'\t'${(@)^${(@ps.\n.)listresp_tbw}} | zstd | rw -a -- $listfile
+        say $'\r'$0"($pn):>> (${(q)getopts[-region]}${getopts[-ord]:+#}${getopts[-ord]}:${(q)getopts[-status]})" >&2
+      else
+        say $'\r'$0"($pn):>< (${(q)getopts[-region]}${getopts[-ord]:+#}${getopts[-ord]}:${(q)getopts[-status]})" >&2
+        if [[ ! -v getopts[-nonstop] ]]; then break; fi
+      fi
+    else
+      printj $listresp | zstd | rw -- $listfile
+      printj $'\r'$0"($pn):>. (${(q)getopts[-region]}${getopts[-ord]:+#}${getopts[-ord]}:${(q)getopts[-status]})" >&2
+    fi
+    pn+=1
+  done
+}
+
+function fetch:nav-banner::kkmh {
+  local +x htmlresp=
+  retry -w $((RANDOM%(${TMOUT:-19}+1))) 2 pipeok fie \
+    --url 'https://www.kuaikanmanhua.com/' \
+    -H 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7' \
+    -H 'accept-language: zh-CN,zh;q=0.9' | readeof htmlresp
+  integer +x ts=$EPOCHSECONDS
+  local +x jsresp=
+  printj ${${${${htmlresp##*,bannerList:\[}%%\]*}//\&quot;/\"}//\\u002[Ff]/\/} | readeof jsresp
+  [[ $#jsresp -ne 0 ]]; [[ $#jsresp -ne $#htmlresp ]]
+  local +x jsspl=
+  printj $jsresp | grep -Eoe '(target_id:"[0-9]+"|image_url:"http[^"]+")' | readeof jsspl
+  local -a +x jsspl=(${(ps.\n.)jsspl})
+  [[ $#jsspl -ne 0 && $(($#jsspl%2)) -eq 0 ]]
+  local -a +x epids=() imguris=()
+  printf '%s\n' $jsspl | sed -nEe '/^target_id:"[0-9]+"$/ s%(.+:|")%%gp' | readarray epids
+  printf '%s\n' $jsspl | sed -nEe '/^image_url:"http[^"]+"$/ s%(^image_url:|")%%gp' | readarray imguris
+  [[ $#epids -eq $#imguris ]]
+  while (( $#epids!=0 )); do
+    integer +x serid=
+    conv:id:ep2serial::${0##*::} ${epids[1]} | IFS= read -r serid
+    say ${0##*::}:$serid $'\t' ${imguris[1]}
+    shift epids
+    shift imguris
+  done
+}
+
+function conv:id:ep2serial::kkmh {
+  (( $#==1 ))
+  [[ "$1" == <1-> ]]
+  integer +x epid=$((argv[1]))
+  local +x htmlresp=
+  retry -w $((RANDOM%(${TMOUT:-19}+1))) 2 pipeok fie \
+    --url 'https://www.kuaikanmanhua.com/web/comic/'$epid'/' \
+    -H 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7' \
+    -H 'accept-language: zh-CN,zh;q=0.9' | readeof htmlresp
+  [[ $#htmlresp -ne 0 ]]
+  local +x uri=
+  printj $htmlresp | pup -p 'div.titleBox h3.title a:nth-of-type(2)' 'attr{href}' | IFS= read -r uri
+  [[ "$uri" == /web/topic/<1-> ]]
+  integer +x id=${uri##*/}
+  say $id
+}
+
+function get:nav-banner::kkmh {
+  ${0%::*}::b22 -altsite ${0##*::}
 }
 
 main "${(@)argv}"
