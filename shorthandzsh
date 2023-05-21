@@ -66,6 +66,8 @@ setopt emacs && function {
 alias printj='builtin printf %s'
 alias say='builtin print -r --'
 
+alias rg='command rg --no-config'
+
 ### autoload
 local +x -a zshfns=(${ZSH_ARGZERO%/*}/zshfn/*(.N))
 if [[ ${#zshfns} -gt 0 ]]; then

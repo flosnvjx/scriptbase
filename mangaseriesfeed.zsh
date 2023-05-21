@@ -1,4 +1,5 @@
 #!/usr/bin/env shorthandzsh
+setopt multibyte
 alias furl='command curl -qgsf --compressed'
 alias fie='furl -A "Mozilla/5.0 (Windows NT 6.3; Trident/7.0; rv 11.0) like Gecko"'
 alias fios='furl -A "Mozilla/5.0 (iPhone; CPU iPhone OS 14_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/14.0 EdgiOS/46.3.7 Mobile/15E148 Safari/605.1.15"'
@@ -127,17 +128,17 @@ function clip-or-print {
     printj "${(@)argv}"
   fi
 }
+
 function gen:bgmwiki::b22 {
-  set -x
   local -A getopts
   zparseopts -A getopts -D -F - c
   (( $#==1 ))
   [[ "$1"==<1-> ]]
   1=$((argv[1]))
   local +x itemrepl=
-  query:item::b22 $1 | readeof itemrepl
+  query:item::${0##*::} $1 | IFS= read -r itemrepl
   if (( $#itemrepl==0 )); then
-    fetch:item::b22 $1 | readeof itemrepl
+    fetch:item::${0##*::} $1 | IFS= read -r itemrepl
   fi
   local -a +x itemrepl=("${(@ps.\t.)itemrepl}")
   local +x ti=${itemrepl[2]}
@@ -145,26 +146,39 @@ function gen:bgmwiki::b22 {
   local +x -a intro=(${itemrepl[4]})
   local +x -a desc=(${itemrepl[5]//\\n/
 })
-  if eval '[[ "${itemrepl[11]#('${(j.|.)b22_region_names}'):}" == .* ]]'; then
-    local +x ts=$(date -d @${itemrepl[15]} +%F)
-    local +x endts=$(date -d @${itemrepl[1]} +%F)
-  else
-    local +x ts=$(date -d @${itemrepl[1]} +%F)
-    local +x endts=
-  fi
-  local -a +x tags=(${itemrepl[13]} ${itemrepl[14]})
-  if [[ "${itemrepl[11]%:*}" == 1* ]]; then
-    tags+=(页漫)
+  if [[ "${0##*::}" == b22 ]]; then
+    if eval '[[ "${itemrepl[11]#('${(j.|.)b22_region_names}'):}" == .* ]]'; then
+      local +x ts="$(date -d @"${itemrepl[15]}" +%F)"
+      local +x endts="$(date -d @"${itemrepl[1]}" +%F)"
+    else
+      local +x ts="$(date -d @"${itemrepl[1]}" +%F)"
+      local +x endts=
+    fi
+    local -a +x tags=(${itemrepl[13]} ${itemrepl[14]})
+    if [[ "${itemrepl[11]%:*}" == 1* ]]; then
+      tags+=(页漫)
+    fi
+  elif [[ "${0##*::}" == kkmh ]]; then
+    local +x ts="$(date -d @"${itemrepl[1]}" +%F)"
+    if [[ -n "${itemrepl[12]}" ]]; then
+      local +x endts="$(date -d @"${itemrepl[12]}" +%F)"
+    else local +x endts=
+    fi
+    local -a +x tags=(${itemrepl[10]} ${itemrepl[11]})
   fi
   clip-or-print $ti
   say '(标题: '$ti' )'
   if [[ -v getopts[-c] ]]; then
     local -a +x urlencti=($(printf %s $ti|basenc --base16 -w2))
     urlencti=(%${^urlencti})
-    termux-open-url "https://manga.bilibili.com/detail/mc${itemrepl[10]#*:}"
     delay 0.2
     termux-open-url "https://bangumi.tv/subject_search/${(j..)urlencti}?cat=1&legacy=1"
   fi
+  local +x magti=
+  case "${0##*::}" in
+    (b22) magti=哔哩哔哩漫画 ;;
+    (kkmh) magti=快看漫画 ;;
+  esac
   local +x infobox=
   local +x infobox_temp="{{Infobox animanga/Manga
 |原作= $auts
@@ -180,7 +194,7 @@ function gen:bgmwiki::b22 {
 |责任编辑= 
 |开始= $ts
 |结束= $endts
-|连载杂志= 哔哩哔哩漫画
+|连载杂志= $magti
 |出版社= 
 |发售日= 
 |备注= 
@@ -208,12 +222,10 @@ function gen:bgmwiki::b22 {
   fi
   fi
   say ${${${(j. .)tags}//、/ }//：/ }
-  local +x -a tagl=(${(j.、.)tags})
-  local +x coldesc=
-  printj ${^intro}—— $desc 【${^tagl}】 | readeof coldesc
-  clip-or-print $coldesc
 }
-functions[gen:bgmwiki::kkmh]=${functions[gen:bgmwiki::b22]}
+eval 'function gen:bgmwiki::kkmh {
+  '${functions[gen:bgmwiki::b22]}'
+}'
 
 # options regions
 function gen:xml::kkmh {
