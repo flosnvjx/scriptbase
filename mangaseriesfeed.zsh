@@ -36,21 +36,14 @@ b22_valid_status_notations=(
   tba '?'
   err '!'
 )
-# $0 [-status [status[,status[,...]]]] [region [region[ ...]]]
+
 function syncdb::b22 {
   local -A getopts
-  #zparseopts -A getopts -D -F - status:
   local -aU syncdb_statuses=()
-  if [[ -v getopts[-status] ]]; then
-    syncdb_statuses=(${(s@,@)getopts[-status]})
-    (( $#syncdb_statuses>0 ))
-    [[ "${getopts[-status]}" != *:* ]]
-  else
-    syncdb_statuses=(end ing)
-  fi
+  syncdb_statuses=(end ing)
   local -aU syncdb_regions=("${(@)argv}")
   if (( $#syncdb_regions==0 )); then
-    syncdb_regions=($b22_region_names)
+    syncdb_regions=(${b22_region_names})
   else
     [[ ${(@)syncdb_regions[(I)^(${(j.|.)b22_region_names})|]} == 0 ]]
   fi
@@ -76,6 +69,37 @@ function syncdb::b22 {
   fi
 }
 
+function syncdb::kkmh {
+  local -A getopts
+  local -aU syncdb_statuses=()
+  syncdb_statuses=(end ing)
+  local -aU syncdb_regions=("${(@)argv}")
+  if (( $#syncdb_regions==0 )); then
+    syncdb_regions=(${(k)kkmh_region_map})
+  else
+    [[ ${(@)syncdb_regions[(I)^(${(@j.|.)${(@k)kkmh_region_map}})|]} == 0 ]]
+  fi
+  integer +x syncdb_startts=$EPOCHSECONDS
+  local +x i=; for i in ${(@)^syncdb_regions}:${(@)^syncdb_statuses}; do
+    get:list::${0##*::} -region "${i%%:*}" -status "${i##*:}" -ord rec || return
+  done; unset i
+  integer +x syncdb_endts=$EPOCHSECONDS
+
+  local +x query_buf=
+  local +x i=; for i in ${(@)^syncdb_regions}:{tba,err}; do
+    local +x buf=
+    query:list::${0##*::} -region "${i%%:*}" -status "${i##*:}" 1 $((syncdb_startts - 1)) | readeof buf
+    query_buf+=$buf; buf=
+  done; unset i
+  local +x i=; for i in ${(@)^syncdb_regions}:${(@)^syncdb_statuses}; do
+    query:list::${0##*::} -region "${i%%:*}" -status "${i##*:}" $syncdb_startts $syncdb_endts | readeof buf
+    query_buf+=$buf
+    unset buf
+  done; unset i
+  if [[ $#query_buf -gt 0 ]]; then
+    get:item::${0#*::} -altsite kkmh -listbufstr $query_buf
+  fi
+}
 function zstrwan {
   [[ $# == 1 ]]
   local +x bbuf=
@@ -189,7 +213,72 @@ function gen:bgmwiki::b22 {
   printj ${^intro}—— $desc 【${^tagl}】 | readeof coldesc
   clip-or-print $coldesc
 }
+functions[gen:bgmwiki::kkmh]=${functions[gen:bgmwiki::b22]}
 
+# options regions
+function gen:xml::kkmh {
+  local +x itemfile=${0##*::}:item.lst
+  local -A getopts
+  zparseopts -A getopts -D -F - mints: maxts:
+  if (( $#==0 )); then
+    local -a +x regions=(${(k)kkmh_region_map})
+  else
+    [[ ${(@)argv[(I)^(${(@j.|.)${(@k)kkmh_region_map}})|]} -eq 0 ]]
+    local -a +x regions=($argv)
+  fi
+  local -a +x statuses=(end ing)
+  local +x wreg=; for wreg in $regions; do
+    local +x wsta=; for wsta in $statuses; do
+    local +x xmlfile=${0##*::}-$wreg-$wsta.atom.xml
+    local +x awkprog='{
+      ts=$1
+      id=$8; sub(/^[^:]+:/,"",id)
+      ti=$2
+      aut=$3
+      intro=$4; gsub(/&/,"&amp;",intro); gsub(/</,"&lt;",intro); gsub(/>/,"&gt;",intro)
+      desc=$5; gsub(/&/,"&amp;",desc); gsub(/</,"&lt;",desc); gsub(/>/,"&gt;",desc); gsub(/\\n/,"<br>",desc)
+
+      hc=$6
+      vc=$7
+
+      st=$9; sub(/^[a-z][a-z]:/,"",st)
+      ch=st; sub(/^.(:|)/,"",ch); sub(/:[-0-9.]+$/,"",st)
+
+      style=$10; gsub(/ /,"",style)
+      tag=$11; gsub(/ /,"",tag)
+      date2=$12
+
+      print ts,ti,(urlprefix id "/"),( \
+        ((length(intro)>0 && intro!=ti && intro!=desc) ? "<div class=\"intro\">——" intro "</div><br>" : "") \
+        "<div class=\"desc\">" desc "</div><br>" \
+        "<div class=\"tags\">" style ((length(style)>0 && length(tag)>0) ? "：" : "") tag "</div>" \
+        "<div class=\"chapstat\">" (ch>0 ? ch "话" : "") (st=="'${b22_valid_status_notations[end]}'" ? "完结" : "") (date2>0 ? "（最后更新：" strftime("%F",date2) "）" : "") "</div>" \
+        "<div class=\"gallery\">" \
+        (length(hc)>0 ? "<img src=\"" hc "\">" : "") \
+        (length(vc)>0 ? "<img src=\"" vc "\">" : "") \
+        "</div>" \
+      ),"html",$10,aut,"",reg
+    }'
+    local +x bbuf=
+    query:item::${0##*::} -status $wsta -region $wreg | gawk -F $'\t' -v OFS=$'\t' -v urlprefix="https://www.kuaikanmanhua.com/web/topic/" -v reg=$wreg -f <(builtin printf %s $awkprog) |sfeed_atom|sed -e '3,4s%[Nn]ewsfeed%'${0##*::}-$wreg-$wsta'%'| readeof bbuf
+    if (( $#bbuf>0 )); then
+      local +x md5b= md5a=
+      if [[ -e "$xmlfile" ]]; then
+        printj $bbuf | sha256sum | awk '{print $1}' | IFS= read md5b
+        sha256sum -- $xmlfile | awk '{print $1}' | IFS= read md5a
+        if [[ "$md5b" != "$md5a" ]]; then
+          printj $bbuf|rw -- $xmlfile
+        else
+          say "$0($wreg::$wsta): nothing written.">&2
+        fi
+      else
+        printj $bbuf|rw -- $xmlfile
+      fi
+    else
+      say "$0($wreg::$wsta): no records.">&2
+    fi
+  done; done
+}
 # options regions
 function gen:xml::b22 {
   local +x itemfile=${0##*::}:item.lst
@@ -267,34 +356,57 @@ function gen:xml::b22 {
   done; done
 }
 
+readonly -a +x svcs=(b22 kkmh txac)
+
+function get:item::kkmh {
+  get:item::b22 -altsite kkmh "${(@)argv}"
+}
 function get:item::b22 {
-  local +x listfile=${0##*::}:${${0%%::*}#*:}.lst
-  zparseopts -A getopts -D -F - listbufstr: region:
+  zparseopts -A getopts -D -F - listbufstr: region: altsite:
+  if [[ -v getopts[-altsite] ]]; then
+    [[ ${svcs[(Ie)${getopts[-altsite]}]} -ne 0 ]]
+    local +x svc=${getopts[-altsite]}
+  else
+    local +x svc=${0##*::}
+  fi
+  local +x listfile=$svc:${${0%%::*}#*:}.lst
   if (( $# == 0 )) && [[ -v getopts[-listbufstr] ]]; then
     local -a +x listbufs=(${(ps.\n.)getopts[-listbufstr]})
     [[ ${#listbufs} -gt 0 ]]
     local -a +x bufs=()
     while (( ${#listbufs} > 0 )); do
+      ## kkmh := ats, svc:id, ti, aut, reg:sta:eps, ep1relts, vc, hc, cat
+      ## kkmh := ats, ti, svcid, regstaeps, vc, hc, aut, ep1relts, cat
+      ## b22  := ats, ti, svc:id, reg:sta, vc, hc, sc
       local -a +x listbuf=(${listbufs[1]})
       listbuf=("${(@ps.\t.)listbuf[1]}")
-      integer +x id=${listbuf[3]#b22:}; (( id > 0 ))
+      local +x id=${listbuf[3]#$svc:}
+      [[ "$id" == <1-> ]]
       local +x region=${listbuf[4]%%:*}; (( ${#region} > 0 ))
       printj $'\r'$0"($id): ${listbuf[4]} ~" >&2
       local -a +x buf=()
-      if ! fetch:item::b22 $id | IFS= read -rA buf; then
-        say $'\r'$0"($id): ${listbuf[4]} !" >&2
-        return 1
+      if [[ $svc == ${0##*::} ]]; then
+        if ! fetch:item::$svc $id | IFS= read -rA buf; then
+          say $'\r'$0"($id): ${listbuf[4]} !" >&2
+          return 1
+        fi
+        buf=("${(@ps.\t.)buf}")
+        buf[11]="${region}:${buf[11]}"
+      elif [[ $svc == kkmh ]]; then
+        if ! say ${listbufs[1]} | fetch-expand:list2item::$svc | IFS= read -rA buf; then
+          say $'\r'$0"($id): ${listbuf[4]} !" >&2
+          return 1
+        fi
       fi
-      buf=("${(@ps.\t.)buf}")
-      buf[11]="${region}:${buf[11]}"
       printj $'\r'$0"($id):${buf[11]} %" >&2
       bufs+=("${(@pj.\t.)buf}")
+
       unset buf
       if [[ $#bufs == 14 ]]; then
         printf '%s\n' ${(@)bufs} | zstrwan $listfile
         printj $'\b.' >&2
         bufs=()
-        _delay_next $#
+        _delay_next $#listbufs
         say >&2
       fi
       shift listbufs
@@ -304,7 +416,7 @@ function get:item::b22 {
       say $'\b.' >&2
       bufs=()
     fi
-  elif (( $# > 0 )) && [[ -v getopts[-region] ]] && ! [[ -v getopts[-listbufstr] ]] && [[ "${b22_region_names[(Ie)${getopts[-region]}]}" -gt 0 ]]; then
+  elif (( $# > 0 )) && [[ $svc == ${0##*::} ]] && [[ -v getopts[-region] ]] && ! [[ -v getopts[-listbufstr] ]] && [[ "${b22_region_names[(Ie)${getopts[-region]}]}" -gt 0 ]]; then
     local -a +x bufs=()
     while (( $# > 0 )); do
       local -a +x buf=()
@@ -343,20 +455,32 @@ function query:item::b22 {
   if (( $# > 0 )); then
     (( ${argv[(I)^(0|<1-9>|<1-9><0->)|]} == 0 ))
   fi
-  local -a +x patexps=('$10 ~ /^b22:[0-9]+$/' '$11 !~ /:_$/')
+  if [[ "${0##*::}" == b22 ]]; then
+  local -a +x patexps=('$10 ~ /^'${0##*::}':[0-9]+$/' '$11 !~ /:_$/')
+  else
+  local -a +x patexps=('$8 ~ /^'${0##*::}':[0-9]+$/' '$9 !~ /:_$/')
+  fi
   patexps+=('! printed_ids[$10]++')
   local +x mints=${getopts[-mints]} maxts=${getopts[-maxts]}
   if [[ -v getopts[-mints] ]]; then
     [[ "$mints" == <1-> ]]
     mints=$((mints))
-    patexps+=('($1>='$mints' || $15>='$mints')')
+    if [[ "${0##*::}" == b22 ]]; then
+      patexps+=('($1>='$mints' || $15>='$mints')')
+    else
+      patexps+=('($1>='$mints')')
+    fi
   fi; if [[ -v getopts[-maxts] ]]; then
     [[ "$maxts" == <1-> ]]
     maxts=$((maxts))
     if [[ -v getopts[-mints] ]]; then
       ((maxts>=mints))
     fi
-    patexps+=('(($1>0 && $1<='$maxts') || ($15>0 && $15<='$maxts'))')
+    if [[ "${0##*::}" == b22 ]]; then
+      patexps+=('(($1>0 && $1<='$maxts') || ($15>0 && $15<='$maxts'))')
+    else
+      patexps+=('($1>0 && $1<='$maxts')')
+    fi
   fi
   local -aU +x regions=() statuses=()
   if [[ -v getopts[-region] ]]; then
@@ -388,16 +512,28 @@ function query:item::b22 {
           return 128;;
       esac
     done
+    if [[ "${0##*::}" == b22 ]]; then
     actexps+=('$11 ~ /:['${(@j..)actexps_status}'](:[-0-9.]+|)$/')
+    else
+    actexps+=('$9 ~ /:['${(@j..)actexps_status}'](:[-0-9.]+|)$/')
+    fi
   fi
   if [[ $#regions -gt 0 ]]; then
     local +x walk_region=; for walk_region in $regions; do
       actexps_region+=($walk_region)
     done
+    if [[ "${0##*::}" == b22 ]]; then
     actexps+=('$11 ~ /^('${(@j.|.)actexps_region}'):/')
+    else
+    actexps+=('$9 ~ /^('${(@j.|.)actexps_region}'):/')
+    fi
   fi
   if (( $# > 0 )); then
+    if [[ "${0##*::}" == b22 ]]; then
     actexps+=('$10 ~ /^'${0##*::}':('${(j.|.)argv}')$/')
+    else
+    actexps+=('$8 ~ /^'${0##*::}':('${(j.|.)argv}')$/')
+    fi
   fi
   local +x awkprog=${(j. && .)patexps}
   if [[ $#actexps -gt 0 ]]; then
@@ -406,11 +542,12 @@ function query:item::b22 {
   local +x listfile=${0##*::}:${${0%%::*}#*:}.lst
   zstdcat -- $listfile | grep -ve '^#' | tac | gawk -F $'\t' -f <(builtin printf %s $awkprog) | tac
 }
+functions[query:item::kkmh]=${functions[query:item::b22]}
 
 function query:list::b22 {
   zparseopts -A getopts -D -F - region: status:; (($#<=2))
   local +x mints=$1 maxts=$2
-  local -a +x patexps=('$3 ~ /^b22:[0-9]+$/' '$4 !~ /:_$/')
+  local -a +x patexps=('$3 ~ /^'${0##*::}':[0-9]+$/' '$4 !~ /:_$/')
   patexps+=('! printed_ids[$3]++')
   if [[ -v 1 ]]; then
     [[ "$1" == <1-> ]]
@@ -427,8 +564,14 @@ function query:list::b22 {
     [[ ${#getopts[-region]} -gt 0 ]]
     regions=("${(@s.,.)getopts[-region]}")
     [[ ${#regions} -gt 0 ]]
-    [[ ${regions[(I)^(${(j.|.)b22_region_names})|]} -eq 0 ]]
-    [[ ${regions[(I)${(j.|.)b22_region_names}]} -gt 0 ]]
+    if [[ ${0##*::} == b22 ]]; then
+      [[ ${regions[(I)^(${(j.|.)b22_region_names})|]} -eq 0 ]]
+      [[ ${regions[(I)${(j.|.)b22_region_names}]} -gt 0 ]]
+    elif [[ ${0##*::} == kkmh ]]; then
+      [[ ${(@)regions[(I)^(${(@j.|.)${(@k)kkmh_region_map}})|]} -eq 0 ]]
+      [[ ${(@)regions[(I)${(@j.|.)${(@k)kkmh_region_map}}]} -gt 0 ]]
+    else false txdm tbd
+    fi
   fi
   if [[ -v getopts[-status] ]]; then
     [[ ${#getopts[-status]} -gt 0 ]]
@@ -454,7 +597,7 @@ function query:list::b22 {
           return 128;;
       esac
     done
-    actexps+=('$4 ~ /:['${(@j..)actexps_status}']$/')
+    actexps+=('$4 ~ /:['${(@j..)actexps_status}'](|:[0-9]+)$/')
   fi
   if [[ $#regions -gt 0 ]]; then
     local +x walk_region=; for walk_region in $regions; do
@@ -469,10 +612,11 @@ function query:list::b22 {
   local +x listfile=${0##*::}:${${0%%::*}#*:}.lst
   zstdcat -- $listfile | grep -ve '^#' | tac | gawk -F $'\t' $awkprog | tac
 }
+functions[query:list::kkmh]=${functions[query:list::b22]}
 
 function get:list::b22 {
   local -A getopts
-  zparseopts -A getopts -D -F - maxpn: region: status:; (( $# <= 1 ))
+  zparseopts -A getopts -D -F - ord: maxpn: region: status:; (( $# <= 1 ))
   integer +x startpn=${1:-1} maxpn=${getopts[-maxpn]:--1}
   (( startpn>0 )); (( maxpn>=startpn||maxpn<0 ))
   integer +x pn=$startpn
@@ -480,8 +624,8 @@ function get:list::b22 {
   while ((pn<=maxpn||maxpn<0)); do
     local +x listresp=
     printj $0"($pn):? (${(q)getopts[-region]}:${(q)getopts[-status]})" >&2
-    fetch:list::b22 -region "${getopts[-region]}" -status "${getopts[-status]}" $pn | readeof listresp
-    if (( $#listresp==0 )); then if (( pn>1 )); then
+    fetch:list::${0%::*} -region "${getopts[-region]}" -status "${getopts[-status]}" ${getopts[-ord]:+-ord} ${getopts[-ord]} $pn | readeof listresp
+    if (( $#listresp==0 )); then if (( pn>1 )) || [[ $pn == 1 && "${getopts[-ord]}" == new && "${0%::*}" == kkmh ]]; then
       say $'\r'$0"($pn):EOF (${(q)getopts[-region]}:${(q)getopts[-status]})" >&2
       break
     else
@@ -510,6 +654,7 @@ function get:list::b22 {
     say >&2
   done
 }
+functions[get:list::kkmh]=${functions[get:list::b22]}
 
 function _delay_next {
   [[ -v pn ]] || local +x pn=$1
@@ -787,7 +932,6 @@ kkmh_status_map=(
 local -a +x kkmh_restapi_http_hdr=(
   'accept: application/json, text/plain, */*'
   'accept-language: zh-CN,zh;q=0.9,en-US;q=0.8,en;q=0.7'
-  'referer: https://www.kuaikanmanhua.com/tag/0'
   'user-agent-pc: PCKuaikan/1.0.0/100000(unknown;unknown;Chrome;pckuaikan;1920*1080;0)'
 )
 kkmh_restapi_http_hdr=(${curl_hdr_flag_arrplh:^^kkmh_restapi_http_hdr})
@@ -797,18 +941,19 @@ function fetch:list::kkmh {
   (( $# == 1 )); [[ "$1" == <1-> ]]; 1=$((argv[1]))
   ## region is requred, cause the response doesnot incl region info.
   [[ -v getopts[-region] ]]
-   [[ ${${(@k)kkmh_region_map}[(Ie)${getopts[-region]}]} != 0 ]]
+  [[ ${(@)${(@k)kkmh_region_map}[(Ie)${getopts[-region]}]} != 0 ]]
 
   [[ -v getopts[-status] ]]
-  [[ ${${(@k)kkmh_status_map}[(Ie)${getopts[-status]}]} != 0 ]]
+  [[ ${(@)${(@k)kkmh_status_map}[(Ie)${getopts[-status]}]} != 0 ]]
 
   if [[ -v getopts[-ord] ]]; then
-    [[ ${${(@k)kkmh_ord_map}[(Ie)${getopts[-ord]}]} != 0 ]]
+    [[ ${(@)${(@k)kkmh_ord_map}[(Ie)${getopts[-ord]}]} != 0 ]]
   else
     getopts[-ord]=new
   fi
 
   local +x jsonresp=; retry -w $((RANDOM%(${TMOUT:-19}+1))) 2 pipeok fie $kkmh_restapi_http_hdr \
+    --referer 'https://www.kuaikanmanhua.com/tag/0' \
     --url "https://www.kuaikanmanhua.com/search/mini/topic/multi_filter?page=$1&size=$ps&tag_id=0&update_status=${kkmh_status_map[${getopts[-status]}]}&pay_status=0&label_dimension_origin=${kkmh_region_map[${getopts[-region]}]}&sort=${kkmh_ord_map[${getopts[-ord]}]}" | readeof jsonresp
   integer +x ts=$EPOCHSECONDS
   printj $jsonresp | gojq -r --arg ts $ts --arg status ${b22_valid_status_notations[${getopts[-status]}]} --arg region ${getopts[-region]} --arg pn $1 --arg ord ${getopts[-ord]} --arg fn_name $0 -f <(builtin printf %s 'def resp_ok: if has("code") and (.code==200) and has("total") then
@@ -819,30 +964,29 @@ else
 end;
 
 resp_ok | [$ts,
-("kkmh:"+(.id|tostring)),
 (.title|gsub("[[:cntrl:]]"; "")|gsub("(^  *|  *$)";"")|gsub("   *";" "|gsub("\\\\";"\\\\"))),
-(.author_name|gsub("[[:cntrl:]]"; "")|gsub("(^  *|  *$)";"")|gsub("   *";" ")|gsub("(?<a>[^+])[+](?<b>[^+])"; (.a)+"、"+(.b))|gsub("\\\\";"\\\\")),
+("kkmh:"+(.id|tostring)),
 ($region+":"+$status)+(if $status=="." then ":"+(.comics_count|tostring) else "" end),
-(.first_comic_publish_time),
 (.vertical_image_url|sub("-w[0-9]{3,4}(|\\.w)$";"")),
 (.cover_image_url|sub("-w[0-9]{3,4}(|\\.w)$";"")),
-(if (.category|length>0) then .category|join("、") else empty end)
+(.author_name|gsub("[[:cntrl:]]"; "")|gsub("(^  *|  *$)";"")|gsub("   *";" ")|gsub("(?<a>[^+])[+](?<b>[^+])"; (.a)+"、"+(.b))|gsub("\\\\";"\\\\")),
+(.first_comic_publish_time),
+(if (.category|length>0) then .category|join("、") else "" end)
 ] | join("\t")')
 }
-
 function get:list::kkmh {
   local -A getopts
   zparseopts -A getopts -D -F - nonstop maxpn: region: status: ord:; (( $# <= 1 ))
   integer +x startpn=${1:-1} maxpn=${getopts[-maxpn]:--1}
   (( startpn>0 )); (( maxpn>=startpn||maxpn<0 ))
-  [[ ${${(@k)kkmh_ord_map}[(Ie)${getopts[-ord]}]} != 0 ]]
+  [[ ${(@)${(@k)kkmh_ord_map}[(Ie)${getopts[-ord]}]} != 0 ]]
   integer +x pn=$startpn
   local +x listfile=${0##*::}:${${0%%::*}#*:}.lst
   while ((pn<=maxpn||maxpn<0)); do
     local +x listresp=
     printj $0"($pn):? (${(q)getopts[-region]}${getopts[-ord]:+#}${getopts[-ord]}:${(q)getopts[-status]})" >&2
     fetch:list::${0##*:} -region "${getopts[-region]}" -status "${getopts[-status]}" -ord "${getopts[-ord]}" $pn | readeof listresp
-    if (( $#listresp==0 )); then if (( pn>1 )) || [[ $pn == 1 && "${getopts[-ord]}" != new ]]; then
+    if (( $#listresp==0 )); then if (( pn>1 )) || [[ $pn == 1 && "${getopts[-ord]}" == new ]]; then
       say $'\r'$0"($pn):EOF (${(q)getopts[-region]}${getopts[-ord]:+#}${getopts[-ord]}:${(q)getopts[-status]})" >&2
       break
     else
@@ -916,6 +1060,118 @@ function conv:id:ep2serial::kkmh {
 
 function get:nav-banner::kkmh {
   ${0%::*}::b22 -altsite ${0##*::}
+}
+
+function fetch-expand:list2item::kkmh {
+  while :; do
+    local -i +x i=
+    local -a +x listbuf=()
+    IFS= read -rA listbuf || break
+    listbuf=("${(@ps.\t.)listbuf}")
+    if [[ $#listbuf == 0 ]]; then break; fi
+    ## kkmh := ats, ti, svcid, regstaeps, vc, hc, aut, ep1relts, cat
+    [[ "${listbuf[3]}" == ${0##*::}:<1-> ]]
+    integer id=${listbuf[3]#${0##*::}:}
+    let $id
+    local +x ti=${(Q)listbuf[2]}
+    let $#ti
+    local +x jsonresp=
+    retry -w $((RANDOM%(${TMOUT:-19}+1))) 2 pipeok fie $kkmh_restapi_http_hdr --url 'https://www.kuaikanmanhua.com/search/web/complex' --url-query q=$ti --url-query f=3 \
+    --referer 'https://www.kuaikanmanhua.com/sou/%20' | readeof jsonresp
+    local +x reply=
+    printj $jsonresp | gojq --arg id $id --arg region "${listbuf[4]%%:*}" --arg aut "${listbuf[7]}" -r -f <(builtin printf %s 'def resp_ok: if has("code") and (.code==200) then
+  if (.data.topics.hit|length>0) then .data.topics.hit[]
+  else empty|halt end
+else
+  empty|halt_error
+end;
+
+def sanitstr: gsub("(^  *|  *$)";"")|gsub("[\t ]+";" ")|gsub("\t";"")|gsub("\\\\";"\\\\")|gsub("\n";"\\n")|gsub("[[:cntrl:]]";"");
+
+resp_ok | if ([select((.id|tostring)==$id)]|length==1) then
+  select((.id|tostring)==$id) | [
+    (.first_comic_publish_time|sub("\\.[0-9]{3,}\\+(?<zh>[0-9]{2}):(?<zm>[0-9]{2})$";"+"+(.zh)+(.zm))|strptime("%FT%T%z")|mktime),
+    (.title|sanitstr),
+    ($aut),
+    (.recommend_text as $intro | if (.description|contains($intro)|not) and (.title|contains($intro)|not) then .recommend_text|sanitstr else "" end),
+    (.description|sanitstr),
+    (.cover_image_url|sub("-w[0-9]{3,4}(|\\.w)(|\\.(jpg|png))$";"")),
+    (.vertical_image_url|sub("-w[0-9]{3,4}(|\\.w)(|\\.(jpg|png))$";"")),
+    ("kkmh:"+(.id|tostring)),
+    ($region+":"+(if (.update_status==2) then "." else
+      if (.update_status==1) then "~"
+      else "?"
+      end
+    end)+(if (.update_status==2) then ":"+(.comics_count|tostring) else "" end)),
+    (if (.category|length>0) then .category|join("、")|sanitstr else "" end),
+    (.sentence_desc|sanitstr|gsub(" ";"、"))
+  ] | join("\t")
+else
+  empty|halt
+end') | readeof reply
+    local -a +x replies=(${(ps.\n.)reply}) reconst_replies=()
+    if let $#replies; then
+      while (( $#replies != 0 )); do
+        local -a +x fcrepl=() reconst_reply=("${(@ps.\t.)${(@)replies[1]}}")
+        fetch-complement:item::kkmh $id | IFS= read -rA fcrepl
+        fcrepl=("${(@ps.\t.)fcrepl}")
+        local -a +x -U cats=(${(@s.、.)${(@)reconst_reply[10]}})
+        local -a +x -U tags=($cats ${(@s.、.)${(@)fcrepl[1]}})
+        if (( $#tags>$#cats )); then
+          tags=(${(@)tags:$#cats})
+        else
+          tags=()
+        fi
+        if [[ "${fcrepl[2]}" != '+' ]]; then
+          cats+=('投稿')
+          reconst_reply[10]=${(j.、.)cats}
+        fi
+        if (( $#tags )); then
+          if (( ${#reconst_reply[11]} )); then
+            reconst_reply[11]+=、
+          fi
+          reconst_reply[11]+=${(j.、.)tags}
+        fi
+        if (( (${fcrepl[3]:-0} > 0) && (EPOCHSECONDS - ${fcrepl[3]:-0} >= 31536000) )); then
+          reconst_reply[12]=${fcrepl[3]:-0}
+        fi
+        reconst_replies+=("${(@pj.\t.)reconst_reply}")
+        say "${(@pj.\t.)reconst_reply}"
+        shift replies
+      done
+      let $#reconst_replies
+    else
+      false left unimplmented
+    fi
+    i+=1
+    if (( i>100 && i%45==0 )); then
+      delay $((${RANDOM%19}+6))
+    fi
+  done
+}
+
+function fetch-complement:item::kkmh {
+  integer +x id=$1; (( $# == 1 && id > 0 ))
+  local +x htmlresp=
+  retry -w $((RANDOM%(${TMOUT:-19}+1))) 2 pipeok fios https://m.kuaikanmanhua.com/mobile/$id/list/ | readeof htmlresp
+  integer +x ts=$EPOCHSECONDS
+  (( $#htmlresp!=0 ))
+  local +x tag=
+  printj $htmlresp | html2data - 'div.classifications span' | readeof tag
+  tag=${${tag%[
+	 ]##}//
+/、}
+  if [[ $htmlresp == *[_a-zA-Z]([_a-zA-Z]|)'.signing_status="签约作品"'* ]]; then
+    local +x qy='+'
+  else
+    local +x qy=
+  fi
+  printj $tag${qy:+	}${qy}
+  local -a +x epts=()
+  if printj $htmlresp | rg --no-config -oe ',created_at:([0-9]{3,})[0-9]{3}' -r '$1' | readarray epts; then
+    printj $'\t'${epts[-1]}
+  fi
+  say
 }
 
 main "${(@)argv}"

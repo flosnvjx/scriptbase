@@ -72,6 +72,18 @@ if [[ ${#zshfns} -gt 0 ]]; then
   builtin autoload -kr -- $zshfns
 fi
 
+### trap
+trap '__=$ZSH_DEBUG_CMD' DEBUG
+if [[ -t 2 ]]; then
+  local traperr='builtin print -rP -- "${zsh_eval_context[-2]}: %F{white}${${0##*/}//\%/%%}%f exited with %B%F{red}[${(j.|.)pipestatus}]%f%b on command:
+  ${__//\%/%%}
+%% -- in L${funcfiletrace[1]##*:}, ${${${funcfiletrace[1]#$PWD/}//\%/%%}%:*} (\$PWD: ${PWD//\%/%%})" >&2'
+else
+  local traperr='builtin print -r -- "${zsh_eval_context[-2]}: ${0##*/} exited with [${(j.|.)pipestatus}], on ${(q)__} -- in L${funcfiletrace[1]##*:}, ${${funcfiletrace[1]#$PWD/}%:*} (\$PWD: ${PWD})" >&2'
+fi
+trap $traperr ZERR
+unset traperr
+
 ## --
 ZSH_ARGZERO=$1
 0=$1
