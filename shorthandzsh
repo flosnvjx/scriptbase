@@ -13,53 +13,57 @@ unsetopt banghist
 if [[ "${options[interactive]}" == off ]]; then
   unsetopt monitor
 fi
-setopt emacs && function {
-  # Make sure that the terminal is in application mode when zle is active, since only then values from $terminfo are valid
-  if (( ${+terminfo[smkx]} )) && (( ${+terminfo[rmkx]} )) {
-    function zle-line-init() {
-      builtin echoti smkx
+if [[ "$TERM" != dumb ]]; then
+  setopt emacs && function {
+    # Make sure that the terminal is in application mode when zle is active, since only then values from $terminfo are valid
+    if (( ${+terminfo[smkx]} )) && (( ${+terminfo[rmkx]} )) {
+      function zle-line-init() {
+        builtin echoti smkx
+      }
+      function zle-line-finish() {
+        builtin echoti rmkx
+      }
+      builtin zle -N zle-line-init
+      builtin zle -N zle-line-finish
     }
-    function zle-line-finish() {
-      builtin echoti rmkx
+    # [PageUp] - Up a line of history
+    if [[ -n "${terminfo[kpp]}" ]] {
+      builtin bindkey -M emacs "${terminfo[kpp]}" up-line-or-history
     }
-    builtin zle -N zle-line-init
-    builtin zle -N zle-line-finish
+    # [PageDown] - Down a line of history
+    if [[ -n "${terminfo[knp]}" ]] {
+      builtin bindkey -M emacs "${terminfo[knp]}" down-line-or-history
+    }
+    # Start typing + [Up-Arrow] - fuzzy find history forward
+    if [[ -n "${terminfo[kcuu1]}" ]] {
+      builtin autoload -U up-line-or-beginning-search
+      builtin zle -N up-line-or-beginning-search
+      builtin bindkey -M emacs "${terminfo[kcuu1]}" up-line-or-beginning-search
+    }
+    # Start typing + [Down-Arrow] - fuzzy find history backward
+    if [[ -n "${terminfo[kcud1]}" ]] {
+      builtin autoload -U down-line-or-beginning-search
+      builtin zle -N down-line-or-beginning-search
+      builtin bindkey -M emacs "${terminfo[kcud1]}" down-line-or-beginning-search
+    }
+    # [Home] - Go to beginning of line
+    if [[ -n "${terminfo[khome]}" ]] {
+      builtin bindkey -M emacs "${terminfo[khome]}" beginning-of-line
+    }
+    # [End] - Go to end of line
+    if [[ -n "${terminfo[kend]}" ]] {
+      builtin bindkey -M emacs "${terminfo[kend]}"  end-of-line
+    }
+    # [Delete] - delete forward
+    if [[ -n "${terminfo[kdch1]}" ]] {
+      builtin bindkey -M emacs "${terminfo[kdch1]}" delete-char
+    }
+    builtin bindkey '^I' expand-word
+    builtin zstyle -e ':completion::complete:-value-*:*' use-compctl 'reply=no'
   }
-  # [PageUp] - Up a line of history
-  if [[ -n "${terminfo[kpp]}" ]] {
-    builtin bindkey -M emacs "${terminfo[kpp]}" up-line-or-history
-  }
-  # [PageDown] - Down a line of history
-  if [[ -n "${terminfo[knp]}" ]] {
-    builtin bindkey -M emacs "${terminfo[knp]}" down-line-or-history
-  }
-  # Start typing + [Up-Arrow] - fuzzy find history forward
-  if [[ -n "${terminfo[kcuu1]}" ]] {
-    builtin autoload -U up-line-or-beginning-search
-    builtin zle -N up-line-or-beginning-search
-    builtin bindkey -M emacs "${terminfo[kcuu1]}" up-line-or-beginning-search
-  }
-  # Start typing + [Down-Arrow] - fuzzy find history backward
-  if [[ -n "${terminfo[kcud1]}" ]] {
-    builtin autoload -U down-line-or-beginning-search
-    builtin zle -N down-line-or-beginning-search
-    builtin bindkey -M emacs "${terminfo[kcud1]}" down-line-or-beginning-search
-  }
-  # [Home] - Go to beginning of line
-  if [[ -n "${terminfo[khome]}" ]] {
-    builtin bindkey -M emacs "${terminfo[khome]}" beginning-of-line
-  }
-  # [End] - Go to end of line
-  if [[ -n "${terminfo[kend]}" ]] {
-    builtin bindkey -M emacs "${terminfo[kend]}"  end-of-line
-  }
-  # [Delete] - delete forward
-  if [[ -n "${terminfo[kdch1]}" ]] {
-    builtin bindkey -M emacs "${terminfo[kdch1]}" delete-char
-  }
-  builtin bindkey '^I' expand-word
-  builtin zstyle -e ':completion::complete:-value-*:*' use-compctl 'reply=no'
-}
+else
+  unset zle_bracketed_paste
+fi
 
 ## zshmisc
 ### aliases

@@ -9,7 +9,7 @@
 ## A/s:param, set to assoc/scalar
 ## cs: concat string var
 ## ps: prep string var
-setfield() {
+readfield() {
   local -A __setfield_getopts
   builtin zparseopts -A __setfield_getopts -D -F - t: v: s: exceed-fields: min-fields: max-fields: || return 128
   local +x __setfield_sep='\t'
