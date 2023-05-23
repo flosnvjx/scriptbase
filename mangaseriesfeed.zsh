@@ -82,7 +82,7 @@ function syncdb::kkmh {
   fi
   integer +x syncdb_startts=$EPOCHSECONDS
   local +x i=; for i in ${(@)^syncdb_regions}:${(@)^syncdb_statuses}; do
-    get:list::${0##*::} -region "${i%%:*}" -status "${i##*:}" -ord rec || return
+    get:list::${0##*::} -region "${i%%:*}" -status "${i##*:}" -ord new || return
   done; unset i
   integer +x syncdb_endts=$EPOCHSECONDS
 
