@@ -7,7 +7,7 @@ fi
 setopt cdsilent
 setopt posixcd
 setopt extendedglob
-setopt errreturn
+setopt errexit errreturn
 setopt pipefail
 unsetopt banghist
 if [[ "${options[interactive]}" == off ]]; then

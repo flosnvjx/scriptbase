@@ -2,11 +2,11 @@ function fnclone {
   (( # >= 2 ))
   (( ${(@)argv[(Ie)]} == 0 ))
   (( ${(@)argv[(Ie)$0]} == 0 ))
-  let ${(@)functions[(Ie)$1]}
+  (( ${#functions[$1]} ))
   (( ${(@)argv[(I)*[^[:graph:][:space:]]*]} == 0 ))
   until (( # == 1 )); do
     ## do not use functions[fname]=fbody assignment, which randomly turns Unicode char in source fnbody into gibberish
-    eval function ${(q)-1} "{  ${functions[$1]}  }"
+    eval function ${(q)argv[-1]} "{  ${functions[$1]}  }"
     shift -p
   done
 }
