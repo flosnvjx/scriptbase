@@ -210,7 +210,7 @@ function gen:bgmwiki::b22 {
   clip-or-print $infobox
   if [[ -v getopts[-c] ]]; then
     printj '(已复制wiki)...'
-    rlwrap head -n1 &>/dev/null
+    vared 'argv[-1]'
   fi
   local +x descbox=
   printj ${^intro}——$'\n\n' $desc | readeof descbox
@@ -218,7 +218,7 @@ function gen:bgmwiki::b22 {
     clip-or-print $descbox
   if [[ -v getopts[-c] ]]; then
     printj '(已复制desc: '${descbox[1,10]}')'
-    rlwrap head -n1 &>/dev/null
+    vared 'argv[-1]' >/dev/null
   fi
   fi
   say ${${${(j. .)tags}//、/ }//：/ }
