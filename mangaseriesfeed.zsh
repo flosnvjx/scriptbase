@@ -640,7 +640,7 @@ function get:list::b22 {
     local +x listresp=
     printj $0"($pn):? (${(q)getopts[-region]}:${(q)getopts[-status]})" >&2
     fetch:list::${0##*::} -region "${getopts[-region]}" -status "${getopts[-status]}" ${getopts[-ord]:+-ord} ${getopts[-ord]} $pn | readeof listresp
-    if (( $#listresp==0 )); then if (( pn>1 )) || [[ $pn == 1 && "${getopts[-ord]}" == new && "${0%::*}" == kkmh ]]; then
+    if (( $#listresp==0 )); then if (( pn>1 )) || [[ $pn == 1 && "${getopts[-ord]}" == new && "${0##*::}" == kkmh ]]; then
       say $'\r'$0"($pn):EOF (${(q)getopts[-region]}:${(q)getopts[-status]})" >&2
       break
     else
