@@ -52,6 +52,9 @@ function syncdb::b22 {
   local +x i=; for i in ${(@)^syncdb_regions}:${(@)^syncdb_statuses}; do
     get:list::${0##*::} -region "${i%%:*}" -status "${i##*:}"
   done; unset i
+  local +x i=; for i in ${(@)^syncdb_regions}:ing; do
+    get:list::${0##*::} -region "${i%%:*}" -status "${i##*:}" -ord upd
+  done; unset i
   integer +x syncdb_endts=$EPOCHSECONDS
 
   local +x query_buf=
@@ -851,7 +854,7 @@ resp_ok | .[] | select((.jump_value|match("^bilicomic://reader/([0-9]+)")|.captu
 
 function fetch:list::b22 {
   local -A getopts
-  zparseopts -A getopts -D -F - region: status:
+  zparseopts -A getopts -D -F - region: status: ord:
   integer +x b22_list_area_id=
   case "${getopts[-region]}" in
     (cn) b22_list_area_id=1;;
@@ -867,6 +870,14 @@ function fetch:list::b22 {
     (all)      b22_list_order=3; b22_list_is_finish=-1;;
     (*) return 128;;
   esac
+  if [[ -v getopts[-ord] ]]; then
+    case "${getopts[-ord]}" in
+      (upd) b22_list_order=1;;
+      (new) b22_list_order=3;;
+      (*) return 9
+      ;;
+    esac
+  fi
   (( $# == 1 )); [[ "$1" == <1-> ]]; 1=$((argv[1]))
   local +x jsonresp=
   retry -w $((RANDOM%(${TMOUT:-19}+1))) 2 pipeok fie $b22_restapi_http_hdr \
