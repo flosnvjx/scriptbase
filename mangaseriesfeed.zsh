@@ -1008,7 +1008,7 @@ function get:list::kkmh {
   while ((pn<=maxpn||maxpn<0)); do
     local +x listresp=
     printj $0"($pn):? (${(q)getopts[-region]}${getopts[-ord]:+#}${getopts[-ord]}:${(q)getopts[-status]})" >&2
-    fetch:list::${0##*:} -region "${getopts[-region]}" -status "${getopts[-status]}" -ord "${getopts[-ord]}" $pn | readeof listresp
+    fetch:list::${0##*::} -region "${getopts[-region]}" -status "${getopts[-status]}" -ord "${getopts[-ord]}" $pn | readeof listresp
     if (( $#listresp==0 )); then if (( pn>1 )) || [[ $pn == 1 && "${getopts[-ord]}" == new ]]; then
       say $'\r'$0"($pn):EOF (${(q)getopts[-region]}${getopts[-ord]:+#}${getopts[-ord]}:${(q)getopts[-status]})" >&2
       break

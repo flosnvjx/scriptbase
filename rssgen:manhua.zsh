@@ -50,18 +50,18 @@ readonly -a +x excl_ep_ti_re=(
   '周年|元旦|新年|元宵|新禧|佳节|春节|新春|清明|端午|中秋|国庆|祖国|圣诞'
 )
 
-alias 'initparse__argv0=local +x act=${${0%%::*}%%:*} actwhat=${${0%%::*}#*:} svc=${${0##*::}%%+*}
+alias 'initparse__argv0=local +x act=${${0%%::*}%%:*} res=${${0%%::*}#*:} svc=${${0##*::}%%+*}
   if [[ "${#0##*::}" -gt "${#${0##*::}%%+*}" ]]; then
-    local +x anc=${${${0##*::}##*+}%%"#"*}
+    local +x chan=${${${0##*::}##*+}%%"#"*}
     if [[ "${${0##*::}##*+}" == *"#"* ]]; then
-      local +x subanc=${${${0##*::}##*+}#*"#"}
+      local +x anc=${${${0##*::}##*+}#*"#"}
     else
-      local +x subanc=
+      local +x anc=
     fi
   else
-    local +x anc= subanc=
+    local +x chan= anc=
   fi
-  if [[ "$0" != "$act${actwhat:+:}$actwhat::${svc}${anc:+"+"}${anc}"${subanc:+"#"}${subanc} ]]; then
+  if [[ "$0" != "$act${res:+:}$res::${svc}${chan:+"+"}${chan}"${anc:+"#"}${anc} ]]; then
     false failure during parsing argc0
   fi'
 
@@ -239,7 +239,7 @@ function 'fetch:list::txac+pchtml#end' {
   initparse__argv0
 
   local htmlresp
-  pipeok fie --url 'https://ac.qq.com/Comic/all/finish/'${txac__mh_st_smap[$subanc]}'/search/time/page/'$pn | nfkc | readeof htmlresp
+  pipeok fie --url 'https://ac.qq.com/Comic/all/finish/'${txac__mh_st_smap[$anc]}'/search/time/page/'$pn | nfkc | readeof htmlresp
   local ts=$EPOCHSECONDS
   (( $#htmlresp ))
 
@@ -261,8 +261,8 @@ function 'fetch:list::txac+pchtml#end' {
       if [[ "${html_li[1]}" == *' class="ui-icon-exclusive"'* ]]; then
         xattr+=(u)
       fi
-      stat[1]="${mh_st_smap[$subanc]}"
-      if [[ "$subanc" == end ]]; then
+      stat[1]="${mh_st_smap[$anc]}"
+      if [[ "$anc" == end ]]; then
         unset epcount; local epcount
         printj ${html_li[1]} | html2data - 'span.mod-cover-list-text' | readaline epcount
         integer epcount=${${epcount#全}%话}
