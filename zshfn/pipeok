@@ -3,6 +3,7 @@ pipeok() {
   if [[ "${options[pipefail]}" != on ]]; then
     builtin setopt localoptions pipefail
   fi
+  local __pipeok_buf
   if eval "${(@q)argv}" | readeof __pipeok_buf; then
     builtin printf %s $__pipeok_buf
   else

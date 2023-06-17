@@ -1,0 +1,47 @@
+#!/usr/bin/env shorthandzsh
+## vim:syntax=zsh
+alias Ouropts='builtin zparseopts -K -D -F -A Ouropts - v a A '
+function fetch {
+  [[ -o functionargzero ]]
+  local Act=$0
+
+  local -A Ouropts
+
+  Ouropts
+  [[ "What:$argv[1]" != "What:" ]]
+    local What=$argv[1]
+    shift
+  Ouropts
+  local Svc Chan Anch
+  if [[ "Svc:$argv[1]" != "Svc:" ]] {
+    Svc=$argv[1]
+    shift
+    Ouropts
+
+    if [[ "$Svc" == *'+'* ]] {
+      Chan=${Svc#*'+'}
+      [[ "Chan:$Chan" != "Chan:" ]]
+      [[ "$Chan" != *'+'* ]]
+      Svc=${Svc%%'+'*}
+      [[ "Svc:$Svc" != "Svc:" ]]
+      if [[ "$Chan" == *'#'* ]] {
+        [[ "$Svc" != *'#'* ]]
+        Anch=${Chan#*'#'}
+        [[ "Anch:$Anch" != "Anch:" ]]
+        [[ "$Anch" != *'#'* ]]
+        Chan=${Chan%%'#'*}
+        [[ "Chan:$Chan" != "Chan:" ]]
+      } elif [[ "$Svc" == *'#'* ]] {
+        Anch=${Svc#*'#'}
+        [[ "Anch:$Anch" != "Anch:" ]]
+        [[ "$Anch" != *'#'* ]]
+        Svc=${Svc%%'#'*}
+        [[ "Svc:$Svc" != "Svc:" ]]
+      }
+    }
+  }
+  call "$Act${What:+':'}$What${Svc:+'::'}$Svc${Chan:+'+'}$Chan${Anch:+'#'}$Anch" "${(@)argv}"
+}
+fnclone fetch get gen sync
+
+"${(@)argv}"

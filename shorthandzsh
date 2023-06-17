@@ -10,10 +10,11 @@ setopt extendedglob
 setopt errexit errreturn
 setopt pipefail
 unsetopt banghist
+setopt warncreateglobal
 if [[ "${options[interactive]}" == off ]]; then
   unsetopt monitor
 fi
-if [[ "$TERM" != dumb ]]; then
+if [[ "$TERM" != dumb ]] && [[ -n "$TERM" ]]; then
   setopt emacs && function {
     # Make sure that the terminal is in application mode when zle is active, since only then values from $terminfo are valid
     if (( ${+terminfo[smkx]} )) && (( ${+terminfo[rmkx]} )) {
@@ -66,9 +67,9 @@ else
 fi
 
 ## zshmisc
-### aliases
 alias printj='builtin printf %s'
 alias say='builtin print -r --'
+alias call='function { 0=$argv[1]; shift; [[ -n "$argv[1]" ]]; [[ "$argv[1]" != "$0" ]]; [[ ${(@)${(@k)aliases}[(Ie)${argv[1]}]} -eq 0 ]]; [[ ${(@)${(@k)functions}[(Ie)${argv[1]}]} -ne 0 ]]; "${(@)argv}" } "$0"'
 
 alias rg='command rg --no-config'
 
@@ -77,6 +78,9 @@ local +x -a zshfns=(${ZSH_ARGZERO%/*}/zshfn/*(.N))
 if [[ ${#zshfns} -gt 0 ]]; then
   builtin autoload -kr -- $zshfns
 fi
+
+### modules
+builtin zmodload -Fa zsh/zutil b:zparseopts
 
 ### trap
 trap '__=$ZSH_DEBUG_CMD' DEBUG

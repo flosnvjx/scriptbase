@@ -73,7 +73,7 @@ readfield() {
         : ${(P)1::=${__setfield_fields[1]}}
         ;;
     esac
-    shift __setfield_fields
+    if (( $#__setfield_fields )); then shift __setfield_fields; fi
     shift
   done
   if [[ ${#__setfield_fields} -gt 0 ]]; then

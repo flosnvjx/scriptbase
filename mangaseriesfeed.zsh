@@ -52,9 +52,6 @@ function syncdb::b22 {
   local +x i=; for i in ${(@)^syncdb_regions}:${(@)^syncdb_statuses}; do
     get:list::${0##*::} -region "${i%%:*}" -status "${i##*:}"
   done; unset i
-  local +x i=; for i in ${(@)^syncdb_regions}:ing; do
-    get:list::${0##*::} -region "${i%%:*}" -status "${i##*:}" -ord upd
-  done; unset i
   integer +x syncdb_endts=$EPOCHSECONDS
 
   local +x query_buf=
@@ -275,7 +272,7 @@ function gen:xml::kkmh {
       ),"html",$10,aut,"",reg
     }'
     local +x bbuf=
-    query:item::${0##*::} -status $wsta -region $wreg | gawk -F $'\t' -v OFS=$'\t' -v urlprefix="https://www.kuaikanmanhua.com/web/topic/" -v reg=$wreg -f <(builtin printf %s $awkprog) |sfeed_atom|sed -e '3,4s%[Nn]ewsfeed%'${0##*::}-$wreg-$wsta'%'| readeof bbuf
+    query:item::${0##*::} -status $wsta -region $wreg | gawk -F $'\t' -v OFS=$'\t' -v urlprefix="https://www.kuaikanmanhua.com/web/topic/" -v reg=$wreg -f <(builtin printf %s $awkprog) | sfeed_atom | sed -e '3,4s%[Nn]ewsfeed%'${0##*::}-$wreg-$wsta'%'| readeof bbuf
     if (( $#bbuf>0 )); then
       local +x md5b= md5a=
       if [[ -e "$xmlfile" ]]; then
@@ -472,10 +469,11 @@ function query:item::b22 {
   fi
   if [[ "${0##*::}" == b22 ]]; then
   local -a +x patexps=('$10 ~ /^'${0##*::}':[0-9]+$/' '$11 !~ /:_$/')
+  patexps+=('! printed_ids[$10]++')
   else
   local -a +x patexps=('$8 ~ /^'${0##*::}':[0-9]+$/' '$9 !~ /:_$/')
+  patexps+=('! printed_ids[$8]++')
   fi
-  patexps+=('! printed_ids[$10]++')
   local +x mints=${getopts[-mints]} maxts=${getopts[-maxts]}
   if [[ -v getopts[-mints] ]]; then
     [[ "$mints" == <1-> ]]
