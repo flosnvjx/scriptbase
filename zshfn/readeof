@@ -1,23 +1,48 @@
-readeof() {
+function readeof {
+  ((#&&#<3)) || return 128
+  [[ "${(Pt)1}" != *(readonly|float|integer|special)* ]] || return 8
   case "$1" in
-    (__readeof_*)
-      return 9
+    ([_A-Za-z]([_0-9A-Za-z])#)
+      ((#==1)) || return 128
+      [[ "${(Pt)1}" == (scalar*|) ]] || return 8
+    ;;
+    ([Am]:[_A-Za-z]([_0-9A-Za-z])#)
+      ((#==2)) || return 128
+      [[ -n "$2" ]] || return 7
+      [[ "${(Pt)1}" == (association*|) ]] || return 8
+    ;;
+    (*)
+      return 7
     ;;
   esac
-  local +x __readeof_b_u_f=
-  local +x -i __readeof_b_u_f_l_e_n= ERRNO= __readeof_e_x_i_t=
-  local +x -a __readeof_b_u_f_a_r_r=()
-  while builtin sysread -c __readeof_b_u_f_l_e_n __readeof_b_u_f; do
-    if [[ $__readeof_b_u_f_l_e_n == 0 ]]; then break; fi
-    __readeof_b_u_f_a_r_r+=($__readeof_b_u_f)
+
+  local ERRNO
+  3= ## := current_read_buf_length
+  4= ## := function_exit_status
+  # #+1 := current_read_buf
+  while builtin sysread -c 3 $((#+1)); do
+    if [[ "$3" == 0 ]]; then break; fi
+    if (( ${3:-"-1"} && #==4 )); then return 99; fi
   done
   case $? in
-    (0|5) true;;
-    (2|3) __readeof_e_x_i_t=$ERRNO;;
-    (1|*) __readeof_e_x_i_t=1;;
+    (0|5);;
+    (2|3) 4=$ERRNO;;
+    (1|*) 4=1;;
   esac
-
-  : ${(P)${1:-reply}::=${(j::)__readeof_b_u_f_a_r_r}}
-  return $__readeof_e_x_i_t
+  case "$1" in
+    ([Am]:*)
+      if [[ ! -v "${1#*:}" ]]; then
+        declare -gA "${1#*:}"
+        set -A "${1#*:}" "$2" "${(j..)argv[5,-1]}"
+      else
+        eval ${1#*:}'[$2]="${(j..)argv[5,-1]}"'
+      fi
+      ;;
+    (*)
+      : ${(Pt)1::="${(j..)argv[5,-1]}"}
+      ;;
+  esac
+  return ${4:-0}
 }
 builtin zmodload -Fa zsh/system b:sysread
+## vim:syntax=zsh
