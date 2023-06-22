@@ -69,7 +69,7 @@ fi
 ## zshmisc
 alias printj='builtin printf %s'
 alias say='builtin print -r --'
-alias call='function { 0=$argv[1]; shift; [[ -n "$argv[1]" ]]; [[ "$argv[1]" != "$0" ]]; [[ ${(@)${(@k)aliases}[(Ie)${argv[1]}]} -eq 0 ]]; [[ ${(@)${(@k)functions}[(Ie)${argv[1]}]} -ne 0 ]]; "${(@)argv}" } "$0"'
+alias call='function { ((#>1)); 0=$argv[1]; shift; [[ -n "$argv[1]" ]]; [[ ${(@)${(@k)aliases}[(Ie)${argv[1]}]} -eq 0 ]]; [[ ${(@)${(@k)functions}[(Ie)${argv[1]}]} -ne 0 ]]; "${(@)argv}" } "$0"'
 
 alias rg='command rg --no-config'
 
