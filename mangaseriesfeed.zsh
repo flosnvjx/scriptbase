@@ -125,7 +125,7 @@ function clip-or-print {
   if [[ -v getopts[-c] ]]; then
     printj "${(@)argv}" | termux-clipboard-set
   else
-    printj "${(@)argv}"
+    printj "${(@)argv}" | less -s~ -Ps
   fi
 }
 
@@ -186,20 +186,20 @@ function gen:bgmwiki::b22 {
 |脚本= 
 |分镜= 
 |作画= 
+|上色= 
+|场景建模= 
 |监制= 
 |制作= $auts
 |制作协力= 
+|制作协调= 
 |出品= 
-|製作= 
 |责任编辑= 
 |开始= $ts
 |结束= $endts
 |连载杂志= $magti
-|出版社= 
-|发售日= 
-|备注= 
-|ISBN= 
 |话数= 
+|发售日= 
+|出版社= 
 |别名={
 }
 }}"
@@ -253,7 +253,7 @@ function gen:xml::kkmh {
       hc=$6
       vc=$7
 
-      st=$9; sub(/^[a-z][a-z]:/,"",st)
+      st=$9; sub(/^[-a-z]+:/,"",st)
       ch=st; sub(/^.(:|)/,"",ch); sub(/:[-0-9.]+$/,"",st)
 
       style=$10; gsub(/ /,"",style)
@@ -500,8 +500,14 @@ function query:item::b22 {
     [[ ${#getopts[-region]} -gt 0 ]]
     regions=("${(@s.,.)getopts[-region]}")
     [[ ${#regions} -gt 0 ]]
-    [[ ${regions[(I)^(${(j.|.)b22_region_names})|]} -eq 0 ]]
-    [[ ${regions[(I)${(j.|.)b22_region_names}]} -gt 0 ]]
+    if [[ ${0##*::} == b22 ]]; then
+      [[ ${regions[(I)^(${(j.|.)b22_region_names})|]} -eq 0 ]]
+      [[ ${regions[(I)${(j.|.)b22_region_names}]} -gt 0 ]]
+    elif [[ ${0##*::} == kkmh ]]; then
+      [[ ${(@)regions[(I)^(${(@j.|.)${(@k)kkmh_region_map}})|]} -eq 0 ]]
+      [[ ${(@)regions[(I)${(@j.|.)${(@k)kkmh_region_map}}]} -gt 0 ]]
+    else false txdm tbd
+    fi
   fi
   if [[ -v getopts[-status] ]]; then
     [[ ${#getopts[-status]} -gt 0 ]]
@@ -667,7 +673,7 @@ function get:list::b22 {
     say >&2
   done
 }
-functions[get:list::kkmh]=${functions[get:list::b22]}
+#functions[get:list::kkmh]=${functions[get:list::b22]}
 
 function _delay_next {
   [[ -v pn ]] || local +x pn=$1
@@ -935,6 +941,7 @@ end')
 
 local -A kkmh_region_map
 kkmh_region_map=(
+  cn-original 1
   cn 2
   kr 3
   jp 4
@@ -975,7 +982,7 @@ function fetch:list::kkmh {
 
   local +x jsonresp=; retry -w $((RANDOM%(${TMOUT:-19}+1))) 2 pipeok fie $kkmh_restapi_http_hdr \
     --referer 'https://www.kuaikanmanhua.com/tag/0' \
-    --url "https://www.kuaikanmanhua.com/search/mini/topic/multi_filter?page=$1&size=$ps&tag_id=0&update_status=${kkmh_status_map[${getopts[-status]}]}&pay_status=0&label_dimension_origin=${kkmh_region_map[${getopts[-region]}]}&sort=${kkmh_ord_map[${getopts[-ord]}]}" | readeof jsonresp
+    --url "https://www.kuaikanmanhua.com/search/mini/topic/multi_filter?page=$1&size=$ps&tag_id=${${${getopts[-region]:#^(cn-original)}:+76}:-0}&update_status=${kkmh_status_map[${getopts[-status]}]}&pay_status=0&label_dimension_origin=${kkmh_region_map[${getopts[-region]}]}&sort=${kkmh_ord_map[${getopts[-ord]}]}" | readeof jsonresp
   integer +x ts=$EPOCHSECONDS
   printj $jsonresp | gojq -r --arg ts $ts --arg status ${b22_valid_status_notations[${getopts[-status]}]} --arg region ${getopts[-region]} --arg pn $1 --arg ord ${getopts[-ord]} --arg fn_name $0 -f <(builtin printf %s 'def resp_ok: if has("code") and (.code==200) and has("total") then
   if (.hits.topicMessageList|length>0) then .hits.topicMessageList[]

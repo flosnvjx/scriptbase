@@ -1,47 +1,351 @@
 #!/usr/bin/env shorthandzsh
-## vim:syntax=zsh
-alias Ouropts='builtin zparseopts -K -D -F -A Ouropts - v a A '
-function fetch {
-  [[ -o functionargzero ]]
-  local Act=$0
+## vim:syntax=zsh:foldmethod=marker
+# preamble {{{
+alias nfkc='uconv -x ":: NFKC; [[[:General_Category=Format:][:General_Category=Nonspacing_Mark:][:print=No:][:Cc:]] - [\u000A]] >;"'
+alias mulrg='rg -U --multiline-dotall'
+alias '@read=IFS= builtin read -r --'
+alias furl='command curl -qgsf --compressed'
+alias fie='furl -A "Mozilla/5.0 (Windows NT 6.3; Trident/7.0; rv 11.0) like Gecko"'
+alias fios='furl -A "Mozilla/5.0 (iPhone; CPU iPhone OS 14_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/14.0 EdgiOS/46.3.7 Mobile/15E148 Safari/605.1.15"'
+builtin zmodload -Fa zsh/datetime b:strftime p:EPOCHSECONDS
+# }}}
 
-  local -A Ouropts
+declare -a Tabcols=(
+  bonjour
+  id
+  title
+  contrib ## author
+  region
+  type
+  stat
+  lastep totalep
+  vcover hcover icon albumimg
+  category desc tag summ
+  id2 title2 ## prequel/related/collection
+  date ## btime/mtime
+  date2 ## mtime
+  xattr ## single-letter denotable attributes
+)
+declare -A Statsmap
+Statsmap=(
+  ing '~'  end .
+  tba '?'  err '!'
+  dummy '@'
+)
 
-  Ouropts
-  [[ "What:$argv[1]" != "What:" ]]
-    local What=$argv[1]
+function warn {
+  say "${(@)argv}" >&2
+}
+function sanitscalar {
+  ((#)); while ((#)); do
+    if [[ -v "$1" ]] {
+      case "${(Pt)1}" {
+        (scalar|scalar-local)
+          if (($#1)) {
+            : ${(P)1::=${${${${${${${(P)1}//\\/\\\\}%%( |	||
+)##}##( |	||
+)##}//
+/\\n}//	/\\t}///\\v}}
+          }
+        ;;
+        (*) warn "$0: skip unsupported type $1:${(Pt)1}"
+        ;;
+      }
+    }
     shift
-  Ouropts
-  local Svc Chan Anch
-  if [[ "Svc:$argv[1]" != "Svc:" ]] {
-    Svc=$argv[1]
+  done
+}
+function sanitarray {
+  ((#)); while ((#)); do
+    if [[ -v "$1" ]] {
+      case "${(Pt)1}" {
+        (array|array-local)
+          if ((${(Pcj..)#1})) {
+            set -A "$1" "${(@)${(@)${(@)${(@)${(@)${(@)${(P@)1}//\\/\\\\}%%( |	|
+)##}##( |	|
+)##}//
+/\\n}//	/\\t}//}"
+          }
+        ;;
+        (*) warn "$0: skip unsupported type $1:${(Pt)1}"
+        ;;
+      }
+    }
     shift
-    Ouropts
+  done
+}
 
-    if [[ "$Svc" == *'+'* ]] {
-      Chan=${Svc#*'+'}
-      [[ "Chan:$Chan" != "Chan:" ]]
-      [[ "$Chan" != *'+'* ]]
-      Svc=${Svc%%'+'*}
-      [[ "Svc:$Svc" != "Svc:" ]]
-      if [[ "$Chan" == *'#'* ]] {
-        [[ "$Svc" != *'#'* ]]
-        Anch=${Chan#*'#'}
-        [[ "Anch:$Anch" != "Anch:" ]]
-        [[ "$Anch" != *'#'* ]]
-        Chan=${Chan%%'#'*}
-        [[ "Chan:$Chan" != "Chan:" ]]
-      } elif [[ "$Svc" == *'#'* ]] {
-        Anch=${Svc#*'#'}
-        [[ "Anch:$Anch" != "Anch:" ]]
-        [[ "$Anch" != *'#'* ]]
-        Svc=${Svc%%'#'*}
-        [[ "Svc:$Svc" != "Svc:" ]]
+readonly -a +x excl_ep_ti_re=(
+  '敬请期待|先导|前瞻|预告|预热|预览|放料|人物|人设|介绍|新作|上线|连载'
+  '福利|抽奖|开奖|中奖|兑奖|月票|投喂|活动|加料|订阅|关注|不见不散|平台|^序$|说明|通知|通告|请假|假条|更新|延迟|延更|开更|开刊'
+  '完结|致谢|鸣谢|停更|整改|下架|复更|加更|作者的话'
+  '内测|(新|星)势力|主站'
+  'bilibili|哔哩哔哩|快看|KKworld|出展|动漫嘉年华|动漫节|国际动漫|ChinaJoy|COMICUP|腾讯动漫|阅文|企鹅娘'
+  '动画|开播|漫剧|漫动画|有声漫画|Vcomic|广播剧|电视剧|剧场版|单行本|发售|上架|正式|线下|签售'
+  '周边|赠品|抱枕|明信片|鼠标垫|立牌|Q币|好礼|券'
+  '背景|设定|图鉴|鉴赏|百科|小课堂'
+  '番外|小剧场|花絮|(制|创)作团队|寄语|原作'
+  '贺图|(祝|贺)(—|:|：)|祝贺|庆祝|恭贺|谨贺'
+  '周年|元旦|新年|元宵|新禧|佳节|春节|新春|清明|端午|中秋|国庆|祖国|圣诞'
+)
+local -A Liststatmap
+Liststatmap=(
+  end 2
+  ing 1
+)
+local -a H5listchan=(
+  tm
+  dj
+  wj #完结
+  rm #日漫
+  na #恋爱
+  xh #玄幻
+  rx #热血
+  xy #悬疑
+  sv #少女
+  hm #韩漫
+  kh
+  qcxy
+  ds #都市
+  zy #治愈
+  kb #恐怖
+  yg #妖怪
+)
+function fetch:list+h5 {
+  ((#==2))
+  eval '[[ "$1" == ('${(pj.|.)H5listchan}') ]]'
+  [[ "$2" == [1-9][0-9]# ]]
+  local default_bonjour htmlresp
+  local -a records
+}
+function fetch:list+htm@ing {
+  ((#==1)); [[ "$1" == [1-9][0-9]# ]]
+  local default_${^Tabcols} htmlresp record
+  local -a records
+
+  pipeok fie "https://ac.qq.com/Comic/all/finish/${Liststatmap[${0##*@}]}/search/time/page/$1" | nfkc | readeof htmlresp
+  default_bonjour=$EPOCHSECONDS
+  ((#htmlresp))
+  ## on out-of-pn-range this will return false
+  if printj $htmlresp | mulrg -oe '<ul class="ret-search-list clearfix">.+?</ul>' | readeof htmlresp; then
+    printj $htmlresp | mulrg -oe '<li class="ret-search-item clearfix">(.+?)</li>' -r '$1'$'\v' | readeof htmlresp
+    local -a htmlresp_splice=(${(ps.\v.)htmlresp})
+    while ((#htmlresp_splice)); do
+      unset record; local record
+      unset $Tabcols; local $Tabcols
+      bonjour=${default_bonjour}
+      printj $htmlresp_splice[1] | html2data - 'h3.ret-works-title > a:attr(title)' | @read title; sanitscalar title
+      ((#title))
+      printj $htmlresp_splice[1] | pup 'div.ret-works-cover img:nth-of-type(1)' 'attr{data-original}' | @read vcover
+      ((#vcover))
+      vcover=${vcover%/[0-9]##}/0
+      if [[ "${htmlresp_splice[1]}" == *' class="ui-icon-sign"'* ]]; then
+        xattr+=${xattr:+''}L
+      fi
+      if [[ "${htmlresp_splice[1]}" == *' class="ui-icon-exclusive"'* ]]; then
+        xattr+=${xattr:+''}U
+      fi
+      stat=${Statsmap[${0##*@}]}
+      if [[ "${0##*@}" == end ]]; then
+        printj ${htmlresp_splice[1]} | html2data - 'span.mod-cover-list-text' | @read totalep
+        totalep=${${totalep#全}%话}
+        [[ "$totalep" == <1-> ]]
+      fi
+      printj ${htmlresp_splice[1]} | pup -p 'p.ret-works-tags span[href]' 'text{}' | readeof category
+      category=${(pj.\v.)${(@ps.\n.)category}}
+      printj ${htmlresp_splice[1]} | pup 'a.ret-works-view' 'attr{href}' | @read id
+      id=txac:${id##*/}
+      [[ "$id" == txac:<1-> ]]
+      join2strvar $Tabcols record
+      if [[ -v fetlis_htm ]] && [[ "${(t)fetlis_htm}" == association(|-local) ]]; then
+        fetlis_htm[${id}]=$record
+        if [[ -v fetlis_htm_queue ]] && [[ "${(t)fetlis_htm_queue}" == array(|-local) ]]; then
+          fetlis_htm_queue+=($id)
+        fi
+      fi
+      records+=(${record%(	)##})
+      shift htmlresp_splice
+      if [[ "${htmlresp_splice[1]}" == ($'\n'|$'\t'| )## ]]; then
+        shift htmlresp_splice
+      fi
+    done
+    ((#records))
+    printf '%s\n' $records
+  elif ((argv[1])); then
+    return
+  else
+    die "$0: broken grep match rule"
+  fi
+}
+fnclone fetch:list+htm@{ing,end}
+
+function fetch:item+htm {
+  ((#==1)); [[ "$1" == [1-9][0-9]# ]]
+  local $Tabcols record htmlresp
+  id=txac:$1
+  pipeok fie "https://ac.qq.com/Comic/ComicInfo/id/$1" | readeof htmlresp
+  bonjour=$EPOCHSECONDS
+  printj $htmlresp | nfkc | readeof htmlresp
+  if ((#htmlresp==0)) {
+    return 77
+  } elif [[ "$htmlresp" == *"<title>错误提示 - 腾讯动漫</title>"* ]] {
+    return 44
+  } else {
+    printj $htmlresp | html2data - .works-intro-title | @read title
+    sanitscalar title
+    ((#title))
+    printj $htmlresp | pup '.works-cover img' 'attr{src}' | @read vcover
+    ((#vcover))
+    vcover=${vcover%/([0-9]##)}/0
+    if [[ "$htmlresp" == *'<label class="works-intro-status">连载中</label>'* ]]; then
+      stat=${Statsmap[ing]}
+    elif [[ "$htmlresp" == *'<label class="works-intro-status">已完结</label>'* ]]; then
+      stat=${Statsmap[end]}
+    else
+      return 44
+    fi
+    if [[ "$htmlresp" == *'<i class="ui-icon-sign">签约</i>'* ]]; then
+      xattr+=${xattr:+''}L
+    fi
+    if [[ "$htmlresp" == *'<i class="ui-icon-exclusive">独家</i>'* ]]; then
+      xattr+=${xattr:+''}U
+    fi
+    printj "$htmlresp" | pup 'div#special_bg > div[style="display:none"]' | html2data - 'a' | readeof category
+    category=${(pj.\v.)${(@)${(@ps.\n.)category}[2,-1]}}
+
+    join2strvar $Tabcols record
+    if [[ -v fetite_htm ]] {
+      if [[ "${(t)fetite_htm}" == association(|-local) ]] {
+        fetite_htm[${id}]=$record
+      } else {
+        return 44
+      }
+    }
+    say $record
+  }
+}
+function fetch:item+h5 {
+  ((#==1)); [[ "$1" == [1-9][0-9]# ]]
+  local $Tabcols record htmlresp
+  id=txac:$1
+  pipeok fios "https://m.ac.qq.com/comic/index/id/$1" | readeof htmlresp
+  bonjour=$EPOCHSECONDS
+  printj $htmlresp | nfkc | readeof htmlresp
+  if ((#htmlresp==0)) {
+    stat=${Statsmap[dummy]}
+  } elif [[ "$htmlresp" == *'class="err-type2"'* ]] {
+    stat=${Statsmap[err]}
+  } else {
+    printj $htmlresp | pup 'meta[property=og:title]' 'attr{content}' | @read title; sanitscalar title
+    ((#title))
+    local epstatexcerp
+    printj $htmlresp | html2data - 'h1.mod-chapter-title span:nth-of-type(1)' | readeof epstatexcerp
+    local -a match mend mbegin
+    case "$epstatexcerp" in
+      (*连载*|*完结*)
+        [[ "$epstatexcerp" == *'已更新'(#b)([0-9](#c1,))(#B)* ]]||:
+        totalep=$match[1]
+        if (( ${totalep:-0}==0 )); then
+          stat=${Statsmap[tba]}
+          totalep=
+        else
+          stat=${${${epstatexcerp:- }:#^(*连载*)}:+${Statsmap[ing]}}${${${epstatexcerp:- }:#^(*完结*)}:+${Statsmap[end]}}
+        fi
+      ;;
+      (*)
+        die undefined eps index pat "$id"
+      ;;
+    esac
+    unset match mend mbegin
+
+    printj $htmlresp | pup 'meta[property=og:image]' 'attr{content}' | @read hcover
+    if [[ "$hcover" == *'/operation/'* ]] {
+      hcover=
+    }
+    printj $htmlresp | html2data - 'div.head-info-desc' | readeof desc
+    sanitscalar desc
+    ((#desc))
+    local -a autnm
+    printj $htmlresp | html2data - '.head-info-author .author-list .author-wr' | readarray autnm
+    sanitarray autnm
+    ((#autnm))
+    contrib=${(pj.\v.)autnm}
+    ((#contrib))
+
+    if ((${totalep:-0})) {
+      builtin local -a {,oktr_}ep_{ti,img}s
+      if printj ${htmlresp//
+/ } | html2data - 'p.chapter-title' | readarray ep_tis && printj $htmlresp | pup '.chapter-item .chapter-link img.chapter-img' 'attr{src}' | readarray ep_imgs && (( $#ep_tis == $#ep_imgs && $#ep_tis>0 )); {
+        ep_tis=(${(@)ep_tis})
+        integer walkepseq=1
+        while (( walkepseq<=$#ep_imgs )); do
+          if ! printj "${ep_tis[$walkepseq]}" | rg -qe '('${(j.|.)excl_ep_ti_re}')'; then
+            oktr_ep_tis+=("${ep_tis[$walkepseq]}")
+            oktr_ep_imgs+=("${ep_imgs[$walkepseq]}")
+          fi
+          walkepseq+=1
+        done
+        if [[ "${stat}" == "${Statsmap[ing]}" ]] && (( $#oktr_ep_tis==0 )); then
+          stat=${Statsmap[tba]}
+          totalep=
+        fi
+        walkepseq=1; local -a ep_img_tss=()
+        if (( $#oktr_ep_imgs )); then while (( $#walkepseq<=$#oktr_ep_imgs && $#ep_img_tss<=5 )); do
+          unset safecurltsstr; local safecurltsstr
+          LC_ALL=C builtin strftime -s safecurltsstr '%Y%m%d %H:%M:%S %z' $((EPOCHSECONDS+86400))
+          unset curltsresp; local curltsresp
+          unset walkepimgts; integer walkepimgts
+          if retry -w 15 1 pipeok fie -L -o /dev/null -z "$safecurltsstr" -w '%header{last-modified}\n' --url "${oktr_ep_imgs[$walkepseq]}" | @read curltsresp && { builtin strftime -r -s walkepseq -- '%a, %d %b %Y %H:%M:%S %Z' "$curltsresp"&>/dev/null || date -d "$curltsresp" +%s } | @read walkepimgts && (( walkepimgts>0 )); then
+            ep_img_tss+=($walkepimgts)
+          fi
+          if (( walkepseq<0 )); then
+            break
+          else
+            walkepseq+=1
+          fi
+          ## collect last ep
+          if (( walkepseq>5 && $#oktr_ep_imgs>5 )); then
+            walkepseq=-1
+          fi
+        done; fi
+        if (( $#ep_img_tss>0 )); then
+          ep_img_tss=(${(n)ep_img_tss})
+          date=${ep_img_tss[1]}
+          ## if book is not updated >= 1y
+          if (( ($EPOCHSECONDS - ${ep_img_tss[-1]}) >= 31536000 )) || [[ "${stat}" == "${Statsmap[end]}"* ]]; then
+            date2=${ep_img_tss[-1]}
+            totalep=${#ep_tis}
+          fi
+        fi
       }
     }
   }
-  call "$Act${What:+':'}$What${Svc:+'::'}$Svc${Chan:+'+'}$Chan${Anch:+'#'}$Anch" "${(@)argv}"
+  join2strvar $Tabcols record
+  if [[ -v fetite_h5 ]] {
+    if [[ "${(t)fetite_h5}" == association(|-local) ]] {
+      fetite_h5[${id}]=$record
+    } else {
+      return 44
+    }
+  }
+  say $record
 }
-fnclone fetch get gen sync
+function join2strvar {
+  (( $#>1 ))
+  [[ -v "${argv[-1]}" && "${argv[-1]}" != *'['* ]]
+  case "${(Pt)argv[-1]}" in
+    scalar-local)
+      : ${(P)argv[-1]::=}
+      until (( $# == 1 )); do
+        : ${(P)argv[-1]::=${(P)argv[-1]}${(pj.\v.)${(P@)1}}	}
+        shift
+      done
+      : ${(P)argv[-1]::=${${(P)argv[-1]}%%	(#c1,)}}
+    ;;
+    (*)
+      return 1
+    ;;
+  esac
+}
 
 "${(@)argv}"

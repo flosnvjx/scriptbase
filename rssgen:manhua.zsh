@@ -3,18 +3,14 @@ local -A +x mh_st_smap
 mh_st_smap=(
   ing '~'    end .
   tba '?'    err '!'
-  dummy '@'
 )
 local -A +x mh_lic_smap
 mh_lic_smap=(
   ok '+'     non '-'
   excl '++'  unknown ''
 )
-local -a +x mh_reg_nms=(
-  cn kr jp
-)
 local -a +x mh_ls_ord_nms=(
-  new upd hot rec
+  upd new
 )
 ## kk: auts, cats[], numofeps, hc, relengdate, id, ti, vc, lastepti
 ## b22: lastepcti, lastepti, hc, lastepnum, relengdate, id, vc, sc, numofeps, ifvcomic, ifend
@@ -50,7 +46,7 @@ readonly -a +x excl_ep_ti_re=(
   '周年|元旦|新年|元宵|新禧|佳节|春节|新春|清明|端午|中秋|国庆|祖国|圣诞'
 )
 
-alias 'initparse__argv0=local +x act=${${0%%::*}%%:*} res=${${0%%::*}#*:} svc=${${0##*::}%%+*}
+alias '@init-as-vars:argv0=local +x act=${${0%%::*}%%:*} res=${${0%%::*}#*:} svc=${${0##*::}%%+*}
   if [[ "${#0##*::}" -gt "${#${0##*::}%%+*}" ]]; then
     local +x chan=${${${0##*::}##*+}%%"#"*}
     if [[ "${${0##*::}##*+}" == *"#"* ]]; then
@@ -73,37 +69,47 @@ alias mulrg='rg -U --multiline-dotall'
 alias readline='IFS= builtin read -r --'
 alias readaline='IFS= builtin read -rA --'
 
-alias init__mh_dbe_cols='eval unset "${(@k)mh_dbe_cols}" ";" local -aU "${(@k)mh_dbe_cols}"'
-
-function normalize__mh_dbe_cols {
-  if ! (( $# )); then
-    argv=(${(@k)mh_dbe_cols})
-  fi
+function _sanitstr {
+  (( $# ))
   while (( $# )); do
-    if (( ${(P)#1} )); then
-      set -A "$1" "${(@)${(@)${(@)${(@)${(@)${(@)${(P@)1}//\\/\\\\}%%( |	|
+    case "${(Pt)1}" in
+      array|array-local)
+        if (( ${(Pcj..)#1} )); then
+          set -A "$1" "${(@)${(@)${(@)${(@)${(@)${(@)${(P@)1}//\\/\\\\}%%( |	|
 )##}##( |	|
 )##}//
 /\\n}//	/\\t}//}"
-    fi
+        fi
+      ;;
+      scalar|scalar-local)
+        if (( ${#1} )); then
+          : ${(P)1::=${${${${${${(P)1}//\\/\\\\}%%( |	|
+)##}##( |	|
+)##}//
+/\\n}//	/\\t}}
+        fi
+      ;;
+      ?*)
+      ;;
+      *)
+        false variable nonexist "$1"
+      ;;
+    esac
     shift
   done
 }
 
-function join2param__mh_dbe_cols {
-  (( $#==1 ))
-  [[ -v "$1" && "$1" != *'['* ]]
-  case "${(Pt)1}" in
-    (scalar|scalar-local)
-      function {
-        : ${(P)argv[-1]::=}
-        until (( $# == 1 )); do
-          : ${(P)argv[-1]::=${(P)argv[-1]}${(pj.\v.)${(P@)1}}}
-          shift
-          : ${(P)argv[-1]::=${(P)argv[-1]}	}
-        done
-        : ${(P)argv[-1]::=${${(P)argv[-1]}%%	(#c1,)}}
-      } "${(@k)mh_dbe_cols}" "$1"
+function _join2strvar {
+  (( $#>1 ))
+  [[ -v "${argv[-1]}" && "${argv[-1]}" != *'['* ]]
+  case "${(Pt)argv[-1]}" in
+    scalar-local)
+      : ${(P)argv[-1]::=}
+      until (( $# == 1 )); do
+        : ${(P)argv[-1]::=${(P)argv[-1]}${(pj.\v.)${(P@)1}}	}
+        shift
+      done
+      : ${(P)argv[-1]::=${${(P)argv[-1]}%%	(#c1,)}}
     ;;
     (*)
       return 1
@@ -117,10 +123,55 @@ txac__mh_st_smap=(
   ing 1
 )
 
+## $1: main table, $2: supp table
+function _compl_item_from_list {
+  (( $#==2 ))
+  [[ -r "$1" ]]; [[ -r "$2" ]]
+  [[ "$1" != "$2" ]]
+  local -aU idqueue
+  local -A ${mh_dbe_cols}
+
+  while (( $# )); do
+    local -a records=("${(@ps.\n.)$(<$1)}")
+    records=($records)
+    while (( $#records )); do
+      unset c_${^mh_dbe_cols}; local -aU c_${^mh_dbe_cols}
+      readfield -s "${records[1]}" a:c_${^mh_dbe_cols}
+      [[ "${c_id[1]}" == ([^:])##':'<1-> ]]
+      idqueue+=(${c_id[1]})
+      unset col; local col; for col in ${mh_dbe_cols}; do
+        eval c_$col='( ${(ps.\v.)'$col'['${(q)c_id[1]}']} $c_'$col' )'
+        eval typeset $col'['${(q)c_id[1]}']=${(pj.\v.)c_'$col'}'
+      done
+      shift records
+    done
+    shift
+  done
+
+  while (( $#idqueue )); do
+    argv=($mh_dbe_cols)
+    local -a _line=()
+    while (( $# )); do
+      eval '_line+=("${'$1\[${(q)idqueue[1]}']}")'
+      shift
+    done
+    say ${${(@pj.\t.)_line}%%(	)##}
+    shift idqueue
+  done
+}
+
 function 'fetch:item::txac+h5' {
+  local -A getopts
+  zparseopts -A getopts -D -F - v: p
   (( $#==1 )); [[ "$1" == <1-> ]]
+  if [[ -v getopts[-v] ]]; then
+    [[ -v "${getopts[-v]}" ]]
+    [[ "${getopts[-v]}" != *'['* ]]
+    [[ "${(Pt)getopts[-v]}" == (array|scalar)"-local" ]]
+  fi
   argv[1]=$((argv[1]))
-  initparse__argv0; init__mh_dbe_cols
+  @init-as-vars:argv0
+  local -aU ${(@)mh_dbe_cols}
   local htmlresp
   pipeok fios --url "https://m.ac.qq.com/comic/index/id/${1}" | nfkc | readeof htmlresp
   integer ts=$EPOCHSECONDS
@@ -193,7 +244,6 @@ function 'fetch:item::txac+h5' {
           fi
         done; fi
 
-        set -x
         if (( $#ep_img_tss>0 )); then
           ep_img_tss=(${(n)ep_img_tss})
           date=(${ep_img_tss[1]})
@@ -203,20 +253,19 @@ function 'fetch:item::txac+h5' {
             stat[1]+=":${#ep_tis}"
           fi
         fi
-        set +x
 
       fi
     fi
 
   elif [[ "$htmlresp" == *'class="err-type2"'* ]]; then
     stat=(${mh_st_smap[err]})
-    normalize__mh_dbe_cols
-    join2param__mh_dbe_cols fetchedentry
+    _sanitstr $mh_dbe_cols
+    _join2strvar $mh_dbe_cols fetchedentry
     return
   elif (( $#htmlresp==0 )); then
     stat=(${mh_st_smap[dummy]})
-    normalize__mh_dbe_cols
-    join2param__mh_dbe_cols fetchedentry
+    _sanitstr $mh_dbe_cols
+    _join2strvar $mh_dbe_cols fetchedentry
     return
   else
     return 1
@@ -228,15 +277,31 @@ function 'fetch:item::txac+h5' {
   fi
   printj $htmlresp | html2data - 'div.head-info-desc' | readeof desc
   printj $htmlresp | html2data - '.head-info-author .author-list .author-wr' | readarray autnm
-  normalize__mh_dbe_cols
-  join2param__mh_dbe_cols fetchedentry
+  _sanitstr $mh_dbe_cols
+  _join2strvar $mh_dbe_cols fetchedentry
+  if [[ -v getopts[-v] ]]; then
+    case "${(Pt)getopts[-v]}" {
+      array-local)
+        set -A "${getopts[-v]}" "${(P@)getopts[-v]}" "$fetchedentry"
+      ;;
+      scalar-local)
+        : ${(P)getopts[-v]::=$fetchedentry}
+      ;;
+      *)
+        false unsupported param type "${(Pt)getopts[-v]}" on param "${getopts[-v]}"
+      ;;
+    }
+    if ! [[ -v getopts[-p] ]]; then
+      return
+    fi
+  fi
   say $fetchedentry
 }
 
 function 'fetch:list::txac+pchtml#end' {
   (( $#==1 )); [[ "$1" == <1-> ]]
   integer pn=$1
-  initparse__argv0
+  @init-as-vars:argv0
 
   local htmlresp
   pipeok fie --url 'https://ac.qq.com/Comic/all/finish/'${txac__mh_st_smap[$anc]}'/search/time/page/'$pn | nfkc | readeof htmlresp
@@ -250,7 +315,7 @@ function 'fetch:list::txac+pchtml#end' {
     local -a fetched_entries
     while (( $#html_li )); do
       unset fetchedentry; local fetchedentry=
-      init__mh_dbe_cols
+      unset ${(@)mh_dbe_cols}; local -aU ${(@)mh_dbe_cols}
       bonjour[1]=$ts
       printj ${html_li[1]} | html2data - 'h3.ret-works-title > a:attr(title)' | readaline ti
       printj ${html_li[1]} | pup 'div.ret-works-cover img:nth-of-type(1)' 'attr{data-original}' | readaline vc
@@ -272,8 +337,8 @@ function 'fetch:list::txac+pchtml#end' {
       printj ${html_li[1]} | pup -p 'p.ret-works-tags span[href]' 'text{}' | readarray tag
       printj ${html_li[1]} | pup 'a.ret-works-view' 'attr{href}' | readaline id
       id[1]=${svc}:${id[1]##*/}
-      normalize__mh_dbe_cols
-      join2param__mh_dbe_cols fetchedentry
+      _sanitstr $mh_dbe_cols
+      _join2strvar $mh_dbe_cols fetchedentry
       fetched_entries+=($fetchedentry)
       shift html_li
       if [[ "${html_li[1]}" == ($'\n'|$'\t'| )## ]]; then

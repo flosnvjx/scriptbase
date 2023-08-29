@@ -1,9 +1,10 @@
-#!/usr/bin/env -S zsh -f
+#!/usr/bin/env -S zsh --emulate zsh -f
 if [[ "$ZSH_ARGZERO" != /*/shorthandzsh ]]; then
   exit 128
 fi
 
 ## zshoptions
+builtin emulate zsh -R
 setopt cdsilent
 setopt posixcd
 setopt extendedglob

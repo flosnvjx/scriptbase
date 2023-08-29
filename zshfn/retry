@@ -4,7 +4,7 @@
 ## retry [flags] count cmd
 retry() {
   local -A __retry_getopts
-  builtin zparseopts -A __retry_getopts -D -E - o: x: w: || return 128
+  builtin zparseopts -A __retry_getopts -D -F - o: x: w: || return 128
   local +x __retry_walk_patternflag=
   local -a +x __retry_o=() __retry_x=()
   for __retry_walk_patternflag in {o,x}; do
