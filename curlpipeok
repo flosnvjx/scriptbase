@@ -1,0 +1,53 @@
+#!/usr/bin/env shorthandzsh
+# vim:syntax=zsh
+
+function main {
+  local bufa= buf=
+  local -i retrycount= maxretry=3 retrydelay=60 curlexit=
+  setopt nomultibyte
+  trap - DEBUG
+  while :; do
+    curlexit=
+    if [[ $#bufa -ne 0 ]]; then
+      command curl -qgfC $#bufa --no-progress-meter "${(@)argv}" | readeof buf || curlexit=${pipestatus[1]}
+    else
+      command curl -qgf --no-progress-meter "${(@)argv}" | readeof buf || curlexit=${pipestatus[1]}
+    fi
+    set -x
+    case "$curlexit" in
+      (0)
+        bufa+=$buf
+        break;;
+      (*)
+        if ((retrycount>=maxretry)); then return $curlexit; fi
+        retrycount+=1
+        ;|
+      (18)
+        if [[ $#buf -ne 0 ]]; then
+          bufa+=$buf
+        fi
+        ;;
+      (6|22|33|35|52)
+        if (($curlexit==33)); then bufa=; fi
+        delay $retrydelay
+        ;;
+      (16|92|55|56)
+        if [[ $#buf -ne 0 ]]; then
+          bufa+=$buf
+        fi
+        delay $retrydelay
+        ;;
+      (*)
+        return $curlexit
+        ;;
+    esac
+    set +x
+  done
+  if [[ $#bufa -ne 0 ]]; then
+    printf %s $bufa
+  else
+    return $curlexit
+  fi
+}
+
+main "${(@)argv}"
