@@ -1118,7 +1118,11 @@ def sanitstr: gsub("(^  *|  *$)";"")|gsub("[\t ]+";" ")|gsub("\t";"")|gsub("\\\\
 
 resp_ok | if ([select((.id|tostring)==$id)]|length==1) then
   select((.id|tostring)==$id) | [
-    (.first_comic_publish_time|sub("\\.[0-9]{3,}\\+(?<zh>[0-9]{2}):(?<zm>[0-9]{2})$";"+"+(.zh)+(.zm))|strptime("%FT%T%z")|mktime),
+    (if (.first_comic_publish_time|tostring|test("^....-..-..T..:..:..\\....\\+..:..$")) then
+       .first_comic_publish_time|sub("\\.[0-9]{3,}\\+(?<zh>[0-9]{2}):(?<zm>[0-9]{2})$";"+"+(.zh)+(.zm))|strptime("%FT%T%z")|mktime
+     else
+       now
+     end),
     (.title|sanitstr),
     ($aut),
     (.recommend_text as $intro | if (.description|contains($intro)|not) and (.title|contains($intro)|not) then .recommend_text|sanitstr else "" end),
