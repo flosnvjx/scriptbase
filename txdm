@@ -1,0 +1,501 @@
+#!/usr/bin/env shorthandzsh
+## vim:syntax=zsh:foldmethod=marker
+# preamble {{{
+alias nfkc='uconv -x ":: NFKC; [[[:General_Category=Format:][:General_Category=Nonspacing_Mark:][:print=No:][:Cc:]] - [\u000A]] >;"'
+alias mulrg='rg -U --multiline-dotall'
+alias furl='command curl -qgsf --compressed'
+alias fie='furl -A "Mozilla/5.0 (Windows NT 6.3; Trident/7.0; rv 11.0) like Gecko"'
+alias fios='furl -A "Mozilla/5.0 (iPhone; CPU iPhone OS 14_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/14.0 EdgiOS/46.3.7 Mobile/15E148 Safari/605.1.15"'
+builtin zmodload -Fa zsh/datetime p:epochtime b:strftime
+# }}}
+
+declare -a h5chan_map=(
+  rm\ 日漫
+  hm\ 韩漫
+  tm\ 条漫
+
+  dj\ 独家
+  wj\ 完结
+
+  na\ 恋爱
+  xh\ 玄幻
+  rx\ 热血
+  xy\ 悬疑
+  sv\ 少女
+  kh\ 科幻
+  db\ 逗比
+  qcxy\ 校园
+  ds\ 都市
+  zy\ 治愈
+  kb\ 恐怖
+  yg\ 妖怪
+)
+declare -a h5chs=(${(@)h5chan_map% *})
+
+declare -A stat_map
+stat_map=(
+  ing '~'  end .
+  tba '?'  err '!'
+  dummy '-'
+)
+declare -a tabcols=(
+  bonjour
+  id
+  title
+  desc tag vcover
+  region
+  date  ## list termination column
+  date2
+  hcover
+  contrib
+  totalep
+  stat
+)
+
+function trimvars {
+  while ((#)); do
+    (($#argv[1]))
+    if [[ "${(Pt)1}" == *readonly* ]] || ! [[ -v $1 ]] || [[ -z "${(Pt)1}" ]]; then : norun
+    else
+      : ${(P)1::=${${${(@P)1}##[
+	 ]##}%%[
+	 ]##}}
+    fi
+    shift
+  done
+}
+
+readonly -a +x excl_ep_ti_re=(
+  '敬请期待|先导|前瞻|预告|预热|预览|放料|放送|人物|人设|介绍|新作|上线|连载'
+  '福利|抽奖|开奖|中奖|兑奖|月票|投喂|活动|加料|订阅|关注|不见不散|平台|序章|说明|通知|通告|请假|假条|更新|延迟|延更|开更|开刊'
+  '完结|致谢|鸣谢|停更|整改|下架|复更|加更|作者的话'
+  '内测|(新|星)势力|主站'
+  'bilibili|哔哩哔哩|快看|KKworld|出展|动漫嘉年华|动漫节|国际动漫|ChinaJoy|COMICUP|腾讯动漫|阅文|企鹅娘'
+  '动画|开播|开拍|开机|上映|播出|漫剧|漫动画|动态漫|有声漫画|Vcomic|广播剧|电视剧|剧场版|单行本|发售|上架|正式|线下|签售'
+  '周边|赠品|抱枕|明信片|鼠标垫|立牌|Q币|好礼|券'
+  '背景|设定|图鉴|鉴赏|百科|小课堂'
+  '番外|小剧场|花絮|(制|创)作团队|寄语|原作'
+  '贺图|(祝|贺)(—|:|：)|祝贺|庆祝|恭贺|谨贺'
+  '周年|元旦|新年|元宵|新禧|佳节|春节|新春|清明|端午|中秋|国庆|祖国|圣诞'
+)
+
+function fetch:item::h5 {
+  ((#==1))
+  [[ "$1" == <1-> ]]
+  (( argv[1]=$1 ))
+
+  local htmlresp
+  retry -w $((RANDOM%128+66)) 3 pipeok fios 'https://m.ac.qq.com/comic/index/id/'$1 \
+    -H 'authority: m.ac.qq.com' \
+    -H 'accept-language: zh-CN,zh;q=0.9' \
+    -H 'referer: https://m.ac.qq.com/' | readeof htmlresp
+  local -i bonjour=$epochtime[1]
+
+  local -A rcol
+  set -A rcol
+  if printj $htmlresp | pup -p 'meta[property=og:title]' 'attr{content}' | readeof A:rcol title; then
+    trimvars 'rcol[title]'
+  fi
+  : ${rcol[title]::=${rcol[title]// ##/ }}
+  if ((${#rcol[title]})); then
+    printj $htmlresp | pup -p 'meta[property=og:image]' 'attr{content}' | readeof A:rcol hcover; trimvars 'rcol[hcover]'
+    if [[ "${rcol[hcover]}" == *'/operation/'* ]]; then
+      unset 'rcol[hcover]'
+    fi
+    printj $htmlresp | pup -p 'div.head-info-desc' 'text{}' | readeof A:rcol desc; trimvars 'rcol[desc]'
+    printj $htmlresp | pup -p '.head-info-author .author-list .author-wr' 'text{}' | readeof A:rcol contrib; trimvars 'rcol[contrib]'
+    : ${rcol[contrib]::=${${rcol[contrib]//([ ]#[
+]##[ ]#)##/}// ##/ }}
+
+    integer epcount
+    local epstatusresp
+    printj $htmlresp | pup -p 'h1.mod-chapter-title span:nth-of-type(1)' 'text{}' | readeof epstatusresp
+    epstatusresp=${epstatusresp//[
+ ]}
+    local -a match mend mbegin
+    if [[ "$epstatusresp" == *'连载'* ]]; then
+      [[ "$epstatusresp" == *'已更新'(#b)([0-9](#c1,))(#B)* ]]||:
+      epcount=${match[1]}
+      if (( ${epcount:-0}==0 )); then
+        rcol[stat]=${stat_map[tba]}
+      else
+        if printj ${htmlresp/
+##/
+} | pup -p 'p.chapter-title' 'text{}' | awk 'NR%2==0' | grep -Eqvm 1 -e ${(j,|,)excl_ep_ti_re}; then
+          rcol[stat]=${stat_map[ing]}
+        else
+          rcol[stat]=${stat_map[tba]}
+        fi
+        rcol[totalep]=$epcount
+      fi
+    elif [[ "$epstatusresp" == *'完结'* ]]; then
+      [[ "$epstatusresp" == *'已更新'(#b)([0-9](#c1,))(#B)* ]]||:
+      epcount=${match[1]}
+      if (( ${epcount:-0}==0 )); then
+        rcol[stat]=${stat_map[tba]}
+      else
+        rcol[stat]=${stat_map[end]}
+        rcol[totalep]=$epcount
+      fi
+    else
+      false undefined eps index pattern
+    fi
+    unset match mend mbegin
+
+    ## goto r loop
+
+  elif [[ "$htmlresp" == *'class="err-type2"'* ]]; then
+    rcol[stat]=${stat_map[err]}
+  elif ! (( $#htmlresp )); then
+    rcol[stat]=${stat_map[dummy]}
+  else
+    return 99 ## undefined
+  fi
+
+  ## r loop
+  rcol[bonjour]=$bonjour
+  rcol[id]=$1
+  local -a r=()
+  local col; for col in ${(@k)tabcols}; do
+    case $col in
+      (title|contrib|desc)
+        r+=("${${rcol[$col]//\\/\\\\}//
+/\\n}")
+      ;;
+      (*)
+        r+=("${rcol[$col]}")
+      ;;
+    esac
+  done; unset col
+
+  say "${(@pj.\t.)r}"
+  unset r
+}
+
+function _delay_next {
+  [[ -v pn ]] || local +x pn=$1
+  if [[ -z "$nowait" ]] && ((pn<=maxpn||maxpn<=0)); then
+    if (( pn%$((RANDOM%4+1)) == 0 )); then
+      integer +x sleepint=$((6+RANDOM%15))
+    elif (( pn%40 == 0 )); then
+      integer +x sleepint=300
+    else
+      integer +x sleepint=$((4+RANDOM%9))
+    fi
+    if ((sleepint>0)); then
+      printj " sleep($sleepint)" >&2
+      delay $sleepint
+      local +x erase_sleepprompt=
+      repeat 8+$#sleepint {
+        erase_sleepprompt+=$'\b'
+      }
+      repeat 8+$#sleepint {
+        erase_sleepprompt+=' '
+      }
+      printj $erase_sleepprompt>&2
+      unset erase_sleepprompt
+    fi
+    unset sleepint
+  fi
+}
+
+# invoke 1: -by:listfile {listfile}
+# invoke 2: {item_id(s)}...
+function get:item::h5 {
+  local listfile=${0##*::}:${${0%%::*}#*:}.lst
+  integer write_slice_size=${LIST_SIZE:-15}
+  ((#))
+  if [[ "$1" = '-by:listfile' ]]; then
+    ((#==2))
+    local listbufstr
+    bsdcat -- "${2:#-}" | _awk_sel_last_occur_list_item | readeof listbufstr
+    local -a listbufs=(${(@ps.\n.)listbufstr}) fetchitembufs=()
+    ((#listbufs))||return 5
+    while ((#listbufs)); do
+      local -a listbuf=("${(@ps.\t.)listbufs[1]}")
+      printj $'\r'$0"(${listbuf[${tabcols[(ie)id]}]}): ~" >&2
+      local fetchitembuf=
+      if ! fetch:${0#*:} ${listbuf[${tabcols[(ie)id]}]} | IFS= read -r fetchitembuf; then
+        say $'\r'$0"(${listbuf[${tabcols[(ie)id]}]}): !(${pipestatus[(i)^0]})" >&2
+        return 99
+      else
+        fetchitembufs+=("$fetchitembuf")
+        printj $'\r'$0"(${listbuf[${tabcols[(ie)id]}]}): ${fetchitembuf[-1]} %" >&2
+        if [[ "${fetchitembuf[-1]}" == ("${stat_map[err]}"|"${stat_map[dummy]}") ]]; then
+          printf '%s\n' >&2
+        fi
+        _delay_next $#listbufs
+        if (($#listbufs>$write_slice_size && $#fetchitembufs>=$write_slice_size)) || (($#listbufs==1)); then
+          if [[ ! -e $listfile ]]; then touch -- $listfile; fi
+          local fetchitembufs_tbw=
+          printf '%s' $listbufstr | gawk -F $'\t' -E <(printf '%s' '
+BEGIN {
+  OFS="\t";
+}
+ARGIND==1&&$'${tabcols[(ie)id]}' {
+  for (col=1;col<=NF;col++) {
+    if (length($col)) listent_byidcol[$'${tabcols[(ie)id]}' ":" col]=$col;
+  }
+}
+ARGIND==2&&/^[^#]/&&$'${tabcols[(ie)id]}' {
+  $'${tabcols[(ie)bonjour]}'="";
+  seen[$0]++;
+}
+ARGIND==3&&$'${tabcols[(ie)id]}' {
+  for (col=2;col<='${#tabcols}';col++) {
+    if (!length($col)&&length(listent_byidcol[$'${tabcols[(ie)id]}' ":" col])) $col=listent_byidcol[$'${tabcols[(ie)id]}' ":" col];
+  }
+
+  bonjour_by_id[$'${tabcols[(ie)id]}']=$'${tabcols[(ie)bonjour]}';
+  $'${tabcols[(ie)bonjour]}'="";
+  if (!seen[$0]++) {
+    $'${tabcols[(ie)bonjour]}'=bonjour_by_id[$'${tabcols[(ie)id]}'];
+    print;
+  }
+}
+') /dev/stdin <(bsdcat -- $listfile) <(printf '%s\n' $fetchitembufs) | readeof fetchitembufs_tbw
+          if ((#fetchitembufs_tbw)); then
+            printf '%s' $fetchitembufs_tbw | zstd | rw -a -- $listfile
+            printj $'\r'$0": >>" >&2
+            fetchitembufs=()
+          fi
+          say >&2
+        fi
+      fi
+      shift listbufs
+    done
+  else
+    [[ ${(@)argv[(I)^<1->]} == 0 ]]
+    argv=(${(@u)argv})
+  fi
+}
+
+function _awk_sel_last_occur_list_item {
+  command gawk -F $'\t' -E <(printf %s '
+BEGIN {
+  OFS="\t";
+}
+
+/^[^#]/&&$'${tabcols[(ie)id]}'~/^[1-9][0-9]+$/ {
+  lns_of_latest_record_by_id[$'${tabcols[(ie)id]}']=NR;
+  records_by_id[$'${tabcols[(ie)id]}']=$0;
+}
+
+END {
+  for (traverse_by_id in lns_of_latest_record_by_id) {
+    revlookup_lnsbyid[lns_of_latest_record_by_id[traverse_by_id]]=traverse_by_id;
+  }
+  for (traverse_by_ln=1;traverse_by_ln<=NR;traverse_by_ln++) {
+    if (traverse_by_ln in revlookup_lnsbyid) print records_by_id[revlookup_lnsbyid[traverse_by_ln]];
+  }
+}
+')
+}
+
+function get:list::h5 {
+  [[ ${(@)${(@)h5chan_map% *}[(Ie)$1]} -ne 0 ]]
+  if [[ -v 'argv[2]' ]]; then
+    [[ "$2" == <1-> ]]
+    ((argv[2]=$2))
+  else
+    argv[2]=5
+  fi
+  if [[ -v 'argv[3]' ]]; then
+    [[ "$3" == <1-> ]]
+    ((argv[3]=$3))
+  fi
+  ((#<=3))
+  integer bonjour=$epochtime[1]
+  integer walk_page=${argv[3]:-0} overfetch_count=0
+  local listfile=${0##*::}:${${0%%::*}#*:}.lst
+  while :; do
+    walk_page+=1
+    if ((overfetch_count>=argv[2])); then break; fi
+    local -a errno=()
+    local +x listresp_tbw= listresp=
+    printj $0"($1:$walk_page):?" >&2
+    fetch:list::h5 $1 $walk_page | readeof listresp || errno=(${pipestatus})
+    if ((errno[1]==5)); then
+      say $'\r'$0"($1:$walk_page):EOF" >&2
+      if ((walk_page)); then
+        break
+      else
+        return 5
+      fi
+    elif ((#listresp==0)) || ((errno[1]>0)); then
+      say $'\r'$0"($1:$walk_page):!(${(@j.:.)errno})" >&2
+      return 1
+    fi
+    if [[ ! -e $listfile ]]; then
+      touch -- $listfile
+    fi
+    printf %s $listresp | TZ=Asia/Shanghai gawk -F $'\t' -v channel=$1 -E <(printf %s '
+BEGIN {
+  OFS="\t";
+}
+
+@load "time"
+
+/^[^#]/ {
+
+  if (ARGIND==1) {
+
+    ## importing flags from previous results but do not change them
+    if ($'${tabcols[(ie)region]}') region[$'${tabcols[(ie)id]}']=$'${tabcols[(ie)region]}';
+    ## NB: unconditionally importing/overwriting date2, even for empty value
+    date2[$'${tabcols[(ie)id]}']=$'${tabcols[(ie)date2]}';
+
+  } else if (ARGIND>1) {
+
+    ## setting flag and filling field
+    switch (channel) {
+      case "rm":
+        region[$'${tabcols[(ie)id]}']="jp";
+        $'${tabcols[(ie)region]}'="jp";
+        break;
+      case "hm":
+        region[$'${tabcols[(ie)id]}']="kr";
+        $'${tabcols[(ie)region]}'="kr";
+        break;
+      default:
+        ## inherit the field value
+        if (region[$'${tabcols[(ie)id]}']) $'${tabcols[(ie)region]}'=region[$'${tabcols[(ie)id]}'];
+        break;
+    }
+  }
+
+  if (!date[$'${tabcols[(ie)id]}']) date[$'${tabcols[(ie)id]}']=$'${tabcols[(ie)date]}';
+
+  this_bonjour=$'${tabcols[(ie)bonjour]}';
+  this_date=$'${tabcols[(ie)date]}';
+  $'${tabcols[(ie)bonjour]}'="";
+  NF='${tabcols[(ie)date]}'-1;
+
+  ## changing this logic carefully
+  if (seen[$0]++) {
+    if (this_date!=date2[$'${tabcols[(ie)id]}'] && ARGIND>1) {
+      $'${tabcols[(ie)bonjour]}'=this_bonjour;
+      $'${tabcols[(ie)date]}'=date[$'${tabcols[(ie)id]}'];
+      if (channel=="wj"||(this_date!=date[$'${tabcols[(ie)id]}']&&systime()-strptime(this_date,"%F")>7257600)) {
+        $'${tabcols[(ie)date2]}'=this_date;
+        date2[$'${tabcols[(ie)id]}']=this_date;
+        print;
+      }
+    }
+  } else if (ARGIND>1) {
+    $'${tabcols[(ie)bonjour]}'=this_bonjour;
+    $'${tabcols[(ie)date]}'=date[$'${tabcols[(ie)id]}'];
+    if (channel=="wj"||(this_date!=date[$'${tabcols[(ie)id]}']&&systime()-strptime(this_date,"%F")>7257600)) {
+      $'${tabcols[(ie)date2]}'=this_date;
+      date2[$'${tabcols[(ie)id]}']=this_date;
+    } else if (date2[$'${tabcols[(ie)id]}']) {
+      if (strptime(this_date,"%F")>strptime(date2[$'${tabcols[(ie)id]}'],"%F")) {
+        $'${tabcols[(ie)date2]}'=this_date;
+        date2[$'${tabcols[(ie)id]}']=this_date;
+      } else {
+        $'${tabcols[(ie)date2]}'=date2[$'${tabcols[(ie)id]}'];
+      }
+    }
+    print;
+  }
+}
+') <(bsdcat -- $listfile) /dev/fd/0 | readeof listresp_tbw
+    if (( $#listresp_tbw > 1 )); then
+      if ((overfetch_count)); then
+        overfetch_count=0
+      fi
+      say $'\r'$0"($1:$walk_page):>>" >&2
+      printf '%s' ${listresp_tbw} | zstd | rw -a -- $listfile
+    else
+      overfetch_count+=1
+      say $'\r'$0"($1:$walk_page):>< ($overfetch_count/$2)" >&2
+      continue
+    fi
+  done
+}
+
+function fetch:list::h5 {
+  [[ ${(@)${(@)h5chan_map% *}[(Ie)$1]} -ne 0 ]]
+  [[ "$2" == <1-> ]]
+  (( argv[2]=$2 ))
+  [[ $# == 2 ]]
+
+  local xhrresp
+  retry -w $((RANDOM%(${TMOUT:-19}+55))) 1 pipeok fios "https://m.ac.qq.com/category/listAll/type/$1/rank/upt?_t=$epochtime[1]${epochtime[2]:0:2}&page=$2&pageSize=${LIST_SIZE:-15}&style=item" \
+  -H 'authority: m.ac.qq.com' \
+  -H 'accept: */*' \
+  -H 'accept-language: zh-CN,zh;q=0.9' \
+  -H "referer: https://m.ac.qq.com/category/listAll?type=$1&rank=upt" | readeof xhrresp
+  local -i bonjour=$epochtime[1]
+  ((#xhrresp)) || return 5
+  printj $xhrresp | nfkc | readeof xhrresp
+
+  if printj $xhrresp | mulrg -oe '<li class="comic-item">(.+?)</li>' -r '$1'$'\v' | readeof xhrresp; then
+    local -a xhrresppart=(${(@ps.\v.)${xhrresp%%[
+ ]##}})
+    local -A rcol
+    while ((#xhrresppart)); do
+      set -A rcol
+      printj $xhrresppart[1] | pup -p .comic-title 'text{}' | readeof A:rcol title
+      rcol[title]=${${${rcol[title]##[
+ ]##}%%[
+ ]##}//[ ]##/ }
+      ((${#rcol[title]}))
+
+      printj $xhrresppart[1] | pup -p a.comic-link 'attr{href}' | readeof A:rcol id
+      rcol[id]=${${${rcol[id]##[
+ ]##}%%[
+ ]##}##?*/}
+      [[ ${#rcol[id]} == <1-> ]]
+
+      printj $xhrresppart[1] | pup -p img.cover-image 'attr{src}' | readeof A:rcol vcover
+      rcol[vcover]=${${${rcol[vcover]##[
+ ]##}%%[
+ ]##}/%\/<1->/\/0}
+      [[ "${rcol[vcover]}" == http?* ]]
+
+      printj $xhrresppart[1] | pup -p .comic-update 'text{}' | readeof A:rcol date
+      rcol[date]=${${${rcol[date]##[
+ ]##}%%[
+ ]##}/% 更新}
+      [[ "${rcol[date]}" == ????-??-?? ]]
+
+      printj $xhrresppart[1] | pup -p .comic-tag 'text{}' | readeof A:rcol tag
+      rcol[tag]=${${${rcol[tag]##[
+ ]##}%%[
+ ]##}// /、}
+
+      printj $xhrresppart[1] | pup -p .comic-desc 'text{}' | readeof A:rcol desc
+      rcol[desc]=${${rcol[desc]##[
+ ]##}%%[
+ ]##}
+
+      local -a r=($bonjour)
+      local col; for col in ${(@)tabcols[${(@)tabcols[(Ie)id]},${(@)tabcols[(Ie)date]}]}; do
+        case $col in
+          (title|tag|desc)
+            r+=("${${rcol[$col]//\\/\\\\}//
+/\\n}")
+          ;;
+          (*)
+            r+=("${rcol[$col]}")
+          ;;
+        esac
+      done; unset col
+
+      say "${(@pj.\t.)r}"
+      unset r
+
+      shift xhrresppart
+    done
+  else
+    #if [[ "$xhrresp" == *list_update* ]]; then
+      return 5
+    #else
+    #  say $0 exception.>&2
+    # return 67
+    #fi
+  fi
+}
+
+"${(@)argv}"
