@@ -7,6 +7,7 @@ alias furl='command curl -qgsf --compressed'
 alias fie='furl -A "Mozilla/5.0 (Windows NT 6.3; Trident/7.0; rv 11.0) like Gecko"'
 alias fios='furl -A "Mozilla/5.0 (iPhone; CPU iPhone OS 14_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/14.0 EdgiOS/46.3.7 Mobile/15E148 Safari/605.1.15"'
 builtin zmodload -Fa zsh/datetime p:epochtime b:strftime
+builtin zmodload -Fa zsh/stat b:zstat
 # }}}
 
 declare -a h5chan_map=(
@@ -14,8 +15,8 @@ declare -a h5chan_map=(
   hm\ 韩漫
   tm\ 条漫
 
-  dj\ 独家
   wj\ 完结
+  dj\ 独家
 
   na\ 恋爱
   xh\ 玄幻
@@ -91,6 +92,7 @@ function fetch:item::h5 {
     -H 'referer: https://m.ac.qq.com/' | readeof htmlresp
   local -i bonjour=$epochtime[1]
 
+  if ((#htmlresp)); then printf %s $htmlresp | nfkc | readeof htmlresp; fi
   local -A rcol
   set -A rcol
   if printj $htmlresp | pup -p 'meta[property=og:title]' 'attr{content}' | readeof A:rcol title; then
@@ -208,7 +210,7 @@ function get:item::h5 {
   if [[ "$1" = '-by:listfile' ]]; then
     ((#==2))
     local listbufstr
-    bsdcat -- "${2:#-}" | _awk_sel_last_occur_list_item | readeof listbufstr
+    bsdcat -- "${2:#-}" | _awk_sel_last_occur_list_item ${filtering_ge_bonjour:+${${(t)filtering_ge_bonjour:#*export*}:+$filtering_ge_bonjour}} | readeof listbufstr
     local -a listbufs=(${(@ps.\n.)listbufstr}) fetchitembufs=()
     ((#listbufs))||return 5
     while ((#listbufs)); do
@@ -270,13 +272,14 @@ ARGIND==3&&$'${tabcols[(ie)id]}' {
   fi
 }
 
+## $1, optionally sel ge bonjour value
 function _awk_sel_last_occur_list_item {
   command gawk -F $'\t' -E <(printf %s '
 BEGIN {
   OFS="\t";
 }
 
-/^[^#]/&&$'${tabcols[(ie)id]}'~/^[1-9][0-9]+$/ {
+/^[^#]/&&$'${tabcols[(ie)id]}'~/^[1-9][0-9]+$/'${1:+${${1:#[1-9]<0->}:-'&&$'${tabcols[(ie)bonjour]}'>='$1}}' {
   lns_of_latest_record_by_id[$'${tabcols[(ie)id]}']=NR;
   records_by_id[$'${tabcols[(ie)id]}']=$0;
 }
@@ -290,6 +293,109 @@ END {
   }
 }
 ')
+}
+
+function syncdb::h5 {
+  integer overfetch_lim=${OVERFET:--2}
+  if ((#)); then
+    [[ ${argv[(I)^(${(j.|.)h5chs})]} -eq 0 ]]
+  else
+    argv=($h5chs)
+  fi
+  local listf=${0##*::}:list.lst \
+        itemf=${0##*::}:item.lst
+  integer bonjour=$epochtime[1]
+  integer listfmtime=-1 itemfmtime=-1
+  if [[ -e $listf ]]; then
+    local -a mya
+    builtin zstat -A mya +mtime -- $listf
+    listfmtime=$mya[1]
+    unset mya
+    if [[ $overfetch_lim == -2 ]]; then
+      if ((bonjour-listfmtime>60*60*24*2)); then
+        overfetch_lim=${$((5 + 2*( 1 + (bonjour-listfmtime) / (60*60*24) )))%.*}
+        if ((overfetch_lim>9999 || overfetch_lim<0)); then
+          overfetch_lim=9999
+        fi
+      fi
+    elif ((overfetch_lim<0)); then
+      overfetch_lim=9999
+    fi
+  else overfetch_lim=9999
+  fi
+  if [[ -e $itemf ]]; then
+    local -a mya
+    builtin zstat -A mya +mtime -- $itemf
+    itemfmtime=$mya[1]
+    unset mya
+  fi
+  local chs; for chs in $argv; do
+    get:list::h5 $chs ${overfetch_lim:#-2}
+  done
+  local -a mya=()
+  builtin zstat -A mya +mtime -- $listf
+  if ((mya[1]>listfmtime)) && unset mya; then
+    if ((listfmtime>0)); then
+      local filtering_ge_bonjour=$bonjour
+    else
+      local filtering_ge_bonjour=
+    fi
+    echo $listfmtime
+    get:item::${0##*::} -by:listfile $listf
+  fi
+  local -a mya=()
+  builtin zstat -A mya +mtime -- $itemf
+  local xmlf=${0##*::}.atom.xml
+  if ((mya[1]>itemfmtime)); then
+    bsdcat -- $itemf | _awk_sel_last_occur_list_item | _to_sfeed | sfeed_atom | rw -- $xmlf
+  fi; unset mya
+}
+local -a sfeedcols=(
+  date
+  title
+  url
+  content
+  content_type
+  id
+  author
+  enclosure
+  category
+)
+function _to_sfeed {
+  TZ=Asia/Shanghai gawk -F $'\t' -E <(printf %s 'BEGIN {
+  OFS="\t";
+}
+
+@load "time"
+length($'${tabcols[(ie)title]}')&&$'${tabcols[(ie)stat]}'!="'${stat_map[tba]}'" {
+  title=$'${tabcols[(ie)title]}';
+  url=("https://ac.qq.com/Comic/comicInfo/id/" $'${tabcols[(ie)id]}');
+  content_type="html";
+  id=url;
+  author=gensub(/\v/,"、","g",$'${tabcols[(ie)contrib]}');
+  category=$'${tabcols[(ie)region]}';
+  content=gensub(/\\n/,"<br>","g",\
+          gensub(/&/,"\\&amp;","g",\
+          gensub(/</,"&lt;","g",\
+          gensub(/>/,"&gt;","g",$'${tabcols[(ie)desc]}'))));
+  if (length(content)) content=("<div>" content "</div>");
+  if (length($'${tabcols[(ie)tags]}')) {
+    content=(content "<div>" (gensub(/\v/,"、","g",$'${tabcols[(ie)tags]}')) "</div>");
+  }
+
+  if (length($'${tabcols[(ie)date2]}')) {
+    date=strptime($'${tabcols[(ie)date2]}',"%F");
+  } else if (length($'${tabcols[(ie)date]}')) {
+    date=strptime($'${tabcols[(ie)date]}',"%F");
+  } else {
+    date="";
+  }
+  content=(content "<div>" ($'${tabcols[(ie)totalep]}' ? ($'${tabcols[(ie)totalep]}' "话") : "") ($'${tabcols[(ie)stat]}'=="'${stat_map[end]}'" ? "✅" : (length($'${tabcols[(ie)date2]}') ? "⏸️" : "")) "</div>" ("<div>" \
+      ($'${tabcols[(ie)hcover]}' ? ("<img src=\"" $'${tabcols[(ie)hcover]}' "\">") : "") \
+      ($'${tabcols[(ie)vcover]}' ? ("<img src=\"" $'${tabcols[(ie)vcover]}' "\">") : "") \
+    "</div>"))
+  print '${(j:,:)sfeedcols}';
+}')
 }
 
 function get:list::h5 {
