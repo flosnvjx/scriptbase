@@ -64,7 +64,7 @@ _mkcpiozz() {
 			} | sed -ze 's%^\./%%' | sort -zu
 			shift
 		} \
-	| tar -cf - --group 0 --owner 0 --mode a+rw --mtime '@347158862' --numeric-owner --no-xattrs --null -T - | bsdtar -cf $of.ing --format zip --no-fflags --numeric-owner --uid 0 --gid 0 --options zip:compression=store -- @-
+	| tar -cf - --group 0 --owner 0 ${REO_FSMODE:+--mode} $REO_FSMODE ${REO_GNUTIME:+--mtime} $REO_GNUTIME --numeric-owner --no-xattrs --null -T - | bsdtar -cf $of.ing --format zip --no-fflags --numeric-owner --uid 0 --gid 0 --options zip:compression=store -- @-
 	mv -iT -- $of{.ing,}
 }
 {
