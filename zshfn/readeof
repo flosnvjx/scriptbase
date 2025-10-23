@@ -1,4 +1,5 @@
 function readeof {
+  setopt noxtrace
   ((#&&#<3)) || return 128
   [[ "${(Pt)1}" != *(readonly|float|integer|special)* ]] || return 8
   case "$1" in
