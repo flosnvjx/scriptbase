@@ -23,6 +23,7 @@ function .main {
         ;;
       *)
         readeof coverImgStream < $coverImg
+        .optimPicStream coverImgStream coverImgFormat
         ;;
     esac
   fi
