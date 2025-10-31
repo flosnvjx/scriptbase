@@ -28,7 +28,7 @@ function .main {
     esac
   fi
   (( $# )) || .usage 3
-  local -i noLookupTorrent
+  local -i noLookupTorrent noCheckArchive
   local -a torrentCacheDirs=(/sdcard/Download/ $HOME/.local/share/qBittorrent/BT_backup/)
   local -a torrents torrentsinfo
   local archive
@@ -38,27 +38,37 @@ function .main {
         noLookupTorrent=${${${(M)1:#-n}:+1}:-0}
         shift
         continue ;;
+      -f)
+        noCheckArchive=1
+        shift
+        continue ;;
       ?*.torrent)
         (( $#archive )) || .usage 3
         test -f $1
         imdl torrent show -i $1
-        imdl torrent verify -i $1 -c $archive
+        if (( noCheckArchive )); then
+          .note "skipping torrent verification"
+        else
+          imdl torrent verify -i $1 -c $archive
+        fi
         torrents+=($1)
         torrentsinfo+=("$(imdl torrent show -j -i $1 | .remapTorrentsInfo)")
         shift
         continue ;;
-      ?*.zip|?*.cbz)
+      ?*.zip|?*.cbz|?*.rar)
         (( ! $#archive )) || .usage 3
         test -f $1
 
-        bsdtar tf $1 | grep -iqEe '.+\.(jpg|png)$' || .dropout "archive does not contain files with supported image format: $1"
+        if ! (( noCheckArchive )); then
+          bsdtar tf $1 | grep -iqEe '.+\.(jpg|png)$' || .dropout "archive does not contain files with supported image format: $1"
+        fi
         archive=$1
         shift
 
         if (( ! ${(@)argv[(I)?*.torrent]} )); then
           if [[ -f $archive.torrent ]]; then
             torrents+=($archive.torrent)
-          elif ((!noLookupTorrent)) && [[ $archive == ?*.zip ]]; then
+          elif (( !noCheckArchive )) && ((!noLookupTorrent)) && [[ $archive == ?*.zip ]]; then
             local -a archivets=() possiblematchedtorrentsts=() zstats=()
             builtin zstat -A zstats +mtime -- $archive
             archivets=($zstats)
@@ -99,7 +109,11 @@ function .main {
   (( $#archive )) || .usage 3
   if (( ! $#torrents )); then
     .note 'no torrent specified for archive: '$archive
-    bsdtar xOf $archive >/dev/null
+    if (( !noCheckArchive )); then
+      bsdtar xOf $archive >/dev/null
+    else
+      .note "skipping archive integrity check"
+    fi
   fi
   if [[ ! -v coverImgFormat ]]; then
     [[ -t 0 ]] || .fatal "not a terminal, unable to pick picture interactively within archive"
