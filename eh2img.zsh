@@ -311,7 +311,7 @@ function .fatal {
   return 1
 }
 function .remapTorrentsInfo {
-  jq -ec '{name:.name,btih:.info_hash,contentLength:.content_size,pieceLength:.piece_size,timestamp:.creation_date,tracker:.tracker,comment:.comment}|map_values(. // empty)'
+  jq -ec '{name:.name,btih:.info_hash,contentLength:.content_size,pieceLength:.piece_size,timestamp:.creation_date,tracker:.tracker,comment:.comment,files:(if ((.files|length)>1) then .files else null end)}|map_values(. // empty)'
 }
 function .note {
   .dropout "NOTE: $1"
