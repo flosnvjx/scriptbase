@@ -8,7 +8,7 @@ function .main {
   local ofmt
   function {
     if (( $#1 && ${(@)${(@k)ostr}[(I)(#i)${(q)1}]} )); then
-      ofmt=${ostr[$1]}
+      ofmt=$1
     elif (( !$#1 )); then
       function {
         while ((#)); do if [[ -v ostr[$1] ]]; then
@@ -128,9 +128,9 @@ function .main {
           ifmtstr=${fmtstr[${fmtstr[(i)(#i)${ifile##*.}]}]}
           ;;
       esac
-      shntool split ${ifmtstr:+-i} ${ifmtstr} -d /sdcard/Music/albums/${${albumtitles[$walkcuefiles]//\?/？}//\*/＊} -n ${${${(M)totaldiscs[$walkcuefiles]:#<2->}:+${discnumbers[$walkcuefiles]}#%02d}:-%d} -t '%n.%t@%p' -f ${cuefiles[$walkcuefiles]} -o "${ostr[$ofmt]} $2 -" ${(s. .)3} -- $ifile
+      shntool split ${ifmtstr:+-i} ${ifmtstr} -d /sdcard/Music/albums/${${albumtitles[$walkcuefiles]//\?/？}//\*/＊} -n "${${${(M)totaldiscs[$walkcuefiles]:#<2->}:+${discnumbers[$walkcuefiles]}#%02d}:-%d}" -t '%n.%t@%p' -f ${cuefiles[$walkcuefiles]} -o "${ostr[$ofmt]} $2 -" ${(s. .)3} -- $ifile
     done
-  }
+  } "${(@)argv}"
 }
 
 declare -a exts=(wav flac tta ape tak wv)
