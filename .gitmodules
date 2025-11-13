@@ -1,0 +1,3 @@
+[submodule "external.deps/gron.awk"]
+	path = external.deps/gron.awk
+	url = https://github.com/xonixx/gron.awk
