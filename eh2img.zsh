@@ -176,15 +176,15 @@ function .main {
     if [[ $coverImgFormat == png ]]; then
       ##command jo -- -s fnm=$ao.${archive##*.} -n fsz=${zstats[1]} -s fck=xxh3:"$(xxh3sum --tag --binary - < $archive | sed -ne '/^XXH3 (stdin) = ................$/s%.* = %%p')" ${torrents[1]:+"fbt=["}${(j.,.)bt}${torrents[1]:+"]"} | jq -cj . | readeof coverImgCommentStream
       {
-        builtin print -r -- 'json={}'
-        builtin printf "json.fnm=%s\n" "$(print -rn -- $ao.${archive##*.} | jq -sR)"
-        builtin printf "json.fsz=%d\n" ${zstats[1]}
-        builtin printf "json.fck=%s\n" "$(print -rn -- xxh3:"$(xxh3sum --tag --binary - < $archive | sed -ne '/^XXH3 (stdin) = ................$/s%.* = %%p')" | jq -sR)"
+        builtin print -r -- 'json = {};'
+        builtin printf "json.fnm = %s;\n" "$(print -rn -- $ao.${archive##*.} | jq -sR)"
+        builtin printf "json.fsz = %d;\n" ${zstats[1]}
+        builtin printf "json.fck = %s;\n" "$(print -rn -- xxh3:"$(xxh3sum --tag --binary - < $archive | sed -ne '/^XXH3 (stdin) = ................$/s%.* = %%p')" | jq -sR)"
         if (( ${#torrents[1]} )); then
-          builtin printf "json.fbt=[]\n"
-          builtin print -r -- "["${(j.,.)bt}"]" | gron.awk | gawk 'NR==1&&/^json=\[]$/&&++i{next}/^json/&&i{sub(/^json/,"json.fbt");print}'
+          builtin printf "json.fbt = [];\n"
+          builtin print -r -- "["${(j.,.)bt}"]" | gron | gawk 'NR==1&&/^json = \[];$/&&++i{next}/^json/&&i{sub(/^json/,"json.fbt");print}'
         fi
-      } | gron.awk -u | jq -cj . | readeof coverImgCommentStream
+      } | gron -u | jq -cj . | readeof coverImgCommentStream
       print -rn -- $coverImgStream | exiftool '-PNG:Comment<='<(builtin print -rn -- $coverImgCommentStream) - | readeof coverImgStream
     fi
   }
