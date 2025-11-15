@@ -1,3 +1,6 @@
 [submodule "external.deps/gron.awk"]
 	path = external.deps/gron.awk
 	url = https://github.com/xonixx/gron.awk
+[submodule "external.deps/mbcue"]
+	path = external.deps/mbcue
+	url = https://github.com/tkem/scripts
