@@ -128,7 +128,7 @@ function .main {
           ifmtstr=${fmtstr[${fmtstr[(i)(#i)${ifile##*.}]}]}
           ;;
       esac
-      shntool split ${ifmtstr:+-i} ${ifmtstr} -d /sdcard/Music/albums/${${albumtitles[$walkcuefiles]//\?/？}//\*/＊} -n "${${${(M)totaldiscs[$walkcuefiles]:#<2->}:+${discnumbers[$walkcuefiles]}#%02d}:-%d}" -t '%n.%t@%p' -f ${cuefiles[$walkcuefiles]} -o "${ostr[$ofmt]} $2 -" ${(s. .)3} -- $ifile
+      shntool split ${ifmtstr:+-i} ${ifmtstr} -d /sdcard/Music/albums/${${albumtitles[$walkcuefiles]//\?/？}//\*/＊} -n "${${${(M)totaldiscs[$walkcuefiles]:#<2->}:+${discnumbers[$walkcuefiles]}#%02d}:-%d}" -t '%n.%t@%p' -f ${cuefiles[$walkcuefiles]} -o "${ostr[$ofmt]} $2 - ${${(M)ofmt:#opus}:+%f}" ${(s. .)3} -- $ifile
     done
   } "${(@)argv}"
 }
@@ -142,15 +142,15 @@ function .deps {
   recode --version &>/dev/null
   dos2unix --version &>/dev/null
   rw --help &>/dev/null
-  fmtstr[tta]='tta ffmpeg -loglevel quiet -xerror -hide_banner -err_detect explode -f tta -i %f -bitexact -t wav -'
-  fmtstr[ape]='ape ffmpeg -loglevel quiet -xerror -hide_banner -err_detect explode -f ape -i %f -bitexact -t wav -'
-  fmtstr[tak]='tak ffmpeg -loglevel quiet -xerror -hide_banner -err_detect explode -i %f -bitexact -t wav -'
+  fmtstr[tta]='tta ffmpeg -loglevel quiet -xerror -hide_banner -err_detect explode -f tta -i %f -bitexact -f wav -'
+  fmtstr[ape]='ape ffmpeg -loglevel quiet -xerror -hide_banner -err_detect explode -f ape -i %f -bitexact -f wav -'
+  fmtstr[tak]='tak ffmpeg -loglevel quiet -xerror -hide_banner -err_detect explode -i %f -bitexact -f wav -'
 
   flac --version &>/dev/null
   ostr[flac]='flac flac -sV8co %f'
 
   if fdkaac --version &>/dev/null; then
-    ostr[fdk]='cust ext=m4a fdkaac -m 4 -w 20000 -G 2 -S --no-timestamp -o %f'
+    ostr[fdk]='cust ext=m4a fdkaac -m 5 -w 20000 -G 2 -S --no-timestamp -o %f'
   fi
   if oggenc --help | grep -se "aoTuV"; then
     ostr[aotuv]='cust ext=ogg oggenc -Q -q 5 -s .... -o %f'
