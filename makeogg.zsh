@@ -107,14 +107,12 @@ function .main {
       : ${cuefiledirectives[$walkcuefiles]/%.(#b)([0-9a-zA-Z]##)}
       local ifile= ifmtstr=
       case "${match[1]}" in
-        ((#i)(wav|flac|tta|ape|tak|wv))
+        ((#i)(flac|wv|wav|tak|tta|ape))
           ifile=${cuefiledirectives[$walkcuefiles]}
           .msg "${cuefiles[$walkcuefiles]} (${cuefiledirectives[$walkcuefiles]})"
-        ;|
-        ((#i)wav)
           if ! [[ -f "${cuefiledirectives[$walkcuefiles]}" ]]; then
             function {
-              argv=(${cuefiledirectives[$walkcuefiles]%.*}.(#i)(flac|ape|tak|tta|wv)(.N))
+              argv=(${cuefiledirectives[$walkcuefiles]%.*}.(#i)(flac|wv|wav|tak|tta|ape)(.N))
               if ((#)); then
                 ifile=$1
                 .msg "${cuefiles[$walkcuefiles]} (${cuefiledirectives[$walkcuefiles]} -> $ifile. [NOTE: fallback])"
@@ -122,13 +120,16 @@ function .main {
             }
           fi
         ;;
+        (*)
+          .fatal "unsupported extension specified in FILE directive: ${cuefiles[$walkcuefiles]} (\"${cuefiledirectives[$walkcuefiles]}\")"
+        ;;
       esac
       case "${ifile##*.}" in
         ((#i)(tta|ape|tak))
           ifmtstr=${fmtstr[${fmtstr[(i)(#i)${ifile##*.}]}]}
           ;;
       esac
-      shntool split ${ifmtstr:+-i} ${ifmtstr} -d /sdcard/Music/albums/${${albumtitles[$walkcuefiles]//\?/？}//\*/＊} -n "${${${(M)totaldiscs[$walkcuefiles]:#<2->}:+${discnumbers[$walkcuefiles]}#%02d}:-%d}" -t '%n.%t@%p' -f ${cuefiles[$walkcuefiles]} -o "${ostr[$ofmt]} $2 - ${${(M)ofmt:#opus}:+%f}" -m /／ ${(s. .)3} -- $ifile
+      shntool split ${ifmtstr:+-i} ${ifmtstr} -d /sdcard/Music/albums/${${albumtitles[$walkcuefiles]//\?/？}//\*/＊} -n "${${${(M)totaldiscs[$walkcuefiles]:#<2->}:+${discnumbers[$walkcuefiles]}#%02d}:-%d}" -t '%n.%t@%p' -f ${cuefiles[$walkcuefiles]} -o "${ostr[$ofmt]} $2 - ${${(M)ofmt:#opus}:+%f}" ${(s. .)3} -- $ifile
     done
   } "${(@)argv}"
 }
