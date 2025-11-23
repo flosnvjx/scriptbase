@@ -18,7 +18,7 @@ function .main {
           shift
         done
       } aotuv fdk flac
-    else
+    elif [[ "$1" != cue ]]; then
       .fatal "unsupported output fmt: $1"
     fi
   } "$1"
@@ -30,12 +30,13 @@ function .main {
     *) cuefiles=("${(@f)$(printf %s\\n $cuefiles | fzf -m --layout=reverse-list --prompt="Select cuesheets for later operations> ")}") || cuefiles=(**/?*.(#i)cue(.N))
        ;;
   esac
-  local -a cuefilecodepages cue{file,discnumber,totaldiscs,filetitle}directives
-  local -a albumtitles discnumbers totaldiscs
+  local -a cuefilecodepages cuebuffers cue{file,discnumber,totaldiscs,filetitle}directives
+  local -a albumtitles albumfiles discnumbers totaldiscs
   function {
     local walkcuefiles REPLY
     for ((walkcuefiles=1;walkcuefiles<=$#cuefiles;walkcuefiles++)); do
       cuefilecodepages+=('')
+      local buf=
       if ! aconv < ${cuefiles[$walkcuefiles]} | cmp -s -- ${cuefiles[$walkcuefiles]} -; then
         aconv < ${cuefiles[$walkcuefiles]} | sed -ne '/"/p'
         printf '-- %s\n' ${cuefiles[$walkcuefiles]}
@@ -45,18 +46,26 @@ function .main {
           printf '-- %s\n' ${cuefiles[$walkcuefiles]}
         done
         if (( ${#cuefilecodepages[-1]} )); then
-          recode -t -- ${cuefilecodepages[-1]} ${cuefiles[$walkcuefiles]}
+          uconv -i -f ${cuefilecodepages[-1]} -x '\u000A\u000D > \u000A' --remove-signature < ${cuefiles[$walkcuefiles]} | readeof buf
         else
-          aconv < ${cuefiles[$walkcuefiles]} | rw -- ${cuefiles[$walkcuefiles]}
+          aconv < ${cuefiles[$walkcuefiles]} | uconv -i -x '\u000A\u000D > \u000A' | readeof buf
         fi
+      else
+        uconv -i -x '\u000A\u000D > \u000A' < ${cuefiles[$walkcuefiles]} | readeof buf
       fi
-      dos2unix -k -- ${cuefiles[$walkcuefiles]}
-      cuefiledirectives+=("$(awk '/^ *FILE "([^"]+)" (WAVE|FLAC|AIFF)$/&&++i{sub(/^[^"]+"/,"");sub(/".*$/,"");a[i]=$0}END{if (i!=1) {exit 5} else {print a[i]}}' < ${cuefiles[$walkcuefiles]})")
-      cuefiletitledirectives+=("$(awk '/^ *FILE "([^"]+)" (WAVE|FLAC|AIFF)$/{++i}/^ *TITLE "[^"]+"$/&&!i{sub(/^[^"]+"/,"");sub(/".*$/,"");a=$0}END{if (length(a)) {print a}}' < ${cuefiles[$walkcuefiles]})")
-      cuediscnumberdirectives+=("$(awk '/^ *FILE "([^"]+)" (WAVE|FLAC|AIFF)$/{++i}/^ *REM DISCNUMBER [1-9][0-9]*$/&&!i{sub(/^^ *REM DISCNUMBER /,"");a=$0}END{if (length(a)) {print a}}' < ${cuefiles[$walkcuefiles]})")
-      cuetotaldiscsdirectives+=("$(awk '/^ *FILE "([^"]+)" (WAVE|FLAC|AIFF)$/{++i}/^ *REM TOTALDISCS [1-9][0-9]*$/&&!i{sub(/^^ *REM TOTALDISCS /,"");a=$0}END{if (length(a)) {print a}}' < ${cuefiles[$walkcuefiles]})")
+      cuebuffers[$walkcuefiles]=$buf
+      unset buf
+      cuefiledirectives+=( "${${${${(@)${(@f)${${cuebuffers[$walkcuefiles]:#[ 	]#TRACK *}%%
+[ 	]#TRACK *}}[(R)[ 	]#FILE "*" (WAVE|FLAC)]}#*\"}%\"*}:#*\"*}" )
+      cuefiletitledirectives+=("${${${${(@)${(@f)${${cuebuffers[$walkcuefiles]:#[ 	]#TRACK *}%%
+[ 	]#TRACK *}}[(R)[ 	]#TITLE "*"]}#*\"}%\"*}:#*\"*}")
+      cuediscnumberdirectives+=("${${(@)${(@f)${${cuebuffers[$walkcuefiles]:#[ 	]#TRACK *}%%
+[ 	]#TRACK *}}[(R)[ 	]#REM DISCNUMBER [1-9][0-9]#]}#[ 	]#REM DISCNUMBER }")
+      cuetotaldiscsdirectives+=("${${(@)${(@f)${${cuebuffers[$walkcuefiles]:#[ 	]#TRACK *}%%
+[ 	]#TRACK *}}[(R)[ 	]#REM TOTALDISCS [1-9][0-9]#]}#[ 	]#REM TOTALDISCS }")
     done
-    (( $#cuefiledirectives == $#cuefiles )) || .fatal "provides $#cuefiles cue sheet(s), but found $#cuefiledirectives FILE directive(s)"
+    exit
+    (( $#cuefiledirectives == $#cuefiles )) || .fatal "specified $#cuefiles cue sheet(s), but found $#cuefiledirectives FILE directive(s)"
     (( $#cuefiledirectives == ${(@)#${(@u)cuefiledirectives}} )) || .fatal "multiple cue sheets referenced same audio file"
     for ((walkcuefiles=1;walkcuefiles<=$#cuefiles;walkcuefiles++)); do
       .msg "${cuefiles[$walkcuefiles]} (${cuefiledirectives[$walkcuefiles]})"
@@ -108,7 +117,7 @@ function .main {
       local -a match=() mbegin=() mend=()
       .msg "${cuefiles[$walkcuefiles]} (${cuefiledirectives[$walkcuefiles]})"
       : ${cuefiledirectives[$walkcuefiles]/%.(#b)([0-9a-zA-Z]##)}
-      local ifile= ifmtstr=
+      local ifmtstr= ifile=
       case "${match[1]}" in
         ((#i)(flac|wv|wav|tak|tta|ape))
           ifile=${cuefiledirectives[$walkcuefiles]}
@@ -132,7 +141,12 @@ function .main {
           ifmtstr=${fmtstr[${fmtstr[(i)(#i)${ifile##*.}]}]}
           ;;
       esac
-      shntool split ${ifmtstr:+-i} ${ifmtstr} -d /sdcard/Music/albums/${${albumtitles[$walkcuefiles]//\?/？}//\*/＊} -n "${${${(M)totaldiscs[$walkcuefiles]:#<2->}:+${discnumbers[$walkcuefiles]}#%02d}:-%d}" -t '%n.%t@%p' -f ${cuefiles[$walkcuefiles]} -o "${ostr[$ofmt]} $2 - ${${(M)ofmt:#opus}:+%f}" ${(s. .)3} -- $ifile
+      if (( $#ofmt )); then
+        shntool split ${ifmtstr:+-i} ${ifmtstr} -d /sdcard/Music/albums/${${albumtitles[$walkcuefiles]//\?/？}//\*/＊} -n "${${${(M)totaldiscs[$walkcuefiles]:#<2->}:+${discnumbers[$walkcuefiles]}#%02d}:-%d}" -t '%n.%t@%p' -f ${cuefiles[$walkcuefiles]} -o "${ostr[$ofmt]} $2 - ${${(M)ofmt:#opus}:+%f}" ${(s. .)3} -- $ifile
+      else
+        shntool split -DD ${ifmtstr:+-i} ${ifmtstr} -n "${${${(M)totaldiscs[$walkcuefiles]:#<2->}:+${discnumbers[$walkcuefiles]}#%02d}:-%d}" -t '%n.%t@%p' -f ${cuefiles[$walkcuefiles]} -o null -- $ifile
+      fi
+      albumfiles[$walkcuefiles]=$ifile
     done
   } "${(@)argv}"
 }
