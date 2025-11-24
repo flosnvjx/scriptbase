@@ -118,12 +118,12 @@ function .main {
       : ${cuefiledirectives[$walkcuefiles]/%.(#b)([0-9a-zA-Z]##)}
       local ifmtstr= ifile=
       case "${match[1]}" in
-        ((#i)(flac|wv|wav|tak|tta|ape))
+        ((#i)(flac|wav|tak|tta|ape))
           ifile=${cuefiledirectives[$walkcuefiles]}
           .msg "${cuefiles[$walkcuefiles]} (${cuefiledirectives[$walkcuefiles]})"
           if ! [[ -f "${cuefiledirectives[$walkcuefiles]}" ]]; then
             function {
-              argv=(${cuefiledirectives[$walkcuefiles]%.*}.(#i)(flac|wv|wav|tak|tta|ape)(.N))
+              argv=(${cuefiledirectives[$walkcuefiles]%.*}.(#i)(flac|wav|tak|tta|ape)(.N))
               if ((#)); then
                 ifile=$1
                 .msg "${cuefiles[$walkcuefiles]} (${cuefiledirectives[$walkcuefiles]} -> $ifile. [NOTE: fallback])"
