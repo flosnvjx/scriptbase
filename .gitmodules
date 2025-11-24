@@ -4,3 +4,6 @@
 [submodule "external.deps/mbcue"]
 	path = external.deps/mbcue
 	url = https://github.com/tkem/scripts
+[submodule "zplug/zsh-vimode-visual"]
+	path = zplug/zsh-vimode-visual
+	url = https://github.com/babarot/zsh-vimode-visual
