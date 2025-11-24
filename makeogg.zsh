@@ -64,7 +64,6 @@ function .main {
       cuetotaldiscsdirectives+=("${${(@)${(@f)${${cuebuffers[$walkcuefiles]:#[ 	]#TRACK *}%%
 [ 	]#TRACK *}}[(R)[ 	]#REM TOTALDISCS [1-9][0-9]#]}#[ 	]#REM TOTALDISCS }")
     done
-    exit
     (( $#cuefiledirectives == $#cuefiles )) || .fatal "specified $#cuefiles cue sheet(s), but found $#cuefiledirectives FILE directive(s)"
     (( $#cuefiledirectives == ${(@)#${(@u)cuefiledirectives}} )) || .fatal "multiple cue sheets referenced same audio file"
     for ((walkcuefiles=1;walkcuefiles<=$#cuefiles;walkcuefiles++)); do
@@ -92,12 +91,12 @@ function .main {
           totaldiscs[$walkcuefiles]=${cuetotaldiscsdirectives[$walkcuefiles]}
           if (( ${(@)#${(@M)albumtitles:#${(q)albumtitles[$walkcuefiles]}}} > 1)); then
             if (( totaldiscs[walkcuefiles] < ${(@)#${(@M)albumtitles:#${(q)albumtitles[$walkcuefiles]}}} )); then
-              until (( totaldiscs[${(@)albumtitles[(i)${(q)albumtitles[$walkcuefiles]}]}] >= ${(@)#${(@M)albumtitles:#${(q)albumtitles[$walkcuefiles]}}} )); do vared -ep 'dc!> ' "totaldiscs[${(@)albumtitles[(i)${(q)albumtitles[$walkcuefiles]}]}]"; done
+              until [[ "${totaldiscs[walkcuefiles]}" == [0-9]## ]] && (( totaldiscs[${(@)albumtitles[(i)${(q)albumtitles[$walkcuefiles]}]}] >= ${(@)#${(@M)albumtitles:#${(q)albumtitles[$walkcuefiles]}}} )); do vared -ep 'dc!> ' "totaldiscs[${(@)albumtitles[(i)${(q)albumtitles[$walkcuefiles]}]}]"; done
             fi
             totaldiscs[$walkcuefiles]=${(@)albumtitles[(i)${(q)albumtitles[$walkcuefiles]}]}
           elif (( ! totaldiscs[walkcuefiles] )); then
             totaldiscs[$walkcuefiles]=$(( ${(@)#${(@M)cuefiletitledirectives:#${(q)albumtitles[$walkcuefiles]}*}} ? ${(@)#${(@M)cuefiletitledirectives:#${(q)albumtitles[$walkcuefiles]}*}} : $#cuefiles ))
-            until vared -ep 'dc> ' "totaldiscs[$walkcuefiles]" && (( totaldiscs[walkcuefiles] > 0 )); do :; done
+            until vared -ep 'dc> ' "totaldiscs[$walkcuefiles]" && [[ "${totaldiscs[walkcuefiles]}" == [0-9]## ]] && (( totaldiscs[walkcuefiles] > 0 )); do :; done
           fi
 
           : ${#match[1]:-${${cuefiles[$walkcuefiles]%(#i).cue}:#[^a-zA-Z](#i)Disc #(#b)(<1->)}}
@@ -141,12 +140,114 @@ function .main {
           ifmtstr=${fmtstr[${fmtstr[(i)(#i)${ifile##*.}]}]}
           ;;
       esac
-      if (( $#ofmt )); then
-        shntool split ${ifmtstr:+-i} ${ifmtstr} -d /sdcard/Music/albums/${${albumtitles[$walkcuefiles]//\?/？}//\*/＊} -n "${${${(M)totaldiscs[$walkcuefiles]:#<2->}:+${discnumbers[$walkcuefiles]}#%02d}:-%d}" -t '%n.%t@%p' -f ${cuefiles[$walkcuefiles]} -o "${ostr[$ofmt]} $2 - ${${(M)ofmt:#opus}:+%f}" ${(s. .)3} -- $ifile
-      else
-        shntool split -DD ${ifmtstr:+-i} ${ifmtstr} -n "${${${(M)totaldiscs[$walkcuefiles]:#<2->}:+${discnumbers[$walkcuefiles]}#%02d}:-%d}" -t '%n.%t@%p' -f ${cuefiles[$walkcuefiles]} -o null -- $ifile
-      fi
+      shntool split ${=ofmt:--P none} ${ifmtstr:+-i} ${ifmtstr} ${ofmt:+-d} ${ofmt:+/sdcard/Music/albums/${${albumtitles[$walkcuefiles]//\?/？}//\*/＊}} -n "${${${(M)totaldiscs[$walkcuefiles]:#<2->}:+$(( discnumbers[$walkcuefiles] ))#%02d}:-%d}" -t '%n.%t@%p' -f <(print -r -- ${cuebuffers[$walkcuefiles]}) -o ${${ofmt:+${ostr[$ofmt]} $2 - ${${(M)ofmt:#opus}:+%f}}:-null} ${(s. .)3} -- $ifile
       albumfiles[$walkcuefiles]=$ifile
+      local mbufs=()
+      local mbuf= \
+      awkcuecode='
+        BEGIN {
+          dd["FILE"]="'${albumfiles[$walkcuefiles]//\\/\\\\}'";
+          dd["TITLE"]="'${${albumtitles[$walkcuefiles]//\"/＂}//\\/\\\\}'";
+          dd["REM DISCNUMBER"]="'${${totaldiscs[$walkcuefiles]:#1}:+$(( discnumbers[$walkcuefiles] ))}'";
+          dd["REM TOTALDISCS"]="'$(( totaldiscs[$walkcuefiles] ))'";
+        }
+        function joinkey(m,n,  k, l) {
+          n==0&&n=="" ? n="|" : 1
+          for (k in m) {
+            l=(l (l==0&&l=="" ? "" : n) k)
+          }
+          return l
+        }
+        /^[ \t]*TRACK/ {
+          ++nt
+        }
+        nt&&/[^ \t]/
+        !nt&&/[^ \t]/ {
+          if (match($0,("^[ \t]*(" joinkey(dd) ")"),matches)) {
+            m=matches[1]
+            if (m in dd) {
+              if (length(dd[m])) {
+                switch (m) {
+                  case "REM DISCNUMBER" :
+                  case "REM TOTALDISCS" :
+                    print m " " dd[m];
+                    break;
+                  case "TITLE" :
+                    print m " \"" dd[m] "\""
+                    break;
+                  case "FILE" :
+                    print m " \"" dd[m] "\" WAVE"
+                    break;
+                }
+              }
+              delete dd[m]
+            }
+          } else
+            print;
+        }
+      '
+      gawk -E <(print -r -- $awkcuecode) <(print -rn -- ${cuebuffers[$walkcuefiles]}) | readeof mbuf
+      print -rn -- ${mbuf} | delta --paging never <(print -rn -- ${cuebuffers[$walkcuefiles]}) - || :
+      local REPLY=
+      mbufs+=($mbuf)
+      while :; do
+        timeout 0.1 cat >/dev/null || :
+        read -k1 "REPLY?${cuefiles[$walkcuefiles]:t} [y/e/d/p($((${#mbufs}-1)))/m/q] "
+        case "$REPLY" in
+          (y) echo
+            if print -rn -- ${mbufs[-1]} | cueprint -i cue -d ":: %T" -t "%02n.%t"; then
+              if ! print -rn -- ${mbufs[-1]} | cmp -s -- ${cuefiles[$walkcuefiles]}; then
+                print -rn -- ${mbufs[-1]} | rw -- ${cuefiles[$walkcuefiles]}
+              fi
+            else
+              .err 'malformed cuesheet'
+              continue
+            fi
+          ;|
+          (e)
+            mbuf="${$(print -rn -- $mbuf | zed):-$mbuf}"
+            if [[ ${mbufs[-1]} != $mbuf ]]; then
+              mbufs+=($mbuf$'\n')
+              print -rn -- ${mbufs[-1]} | delta --paging=never <(print -rn -- ${mbufs[-2]}) - || :
+            fi
+          ;|
+          (d)
+            if (( $#mbufs >1 )); then
+              print -rn -- ${mbufs[-1]} | delta --paging=never <(print -rn -- ${mbufs[1]}) - || :
+            else
+              print -rn -- ${mbufs[-1]} | delta --paging=never -- ${cuefiles[$walkcuefiles]} - || :
+            fi
+          ;|
+          (m)
+            local askmbid=$askmbid
+            timeout 0.01 cat >/dev/null || :
+            vared -hp 'm:mbid> ' askmbid
+            function {
+              argv=(${(f)mbufs[-1]})
+              if (( ${argv[(i)[ 	]#TRACK]} <= $# && ${argv[(i)[ 	]#TRACK]}>1 )); then argv=(${argv[1,$((${argv[(i)[ 	]#TRACK]}-1))]}); fi
+              0=${${argv[(R)[ 	]#CATALOG ?(#c12,13)]}#[ 	]#CATALOG }
+              if python ${ZSH_ARGZERO%/*}/external.deps/mbcue/mbcue.py ${0:+-b $0} -n ${discnumbers[$walkcuefiles]} ${${(M)askmbid:#(|https://musicbrainz.org/release/)[0-9a-f](#c8)-[0-9a-f](#c4)-[0-9a-f](#c4)-[0-9a-f](#c4)-[0-9a-f](#c12)(|/*)}:+-r ${${askmbid#https://musicbrainz.org/release/}%%/*}} <(print -rn -- ${mbufs[-1]}) | readeof mbuf && (( $#mbuf )); then
+                if [[ ${mbufs[-1]} != $mbuf ]]; then
+                  mbufs+=($mbuf)
+                  print -rn -- ${mbufs[-1]} | delta --paging=never <(print -rn -- ${mbufs[-2]}) - || :
+                fi
+              else
+                mbuf=${mbufs[-1]}
+                continue
+              fi
+            }
+          ;|
+          (p)
+            if (( $#mbufs>1 )); then
+              print -rn -- ${mbufs[-1]} | delta --paging=never - <(print -rn -- ${mbufs[-2]}) || :
+              shift -p mbufs
+            fi
+          ;|
+          (q)
+            break
+          ;|
+        esac
+      done
     done
   } "${(@)argv}"
 }
