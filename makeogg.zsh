@@ -114,21 +114,25 @@ function .main {
     done
     for ((walkcuefiles=1;walkcuefiles<=$#cuefiles;walkcuefiles++)); do
       local -a match=() mbegin=() mend=()
-      .msg "${cuefiles[$walkcuefiles]} (${cuefiledirectives[$walkcuefiles]})"
+      .msg "${cuefiles[$walkcuefiles]} (\"${cuefiledirectives[$walkcuefiles]}\")"
       : ${cuefiledirectives[$walkcuefiles]/%.(#b)([0-9a-zA-Z]##)}
       local ifmtstr= ifile=
       case "${match[1]}" in
         ((#i)(flac|wav|tak|tta|ape))
-          ifile=${cuefiledirectives[$walkcuefiles]}
+          ifile=${${(M)cuefiles[$walkcuefiles]:#*/*}:+${cuefiles[$walkcuefiles]%/*}/}${cuefiledirectives[$walkcuefiles]}
           .msg "${cuefiles[$walkcuefiles]} (${cuefiledirectives[$walkcuefiles]})"
-          if ! [[ -f "${cuefiledirectives[$walkcuefiles]}" ]]; then
+          if ! [[ -f "$ifile" ]]; then
             function {
-              argv=(${cuefiledirectives[$walkcuefiles]%.*}.(#i)(flac|wav|tak|tta|ape)(.N))
+              argv=({${${(M)cuefiles[$walkcuefiles]:#*/*}:+${cuefiles[$walkcuefiles]%/*}/}${cuefiledirectives[$walkcuefiles]%.*},${cuefiles[$walkcuefiles]:r}}.(#i)(flac|wav|tak|tta|ape)(.N))
               if ((#)); then
                 ifile=$1
-                .msg "${cuefiles[$walkcuefiles]} (${cuefiledirectives[$walkcuefiles]} -> $ifile. [NOTE: fallback])"
+                albumfiles[$walkcuefiles]=${${${(M)cuefiles[$walkcuefiles]:#*/*}:+${ifile#"${cuefiles[$walkcuefiles]%/*}"/}}:-$ifile}
+                .msg "${cuefiles[$walkcuefiles]} (\"${cuefiledirectives[$walkcuefiles]}\" -> \"${albumfiles[$walkcuefiles]}\" [NOTE: fallback])"
+                return
               fi
             }
+          else
+            albumfiles[$walkcuefiles]=${${${(M)cuefiles[$walkcuefiles]:#*/*}:+${ifile#"${cuefiles[$walkcuefiles]%/*}"/}}:-$ifile}
           fi
         ;;
         (*)
@@ -141,7 +145,6 @@ function .main {
           ;;
       esac
       shntool split ${=ofmt:--P none} ${ifmtstr:+-i} ${ifmtstr} ${ofmt:+-d} ${ofmt:+/sdcard/Music/albums/${${albumtitles[$walkcuefiles]//\?/？}//\*/＊}} -n "${${${(M)totaldiscs[$walkcuefiles]:#<2->}:+$(( discnumbers[$walkcuefiles] ))#%02d}:-%d}" -t '%n.%t@%p' -f <(print -r -- ${cuebuffers[$walkcuefiles]}) -o ${${ofmt:+${ostr[$ofmt]} $2 - ${${(M)ofmt:#opus}:+%f}}:-null} ${(s. .)3} -- $ifile
-      albumfiles[$walkcuefiles]=$ifile
       local mbufs=()
       local mbuf= \
       awkcueput='
@@ -155,7 +158,7 @@ function .main {
         function pd(k,  tr, pad) {
           if (k in d[tr==""&&tr==0 ? "d" : "t" tr]) {
             if (length(d[tr==""&&tr==0 ? "d" : "t" tr][k])) {
-              printf "%s",(pad==""&&pad==0 ? (match($0,/^[ \t]+/) ? substr($0,RSTART,RLENGTH) : "") : pad)
+              printf "%s",(pad==""&&pad==0 ? "" : pad)
               switch (k) {
                 case "REM DISCNUMBER" :
                 case "REM TOTALDISCS" :
@@ -179,30 +182,33 @@ function .main {
           }
           if (nt && ("t" nt) in d && length(d["t" nt])) {
             for (k in d["t" nt])
-              pd(k, "t" nt, matches[1])
+              pd(k, nt, matches[1])
           }
           ++nt
-          tdd[nt]=(("t" nt) in d && length(d["t" nt]) ? joinkey(d["t" nt]) : "")
-        }
-        END {
-          if (nt && ("t" nt) in d && length(d["t" nt])) {
-            for (k in d["t" nt])
-              pd(k, "t" nt, matches[1])
-          }
+          jtd[nt]=(("t" nt) in d && length(d["t" nt]) ? joinkey(d["t" nt]) : "")
+          print
+          next
         }
         nt&&/[^ \t]/ {
-          if (length(tdd[nt]) && match($0,("^([ \t]*)(" tdd[nt] ")( |$)"),matches)) {
-            m=matches[2]
+          if (length(jtd[nt]) && match($0,("^([ \t]*)((" jtd[nt] ")( |$)|)"),matches) && length(matches[3])) {
+            m=matches[3]
             pd(m, nt, matches[1])
           } else
             print;
+        }
+        END {
+          if (!nt || ("d" in d && length(d["d"]))) exit(1)
+          if (nt && ("t" nt) in d && length(d["t" nt])) {
+            for (k in d["t" nt])
+              pd(k, nt, matches[1])
+          }
         }
         BEGIN {
           jdd=("d" in d && length(d["d"]) ? joinkey(d["d"]) : "")
         }
         !nt&&/[^ \t]/ {
-          if (length(jdd) && match($0,("^([ \t]*)(" jdd ")( |$)"),matches)) {
-            m=matches[2]
+          if (length(jdd) && match($0,("^([ \t]*)((" jdd ")( |$)|)"),matches) && length(matches[3])) {
+            m=matches[3]
             pd(m)
           } else
             print;
@@ -223,21 +229,26 @@ function .main {
         timeout 0.1 cat >/dev/null || :
         read -k1 "REPLY?${cuefiles[$walkcuefiles]:t} [y/e/d/p($((${#mbufs}-1)))/m/t/q] "
         case "$REPLY" in
-          (y) echo
+          ([^\n]) echo
+          ;|
+          (y)
             if print -rn -- ${mbufs[-1]} | cueprint -i cue -d ":: %T" -t "%02n.%t"; then
               if ! print -rn -- ${mbufs[-1]} | cmp -s -- ${cuefiles[$walkcuefiles]}; then
                 print -rn -- ${mbufs[-1]} | rw -- ${cuefiles[$walkcuefiles]}
               fi
+              break
             else
               .err 'malformed cuesheet'
               continue
             fi
           ;|
           (e)
-            mbuf="${$(print -rn -- $mbuf | zed):-$mbuf}"
-            if [[ ${mbufs[-1]} != $mbuf ]]; then
+            mbuf="${$(print -rn -- $mbuf | zed):-$mbuf}" || continue
+            if (( $#mbuf )) && [[ ${mbufs[-1]} != $mbuf$'\n' ]]; then
               mbufs+=($mbuf$'\n')
               print -rn -- ${mbufs[-1]} | delta --paging=never <(print -rn -- ${mbufs[-2]}) - || :
+            else
+              mbuf=${mbufs[-1]}
             fi
           ;|
           (d)
@@ -278,11 +289,26 @@ function .main {
               local -aU tagtnums=()
               local tagvalue=
               read -k 1 "tagkey?${${cuefiles[$walkcuefiles]:t}:0:${$(( ${WIDTH:-80}/2 ))%.*}} [${${(@j..)${(@k)commontags}#*:}:l}?q] "
+              case "$tagkey" in
+                ([^\n]) echo
+                  ;|
+                (\?)
+                  function {
+                    argv=(${${(@)${(@k)commontags}#*:}:l})
+                    argv=(${${(@)${(@k)commontags}%:?}:^argv})
+                    printf '%s[%s]' ${(@pj.\t.)argv}
+                    echo
+                  }
+                  continue
+                ;;
+                (q) break
+                ;;
+              esac
               if [[ "$tagkey" = n ]]; then
                 tagtnums=("${(f)$(cueprint -i cue -t "%n. %t\n" <<< "${mbufs[-1]%
-}" | fzf --layout=reverse-list --prompt="${${cuefiles[$walkcuefiles]:t}:0:${$(( ${WIDTH:-80}/2 ))%.*}} tag(${(@)${(@k)commontags}[(r)(#i)*:$tagkey]%:?}).byTrack ")%%.*}") || continue
+}" | fzf --layout=reverse-list --prompt="${${cuefiles[$walkcuefiles]:t}:0:${$(( ${WIDTH:-80}/2 ))%.*}} tag(${(@)${(@k)commontags}[(r)(#i)*:$tagkey]%:?}).track:")%%.*}") || continue
               elif eval '[[ "$tagkey" = ['${(@j..)${(@M)${(@k)commontags#*:}:#[a-z]}:l}'] ]]'; then
-                if IFS=" ,	" vared -ehp "${${cuefiles[$walkcuefiles]:t}:0:${$(( ${WIDTH:-80}/2 ))%.*}} tag(${(@)${(@k)commontags}[(r)(#i)*:$tagkey]%:?}).byTracks " tagtnums && (( ${(@)#${(@M)tagtnums:#[0-9]##(-[0-9]#|)}} )); then :
+                if IFS=" ,	" vared -ehp "${${cuefiles[$walkcuefiles]:t}:0:${$(( ${WIDTH:-80}/2 ))%.*}} tag(${(@)${(@k)commontags}[(r)(#i)*:$tagkey]%:?}).tracks:" tagtnums && (( ${(@)#${(@M)tagtnums:#[0-9]##(-[0-9]#|)}} )); then :
                   function {
                     argv=("${(f)$(cueprint -i cue -t "%n\n" <<< "${mbufs[-1]%
 }")}") || continue
@@ -291,6 +317,18 @@ function .main {
                   }
                 else continue
                 fi
+              elif eval '[[ "$tagkey" != ['${(@j..)${(@M)${(@k)commontags#*:}:#[A-Z]}:l}'] ]]'; then continue;
+              fi
+              if eval '[[ "$tagkey" = ['${(@j..)${(@M)${(@k)commontags#*:}:#[A-Za-z]}:l}'] ]]'; then
+                vared -ehp "${${cuefiles[$walkcuefiles]:t}:0:${$(( ${WIDTH:-80}/2 ))%.*}} tag(${(@)${(@k)commontags}[(r)(#i)*:$tagkey]%:?}).value:" tagvalue || continue
+              fi
+              gawk -E <(print -r -- 'BEGIN { ' d\[\"${${${(M)tagkey:#[${(@j..)${(@M)${(@k)commontags#*:}:#[A-Z]}:l}]}:+d}:-t${^tagtnums}}\"\]\[\"${(@)commontags[${(@)${(@k)commontags}[(r)(#i)*:$tagkey]}]}\"\]=\"${${tagvalue//\\/\\\\}//\"/\\\"}\"\; ' };'$awkcueput) <(print -rn -- ${mbufs[-1]}) | readeof mbuf
+              if (( $#mbuf )) && [[ "${mbufs[-1]}" != "$mbuf" ]]; then
+                mbufs+=($mbuf)
+                print -rn -- ${mbufs[-1]} | delta --paging=never <(print -rn -- ${mbufs[-2]}) - || :
+                break
+              else
+                mbuf=${mbufs[-1]}
               fi
             done
           ;|
