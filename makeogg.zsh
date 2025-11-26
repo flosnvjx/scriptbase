@@ -144,13 +144,7 @@ function .main {
       albumfiles[$walkcuefiles]=$ifile
       local mbufs=()
       local mbuf= \
-      awkcuecode='
-        BEGIN {
-          dd["FILE"]="'${albumfiles[$walkcuefiles]//\\/\\\\}'";
-          dd["TITLE"]="'${${albumtitles[$walkcuefiles]//\"/＂}//\\/\\\\}'";
-          dd["REM DISCNUMBER"]="'${${totaldiscs[$walkcuefiles]:#1}:+$(( discnumbers[$walkcuefiles] ))}'";
-          dd["REM TOTALDISCS"]="'$(( totaldiscs[$walkcuefiles] ))'";
-        }
+      awkcueput='
         function joinkey(m,n,  k, l) {
           n==0&&n=="" ? n="|" : 1
           for (k in m) {
@@ -158,41 +152,76 @@ function .main {
           }
           return l
         }
-        /^[ \t]*TRACK/ {
-          ++nt
-        }
-        nt&&/[^ \t]/
-        !nt&&/[^ \t]/ {
-          if (match($0,("^[ \t]*(" joinkey(dd) ")"),matches)) {
-            m=matches[1]
-            if (m in dd) {
-              if (length(dd[m])) {
-                switch (m) {
-                  case "REM DISCNUMBER" :
-                  case "REM TOTALDISCS" :
-                    print m " " dd[m];
-                    break;
-                  case "TITLE" :
-                    print m " \"" dd[m] "\""
-                    break;
-                  case "FILE" :
-                    print m " \"" dd[m] "\" WAVE"
-                    break;
-                }
+        function pd(k,  tr, pad) {
+          if (k in d[tr==""&&tr==0 ? "d" : "t" tr]) {
+            if (length(d[tr==""&&tr==0 ? "d" : "t" tr][k])) {
+              printf "%s",(pad==""&&pad==0 ? (match($0,/^[ \t]+/) ? substr($0,RSTART,RLENGTH) : "") : pad)
+              switch (k) {
+                case "REM DISCNUMBER" :
+                case "REM TOTALDISCS" :
+                  print k " " (tr==""&&tr==0 ? d["d"][k] : d["t" tr][k]);
+                  break;
+                default :
+                  print k " \"" (tr==""&&tr==0 ? d["d"][k] : d["t" tr][k]) "\"" (k=="FILE" ? " WAVE" : "")
+                  break;
               }
-              delete dd[m]
             }
+            if (tr==0&&tr=="")
+              delete d["d"][k]
+            else
+              delete d["t" tr][k]
+          }
+        }
+        /^[ \t]*TRACK/ {
+          if (!nt && "d" in d && length(d["d"])) {
+            for (k in d["d"])
+              pd(k)
+          }
+          if (nt && ("t" nt) in d && length(d["t" nt])) {
+            for (k in d["t" nt])
+              pd(k, "t" nt, matches[1])
+          }
+          ++nt
+          tdd[nt]=(("t" nt) in d && length(d["t" nt]) ? joinkey(d["t" nt]) : "")
+        }
+        END {
+          if (nt && ("t" nt) in d && length(d["t" nt])) {
+            for (k in d["t" nt])
+              pd(k, "t" nt, matches[1])
+          }
+        }
+        nt&&/[^ \t]/ {
+          if (length(tdd[nt]) && match($0,("^([ \t]*)(" tdd[nt] ")( |$)"),matches)) {
+            m=matches[2]
+            pd(m, nt, matches[1])
+          } else
+            print;
+        }
+        BEGIN {
+          jdd=("d" in d && length(d["d"]) ? joinkey(d["d"]) : "")
+        }
+        !nt&&/[^ \t]/ {
+          if (length(jdd) && match($0,("^([ \t]*)(" jdd ")( |$)"),matches)) {
+            m=matches[2]
+            pd(m)
           } else
             print;
         }
       '
-      gawk -E <(print -r -- $awkcuecode) <(print -rn -- ${cuebuffers[$walkcuefiles]}) | readeof mbuf
+      gawk -E <(print -r -- '
+        BEGIN {
+          d["d"]["FILE"]="'${albumfiles[$walkcuefiles]//\\/\\\\}'";
+          d["d"]["TITLE"]="'${${albumtitles[$walkcuefiles]//\"/＂}//\\/\\\\}'";
+          d["d"]["REM DISCNUMBER"]="'${${totaldiscs[$walkcuefiles]:#1}:+$(( discnumbers[$walkcuefiles] ))}'";
+          d["d"]["REM TOTALDISCS"]="'$(( totaldiscs[$walkcuefiles] ))'";
+        }
+      '$awkcueput) <(print -rn -- ${cuebuffers[$walkcuefiles]}) | readeof mbuf
       print -rn -- ${mbuf} | delta --paging never <(print -rn -- ${cuebuffers[$walkcuefiles]}) - || :
       local REPLY=
       mbufs+=($mbuf)
       while :; do
         timeout 0.1 cat >/dev/null || :
-        read -k1 "REPLY?${cuefiles[$walkcuefiles]:t} [y/e/d/p($((${#mbufs}-1)))/m/q] "
+        read -k1 "REPLY?${cuefiles[$walkcuefiles]:t} [y/e/d/p($((${#mbufs}-1)))/m/t/q] "
         case "$REPLY" in
           (y) echo
             if print -rn -- ${mbufs[-1]} | cueprint -i cue -d ":: %T" -t "%02n.%t"; then
@@ -243,6 +272,28 @@ function .main {
               shift -p mbufs
             fi
           ;|
+          (t)
+            while :;do
+              local tagkey=
+              local -aU tagtnums=()
+              local tagvalue=
+              read -k 1 "tagkey?${${cuefiles[$walkcuefiles]:t}:0:${$(( ${WIDTH:-80}/2 ))%.*}} [${${(@j..)${(@k)commontags}#*:}:l}?q] "
+              if [[ "$tagkey" = n ]]; then
+                tagtnums=("${(f)$(cueprint -i cue -t "%n. %t\n" <<< "${mbufs[-1]%
+}" | fzf --layout=reverse-list --prompt="${${cuefiles[$walkcuefiles]:t}:0:${$(( ${WIDTH:-80}/2 ))%.*}} tag(${(@)${(@k)commontags}[(r)(#i)*:$tagkey]%:?}).byTrack ")%%.*}") || continue
+              elif eval '[[ "$tagkey" = ['${(@j..)${(@M)${(@k)commontags#*:}:#[a-z]}:l}'] ]]'; then
+                if IFS=" ,	" vared -ehp "${${cuefiles[$walkcuefiles]:t}:0:${$(( ${WIDTH:-80}/2 ))%.*}} tag(${(@)${(@k)commontags}[(r)(#i)*:$tagkey]%:?}).byTracks " tagtnums && (( ${(@)#${(@M)tagtnums:#[0-9]##(-[0-9]#|)}} )); then :
+                  function {
+                    argv=("${(f)$(cueprint -i cue -t "%n\n" <<< "${mbufs[-1]%
+}")}") || continue
+                    tagtnums=("${${${(@M)tagtnums:#*-*}/#/<}/%/>}" "${(@)tagtnums:#*-*}")
+                    tagtnums=("${(@M)argv:#${(@)~${(@j.|.)tagtnums}}}")
+                  }
+                else continue
+                fi
+              fi
+            done
+          ;|
           (q)
             break
           ;|
@@ -252,6 +303,20 @@ function .main {
   } "${(@)argv}"
 }
 
+declare -A commontags
+commontags=(
+  'albumartist:A' 'PERFORMER'
+  'date:Y' 'DATE'
+  'catalognumber:O' 'REM CATALOGNUMBER'
+  'label:B' 'REM LABEL'
+  'artist:p' 'PERFORMER'
+  'title:n' 'TITLE'
+  'lyricist:l' 'REM LYRICIST'
+  'arranger:r' 'REM ARRANGER'
+  'composer:c' 'REM COMPOSER'
+  'comment:x' 'REM COMMENT'
+  'vocalist:v' 'REM VOCALIST'
+)
 declare -a exts=(wav flac tta ape tak wv)
 declare -A fmtstr
 declare -A ostr
