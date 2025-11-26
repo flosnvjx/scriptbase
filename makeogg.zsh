@@ -46,12 +46,13 @@ function .main {
           printf '-- %s\n' ${cuefiles[$walkcuefiles]}
         done
         if (( ${#cuefilecodepages[-1]} )); then
-          uconv -i -f ${cuefilecodepages[-1]} -x '\u000A\u000D > \u000A' --remove-signature < ${cuefiles[$walkcuefiles]} | readeof buf
+          ## perform unicode sanitize
+          uconv -i -f ${cuefilecodepages[-1]} -x '\u000A\u000D > \u000A; [[[:General_Category=Format:][:General_Category=Nonspacing_Mark:][:print=No:][:Cc:]] - [\u000A]] >;' --remove-signature < ${cuefiles[$walkcuefiles]} | readeof buf
         else
-          aconv < ${cuefiles[$walkcuefiles]} | uconv -i -x '\u000A\u000D > \u000A' | readeof buf
+          aconv < ${cuefiles[$walkcuefiles]} | uconv -i -x '\u000A\u000D > \u000A; [[[:General_Category=Format:][:General_Category=Nonspacing_Mark:][:print=No:][:Cc:]] - [\u000A]] >;' --remove-signature | readeof buf
         fi
       else
-        uconv -i -x '\u000A\u000D > \u000A' < ${cuefiles[$walkcuefiles]} | readeof buf
+        uconv -i -x '\u000A\u000D > \u000A; [[[:General_Category=Format:][:General_Category=Nonspacing_Mark:][:print=No:][:Cc:]] - [\u000A]] >;' < ${cuefiles[$walkcuefiles]} | readeof buf
       fi
       cuebuffers[$walkcuefiles]=$buf
       unset buf
