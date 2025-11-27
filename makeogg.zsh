@@ -511,7 +511,7 @@ function .deps {
   fi
 }
 function .uninorm {
-  uconv -i -x '\u000A\u000D > \u000A; [[[:General_Category=Format:][:General_Category=Nonspacing_Mark:][:print=No:][:Cc:]] - [\u000A]] >; ' ' {' '} >;' --remove-signature
+  uconv -i -x '\u000A\u000D > \u000A; [[[:General_Category=Format:][:General_Category=Nonspacing_Mark:][:print=No:][:Cc:]] - [\u000A]] >;' --remove-signature
 }
 function .msg {
   if [[ -t 1 ]]; then
