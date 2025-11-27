@@ -345,7 +345,7 @@ function .main {
 declare -A commontags
 commontags=(
   'albumartist:A' 'PERFORMER'
-  'date:Y' 'DATE'
+  'date:Y' 'REM DATE'
   'catalognumber:O' 'REM CATALOGNUMBER'
   'label:B' 'REM LABEL'
   'artist:p' 'PERFORMER'
@@ -378,6 +378,9 @@ function .deps {
   if oggenc --help | grep -se "aoTuV"; then
     ostr[aotuv]='cust ext=ogg oggenc -Q -q 5 -s .... -o %f'
   fi
+}
+function .uninorm {
+  uconv -i -x '\u000A\u000D > \u000A; [[[:General_Category=Format:][:General_Category=Nonspacing_Mark:][:print=No:][:Cc:]] - [\u000A]] >; ' ' {' '} >;'
 }
 function .msg {
   if [[ -t 1 ]]; then
