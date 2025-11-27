@@ -54,10 +54,10 @@ function .main {
           ## perform unicode sanitize
           uconv -i -f ${cuefilecodepages[-1]} -x '\u000A\u000D > \u000A; [[[:General_Category=Format:][:General_Category=Nonspacing_Mark:][:print=No:][:Cc:]] - [\u000A]] >;' --remove-signature < ${cuefiles[$walkcuefiles]} | readeof buf
         else
-          aconv < ${cuefiles[$walkcuefiles]} | uconv -i -x '\u000A\u000D > \u000A; [[[:General_Category=Format:][:General_Category=Nonspacing_Mark:][:print=No:][:Cc:]] - [\u000A]] >;' --remove-signature | readeof buf
+          aconv < ${cuefiles[$walkcuefiles]} | .uninorm | readeof buf
         fi
       else
-        uconv -i -x '\u000A\u000D > \u000A; [[[:General_Category=Format:][:General_Category=Nonspacing_Mark:][:print=No:][:Cc:]] - [\u000A]] >;' < ${cuefiles[$walkcuefiles]} | readeof buf
+        .uninorm < ${cuefiles[$walkcuefiles]} | readeof buf
       fi
       cuebuffers[$walkcuefiles]=$buf
       unset buf
@@ -504,7 +504,7 @@ function .deps {
   fi
 }
 function .uninorm {
-  uconv -i -x '\u000A\u000D > \u000A; [[[:General_Category=Format:][:General_Category=Nonspacing_Mark:][:print=No:][:Cc:]] - [\u000A]] >; ' ' {' '} >;'
+  uconv -i -x '\u000A\u000D > \u000A; [[[:General_Category=Format:][:General_Category=Nonspacing_Mark:][:print=No:][:Cc:]] - [\u000A]] >; ' ' {' '} >;' --remove-signature
 }
 function .msg {
   if [[ -t 1 ]]; then
