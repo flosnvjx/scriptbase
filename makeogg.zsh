@@ -145,6 +145,105 @@ function .main {
           ifmtstr=${fmtstr[${fmtstr[(i)(#i)${ifile##*.}]}]}
           ;;
       esac
+      local awkcuedump='
+      @include "shellquote"
+      function Map(re, arr) {
+        if (match($0,re,arr)) {
+          print (shell_quote((nt==""&&nt==0 ? "d" : "t" nt ) ":" arr[1]) " " shell_quote(arr[2]));
+          d[nt==""&&nt==0 ? "d" : "t" nt][arr[1]]=arr[2]
+          return mkbool(1)
+        } else
+          return mkbool(0)
+      }
+      /^[\t ]*TRACK [0-9][0-9] (AUDIO|MODE1\/(2048|2352)|(CDI|MODE2)\/(2336|2352)|CDG) *$/{
+        match($0,/^[\t ]*TRACK ([0-9][0-9]) ([^ "]+) *$/,rr)
+        nt=(rr[1])
+        nts[++cnt]=nt
+        d["t" nt]["mode"]=rr[2]
+        if (strtonum(gensub(/^0/,"","1",nt)) != cnt)
+          print ("WARN: nonsequential cuesheet tracknum -- " cnt "th track, but tracknum is " nt) > "/dev/stderr"
+        next
+      }
+      nt==""&&nt==0&&/[^\t ]/{
+        if ((Map("^[\t ]*(REM [A-Z_]+) \"(.*)\" *$",m) || \
+         Map("^[\t ]*(REM [A-Z_]+) ([^ \"\t]*) *$",m) || \
+         Map("^[\t ]*(CATALOG|CDTEXTFILE|PERFORMER|TITLE|SONGWRITER) \"(.*)\" *$",m) || \
+         Map("^[\t ]*(CATALOG) ([^ \"\t]*) *$",m) || \
+         Map("^[\t ]*(FILE) \"(.*)\" *(BINARY|MOTOROLA|WAVE|FLAC|MP3) *$",m)))
+          next;
+        else {
+          print ("FATAL: unrecognized directive form -- " shell_quote($0)) > "/dev/stderr"
+          exit(1);
+        }
+      }
+      nt>=0&&nt!=""&&/[^\t ]/{
+        if ((Map("^[\t ]*(REM [A-Z_]+) \"(.*)\" *$",m) || \
+         Map("^[\t ]*(REM [A-Z_]+) ([^ \"\t]*) *$",m) || \
+         Map("^[\t ]*(PERFORMER|TITLE|SONGWRITER) \"(.*)\" *$",m) || \
+         Map("^[\t ]*(ISRC) ([^ \"\t]*) *$",m) || \
+         Map("^[\t ]*(INDEX [0-9][0-9]|POSTGAP|PREGAP) ([0-9][0-9]:[0-9][0-9]:[0-9][0-9]) *$",m) || \
+         Map("^[\t ]*(FLAGS) ((DCP|PRE|4CH|SCMS|DATA)( (DCP|PRE|4CH|SCMS|DATA))*) *$",m))) {
+          next
+        } else {
+          print ("FATAL: unrecognized directive form on track " nts[nt] " -- " shell_quote($0)) > "/dev/stderr"
+          exit(1);
+        }
+      }
+      function msfts(msf,  l) {
+        if (match(msf,/^([0-9][0-9]):([0-9][0-9]):([0-9][0-9])$/,msfmatches)) {
+          return ((msfmatches[1]*60) + msfmatches[2])*44100+msfmatches[3]*588
+        } else
+          return mkbool(0);
+      }
+      END {
+        if (cnt==0) {
+          print "FATAL: no track ever specified" > "/dev/stderr"
+          exit(1);
+        }
+        for (walknts=1;walknts<=cnt;walknts++) {
+        if (("t" nts[walknts]) in d) {
+          if (d["t" nts[walknts]]["mode"] == "AUDIO") {
+            if ("INDEX 01" in d["t" nts[walknts]]) {
+              if ("INDEX 00" in d["t" nts[walknts]]) {
+                if (msfts(d["t" nts[walknts]]["INDEX 00"]) > msfts(d["t" nts[walknts]]["INDEX 01"])) {
+                  print ("ERROR: INDEX 00 > INDEX 01 (" (0+nts[walknts]!=walknts ? "on " walknts "th track, " : "") "tracknum: " nts[walknts] ")") > "/dev/stderr"
+                  exit(2)
+                }
+
+                if (walknts>1) {
+                  if (msfts(d["t" nts[walknts]]["INDEX 00"]) <= msfts(d["t" nts[walknts-1]]["INDEX 01"])) {
+                    print ("ERROR: (INDEX 00) bogus position specified (" (0+nts[walknts]!=walknts ? "on " walknts "th track, " : "") "tracknum: " nts[walknts] ")") > "/dev/stderr"
+                    exit(2)
+                  }
+                  print ("t" nts[walknts-1] ":until " sprintf("%d",msfts(d["t" nts[walknts]]["INDEX 00"])))
+                  if (pregap=(msfts(d["t" nts[walknts]]["INDEX 01"]) - msfts(d["t" nts[walknts]]["INDEX 00"]))>44100*3)
+                    print ("NOTE: skip " pregap/44100 " secs pregap on " walknts "th track (#" nts[walknts] ")") > "/dev/stderr"
+                } else if (htoa=msfts(d["t" nts[walknts]]["INDEX 01"]) > 44100) {
+                  print ("NOTE: [HTOA] skip " htoa/44100 " secs on " walknts "th track (#" nts[walknts] ")") > "/dev/stderr"
+                }
+              } else if (walknts>1) {
+                if (msfts(d["t" nts[walknts]]["INDEX 01"]) <= msfts(d["t" nts[walknts-1]]["INDEX 01"])) {
+                  print ("ERROR: (INDEX 01) bogus position specified (" (0+nts[walknts]!=walknts ? "on " walknts "th track, " : "") "tracknum: " nts[walknts] ")") > "/dev/stderr"
+                  exit(3)
+                }
+                print ("t" nts[walknts-1] ":until " sprintf("%d",msfts(d["t" nts[walknts]]["INDEX 01"])))
+              }
+              print ("t" nts[walknts] ":skip " sprintf("%d",msfts(d["t" nts[walknts]]["INDEX 01"])))
+            } else {
+              print ("ERROR: missing required index marker 01 (" (0+nts[walknts]!=walknts ? "on " walknts "th track, " : "") "tracknum: " nts[walknts] ")") > "/dev/stderr"
+              exit(4)
+            }
+          } else
+              continue
+        } else {
+          print ("ERROR: missing track num." nts[walknts]) > "/dev/stderr"
+          exit(4)
+        }
+        }
+      }
+      '
+      gawk --debug -E <(print -rn -- $awkcuedump) <(print -rn -- ${cuebuffers[$walkcuefiles]})
+      exit
       shntool split ${=ofmt:--P none} ${ifmtstr:+-i} ${ifmtstr} ${ofmt:+-d} ${ofmt:+/sdcard/Music/albums/${${albumtitles[$walkcuefiles]//\?/？}//\*/＊}} -n "${${${(M)totaldiscs[$walkcuefiles]:#<2->}:+$(( discnumbers[$walkcuefiles] ))#%02d}:-%d}" -t '%n.%t@%p' -f <(print -r -- ${cuebuffers[$walkcuefiles]}) -o ${${ofmt:+${ostr[$ofmt]} $2 - ${${(M)ofmt:#opus}:+%f}}:-null} ${(s. .)3} -- $ifile
       local mbufs=()
       local mbuf= \
