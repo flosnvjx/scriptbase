@@ -358,7 +358,7 @@ function .main {
       mbufs+=($mbuf)
       while :; do
         timeout 0.1 cat >/dev/null || :
-        read -k1 "REPLY?${cuefiles[$walkcuefiles]:t} [y/e/d/p($((${#mbufs}-1)))/m/t/q] "
+        read -k1 "REPLY?${cuefiles[$walkcuefiles]:t} [y/e/d/u($((${#mbufs}-1)))/m/t/q] "
         case "$REPLY" in
           ([^\n]) echo
           ;|
@@ -408,7 +408,7 @@ function .main {
               fi
             }
           ;|
-          (p)
+          (u)
             if (( $#mbufs>1 )); then
               print -rn -- ${mbufs[-1]} | delta --paging=never - <(print -rn -- ${mbufs[-2]}) || :
               shift -p mbufs
