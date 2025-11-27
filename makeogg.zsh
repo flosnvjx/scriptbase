@@ -298,15 +298,22 @@ function .main {
               delete d["t" tr][k]
           }
         }
-        /^[ \t]*TRACK/ {
-          if (!nt && "d" in d && length(d["d"])) {
-            for (k in d["d"])
-              pd(k)
-          }
+        /^[ \t]*(TRACK|ISRC|FLAGS|INDEX)/ {
           if (nt && ("t" nt) in d && length(d["t" nt])) {
             for (k in d["t" nt])
               pd(k, nt, matches[1])
           }
+        }
+        /^[ \t]*(TRACK|FILE)/ {
+          if (!nt && "d" in d && length(d["d"])) {
+            for (k in d["d"]) {
+              if (/^[ \t]*FILE/ && k=="FILE")
+                continue;
+              pd(k)
+            }
+          }
+        }
+        /^[ \t]*TRACK/ {
           ++nt
           jtd[nt]=(("t" nt) in d && length(d["t" nt]) ? joinkey(d["t" nt]) : "")
           print
