@@ -40,7 +40,12 @@ function .main {
       if ! aconv < ${cuefiles[$walkcuefiles]} | cmp -s -- ${cuefiles[$walkcuefiles]} -; then
         aconv < ${cuefiles[$walkcuefiles]} | sed -ne '/"/p'
         printf '-- %s\n' ${cuefiles[$walkcuefiles]}
-        while ! read -q "REPLY?Is that okay? ${cuefilecodepages[-1]:+${cuefilecodepages[-1]} }(y/N)" < ${TTY:-/dev/tty}; do
+        while :; do
+          read -k1 "REPLY?Is that okay? ${cuefilecodepages[-1]:+${cuefilecodepages[-1]} }(y/N)" < ${TTY:-/dev/tty}
+          case "$REPLY" in
+            ([^\n]) echo ;|
+            ([yY]) break ;;
+          esac
           cuefilecodepages[-1]="${$(iconv -l | fzf --layout=reverse-list --prompt="Select a codepage> ")// *}"
           iconv -f ${cuefilecodepages[-1]} -t UTF-8 -- ${cuefiles[$walkcuefiles]} | sed -ne '/"/p'
           printf '-- %s\n' ${cuefiles[$walkcuefiles]}
@@ -135,14 +140,15 @@ function .main {
           else
             albumfiles[$walkcuefiles]=${${${(M)cuefiles[$walkcuefiles]:#*/*}:+${ifile#"${cuefiles[$walkcuefiles]%/*}"/}}:-$ifile}
           fi
+          local ifmt=${{ifile:l}##*.}
         ;;
         (*)
           .fatal "unsupported extension specified in FILE directive: ${cuefiles[$walkcuefiles]} (\"${cuefiledirectives[$walkcuefiles]}\")"
         ;;
       esac
-      case "${ifile##*.}" in
+      case "${ifmt}" in
         ((#i)(tta|ape|tak))
-          ifmtstr=${fmtstr[${fmtstr[(i)(#i)${ifile##*.}]}]}
+          ifmtstr=${fmtstr[$ifmt]}
           ;;
       esac
       local awkcuedump='
@@ -242,8 +248,7 @@ function .main {
         }
       }
       '
-      gawk --debug -E <(print -rn -- $awkcuedump) <(print -rn -- ${cuebuffers[$walkcuefiles]})
-      exit
+      cuedump=("${(Q@)$(gawk -E <(print -rn -- $awkcuedump) <(print -rn -- ${cuebuffers[$walkcuefiles]}))}")
       shntool split ${=ofmt:--P none} ${ifmtstr:+-i} ${ifmtstr} ${ofmt:+-d} ${ofmt:+/sdcard/Music/albums/${${albumtitles[$walkcuefiles]//\?/？}//\*/＊}} -n "${${${(M)totaldiscs[$walkcuefiles]:#<2->}:+$(( discnumbers[$walkcuefiles] ))#%02d}:-%d}" -t '%n.%t@%p' -f <(print -r -- ${cuebuffers[$walkcuefiles]}) -o ${${ofmt:+${ostr[$ofmt]} $2 - ${${(M)ofmt:#opus}:+%f}}:-null} ${(s. .)3} -- $ifile
       local mbufs=()
       local mbuf= \
@@ -441,6 +446,7 @@ function .main {
   } "${(@)argv}"
 }
 
+declare -A cuedump
 declare -A commontags
 commontags=(
   'albumartist:A' 'PERFORMER'
