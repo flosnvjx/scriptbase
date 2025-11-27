@@ -158,7 +158,7 @@ function .main {
           else
             albumfiles[$walkcuefiles]=${${${(M)cuefiles[$walkcuefiles]:#*/*}:+${ifile#"${cuefiles[$walkcuefiles]%/*}"/}}:-$ifile}
           fi
-          local ifmt=${{ifile:l}##*.}
+          local ifmt=${${ifile:l}##*.}
         ;;
         (*)
           .fatal "unsupported extension specified in FILE directive: ${cuefiles[$walkcuefiles]} (\"${cuefiledirectives[$walkcuefiles]}\")"
@@ -266,7 +266,7 @@ function .main {
         }
       }
       '
-      cuedump=("${(Q@)$(gawk -E <(print -rn -- $awkcuedump) <(print -rn -- ${cuebuffers[$walkcuefiles]}))}")
+      cuedump=("${(@Q)${(@z)${(@f)$(gawk -E <(print -rn -- $awkcuedump) <(print -rn -- ${cuebuffers[$walkcuefiles]}))}}}")
       shntool split ${=ofmt:--P none} ${ifmtstr:+-i} ${ifmtstr} ${ofmt:+-d} ${ofmt:+/sdcard/Music/albums/${${albumtitles[$walkcuefiles]//\?/？}//\*/＊}} -n "${${${(M)totaldiscs[$walkcuefiles]:#<2->}:+$(( discnumbers[$walkcuefiles] ))#%02d}:-%d}" -t '%n.%t@%p' -f <(print -r -- ${cuebuffers[$walkcuefiles]}) -o ${${ofmt:+${ostr[$ofmt]} $2 - ${${(M)ofmt:#opus}:+%f}}:-null} ${(s. .)3} -- $ifile
       local mbufs=()
       local mbuf= \
