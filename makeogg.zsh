@@ -30,8 +30,8 @@ function .main {
     *) cuefiles=("${(@f)$(printf %s\\n $cuefiles | fzf -m --layout=reverse-list --prompt="Select cuesheets for later operations> ")}") || cuefiles=(**/?*.(#i)cue(.N))
        ;;
   esac
-  local -a cuefilecodepages cuebuffers cue{file,discnumber,totaldiscs,filetitle}directives
-  local -a albumtitles albumfiles discnumbers totaldiscs
+  local -a cuefilecodepages cuebuffers cue{file,discnumber,totaldiscs,filetitle,catno}directives
+  local -a albumtitles albumfiles discnumbers totaldiscs catnos
   function {
     local walkcuefiles REPLY
     for ((walkcuefiles=1;walkcuefiles<=$#cuefiles;walkcuefiles++)); do
@@ -69,9 +69,11 @@ function .main {
 [ 	]#TRACK *}}[(R)[ 	]#REM DISCNUMBER [1-9][0-9]#]}#[ 	]#REM DISCNUMBER }")
       cuetotaldiscsdirectives+=("${${(@)${(@f)${${cuebuffers[$walkcuefiles]:#[ 	]#TRACK *}%%
 [ 	]#TRACK *}}[(R)[ 	]#REM TOTALDISCS [1-9][0-9]#]}#[ 	]#REM TOTALDISCS }")
+      cuecatnodirectives+=("${${${${(@)${(@f)${${cuebuffers[$walkcuefiles]:#[ 	]#TRACK *}%%
+[ 	]#TRACK *}}[(R)[ 	]#REM CATALOGNUMBER ([-0-9A-Z]##|"[-0-9A-Z]##")]}#[ 	]#REM CATALOGNUMBER }#\"}%\"}")
     done
     (( $#cuefiledirectives == $#cuefiles )) || .fatal "specified $#cuefiles cue sheet(s), but found $#cuefiledirectives FILE directive(s)"
-    (( $#cuefiledirectives == ${(@)#${(@u)cuefiledirectives}} )) || .fatal "multiple cue sheets referenced same audio file"
+    (( $#cuefiledirectives == ${(@)#${(@u)cuefiledirectives}} )) || .fatal "multiple cue sheets referenced same FILE"
     for ((walkcuefiles=1;walkcuefiles<=$#cuefiles;walkcuefiles++)); do
       .msg "${cuefiles[$walkcuefiles]} (${cuefiledirectives[$walkcuefiles]})"
       local -a match=()
@@ -114,6 +116,22 @@ function .main {
             else
               discnumbers[$walkcuefiles]=1
             fi
+          fi
+
+          catnos[$walkcuefiles]=${cuecatnodirectives[$walkcuefiles]}
+          match=()
+          : ${(M)${cuefiledirectives[$walkcuefiles]:t:r}:#(#b)([A-Z](#c3,5)-[A-Z](#c0,3)[0-9](#c1,5)[A-Z](#c0,3))}
+          if (( !${#catnos[$walkcuefiles]} )); then
+            if (( totaldiscs[walkcuefiles] > 1 )); then
+              catnos[$walkcuefiles]=${${catnos[${albumtitles[(i)${(q)albumtitles[$walkcuefiles]}]}]}:-${match[1]}}
+            fi
+            while :;do
+              timeout 0.01 cat > /dev/null||:
+              vared -ehp 'pn> ' "catnos[$walkcuefiles]"
+              if (( ${#catnos[$walkcuefiles]} )) && [[ "${catnos[$walkcuefiles]}" = [-A-Z0-9]# ]]; then
+                break
+              fi
+            done
           fi
           ;|
       esac
@@ -325,6 +343,7 @@ function .main {
           d["d"]["TITLE"]="'${${albumtitles[$walkcuefiles]//\"/＂}//\\/\\\\}'";
           d["d"]["REM DISCNUMBER"]="'${${totaldiscs[$walkcuefiles]:#1}:+$(( discnumbers[$walkcuefiles] ))}'";
           d["d"]["REM TOTALDISCS"]="'$(( totaldiscs[$walkcuefiles] ))'";
+          d["d"]["REM CATALOGNUMBER"]="'${catnos[$walkcuefiles]}'";
         }
       '$awkcueput) <(print -rn -- ${cuebuffers[$walkcuefiles]}) | readeof mbuf
       print -rn -- ${mbuf} | delta --paging never <(print -rn -- ${cuebuffers[$walkcuefiles]}) - || :
