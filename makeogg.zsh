@@ -272,10 +272,11 @@ function .main {
           if (walknts<cnt)
             print (walknts ":plen " (0+auntil[walknts]-askip[walknts]))
         }
+        print ("tc " cnt)
       }
       '
-      cuedump=("${(@Q)${(@z)${(@f)$(gawk -E <(print -rn -- $awkcuedump) <(print -rn -- ${cuebuffers[$walkcuefiles]}))}}}")
-      shntool split ${=ofmt:--P none} ${ifmtstr:+-i} ${ifmtstr} ${ofmt:+-d} ${ofmt:+/sdcard/Music/albums/${${albumtitles[$walkcuefiles]//\?/？}//\*/＊}} -n "${${${(M)totaldiscs[$walkcuefiles]:#<2->}:+$(( discnumbers[$walkcuefiles] ))#%02d}:-%d}" -t '%n.%t@%p' -f <(print -r -- ${cuebuffers[$walkcuefiles]}) -o ${${ofmt:+${ostr[$ofmt]} $2 - ${${(M)ofmt:#opus}:+%f}}:-null} ${(s. .)3} -- $ifile
+      #shntool split ${=ofmt:--P none} ${ifmtstr:+-i} ${ifmtstr} ${ofmt:+-d} ${ofmt:+/sdcard/Music/albums/${${albumtitles[$walkcuefiles]//\?/？}//\*/＊}} -n "${${${(M)totaldiscs[$walkcuefiles]:#<2->}:+$(( discnumbers[$walkcuefiles] ))#%02d}:-%d}" -t '%n.%t@%p' -f <(print -r -- ${cuebuffers[$walkcuefiles]}) -o ${${ofmt:+${ostr[$ofmt]} $2 - ${${(M)ofmt:#opus}:+%f}}:-null} ${(s. .)3} -- $ifile
+      shntool split -P none ${ifmtstr:+-i} ${ifmtstr} -f <(print -r -- ${cuebuffers[$walkcuefiles]}) -o null ${(s. .)3} -- $ifile
       local mbufs=()
       local mbuf= \
       awkcueput='
@@ -362,15 +363,16 @@ function .main {
         }
       '$awkcueput) <(print -rn -- ${cuebuffers[$walkcuefiles]}) | readeof mbuf
       print -rn -- ${mbuf} | delta --paging never <(print -rn -- ${cuebuffers[$walkcuefiles]}) - || :
+      cuedump=("${(@Q)${(@z)${(@f)$(gawk -E <(print -rn -- $awkcuedump) <(print -rn -- ${cuebuffers[$walkcuefiles]}))}}}")
       local REPLY=
       mbufs+=($mbuf)
       while :; do
         timeout 0.1 cat >/dev/null || :
-        read -k1 "REPLY?${cuefiles[$walkcuefiles]:t} [y/e/d/u($((${#mbufs}-1)))/m/t/q] "
+        read -k1 "REPLY?${cuefiles[$walkcuefiles]:t} [y/p/e/d/u($((${#mbufs}-1)))/m/t/q] "
         case "$REPLY" in
           ([^\n]) echo
           ;|
-          (y)
+          (y|p)
             if ! print -rn -- ${mbufs[-1]} | cueprint -i cue -d ":: %T" -t "%02n.%t"; then
               .err 'malformed cuesheet'
               continue
@@ -379,6 +381,39 @@ function .main {
           (y)
             if ! print -rn -- ${mbufs[-1]} | cmp -s -- ${cuefiles[$walkcuefiles]}; then
               print -rn -- ${mbufs[-1]} | rw -- ${cuefiles[$walkcuefiles]}
+            fi
+          ;|
+          (y|p)
+            if (( $#ofmt )); then
+              cuedump=("${(@Q)${(@z)${(@f)$(gawk -E <(print -rn -- $awkcuedump) - <<< ${mbufs[-1]})}}}")
+              local -A ffprobe
+              ffprobe=("${(@Q)${(@z)${(@f)"$(ffprobe -err_detect explode -show_entries streams:format -of flat -hide_banner -loglevel warning -select_streams a -i $ifile)"}/=/ }}")
+              case "${ffprobe[format.format_name]}" in
+                (flac)
+                ;&
+                (wv)
+                ;&
+                (wav|tak|tta|ape)
+                  [[ "${ffprobe[streams.stream.0.sample_rate]}:c${ffprobe[streams.stream.0.channels]}:${ffprobe[streams.stream.0.sample_fmt]}" = 44100:c2:s16(|p)]] || .fatal 'unsupported rate/channel/samplefmt setup: '${ffprobe[streams.stream.0.sample_rate]}:c${ffprobe[streams.stream.0.channels]}:${ffprobe[streams.stream.0.sample_fmt]}
+                  (( ffprobe[streams.stream.0.duration_ts]%588==0 )) || .warn 'uneven number of samples, not a CD-DA source?'
+                  if (( ffprobe[streams.stream.0.duration_ts] - cuedump[${cuedump[tc]}:pskip] < 44100*3 )); then
+                    .warn 'last track only last '$(( (ffprobe[streams.stream.0.duration_ts] - cuedump[${cuedump[tc]}:pskip]) / 44100 ))' seconds'
+                  elif (( ffprobe[streams.stream.0.duration_ts] < cuedump[${cuedump[tc]}:pskip]+588 ))
+                    .fatal 'cuesheet specified a timestamp beyond the duration of FILE (mismatched FILE?)'
+                  fi
+                ;;
+                (*)
+                .fatal 'unsupported fmt: '${format.format_name}
+              esac
+              case "${ffprobe[format.format_name]}" in
+                (wv)
+                  wvunpack -qmvz0 -- $ifile
+                ;|
+                (flac|wv)
+                ;|
+                (wav|tak|tta|ape)
+                ;|
+              esac
             fi
             break
           ;|
