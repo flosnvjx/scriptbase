@@ -173,19 +173,22 @@ function .main {
       @include "shellquote"
       function Map(re, arr) {
         if (match($0,re,arr)) {
-          print (shell_quote((nt==""&&nt==0 ? "d" : "t" nt ) ":" arr[1]) " " shell_quote(arr[2]));
-          d[nt==""&&nt==0 ? "d" : "t" nt][arr[1]]=arr[2]
+          print (shell_quote((nt==""&&nt==0 ? "d" : nt ) ":" arr[1]) " " shell_quote(arr[2]));
+          d[nt==""&&nt==0 ? "d" : nt][arr[1]]=arr[2]
           return mkbool(1)
         } else
           return mkbool(0)
       }
-      /^[\t ]*TRACK [0-9][0-9] (AUDIO|MODE1\/(2048|2352)|(CDI|MODE2)\/(2336|2352)|CDG) *$/{
+      /^[\t ]*TRACK [0-9][0-9] (AUDIO) *$/{
         match($0,/^[\t ]*TRACK ([0-9][0-9]) ([^ "]+) *$/,rr)
-        nt=(rr[1])
-        nts[++cnt]=nt
-        d["t" nt]["mode"]=rr[2]
-        if (strtonum(gensub(/^0/,"","1",nt)) != cnt)
-          print ("WARN: nonsequential cuesheet tracknum -- " cnt "th track, but tracknum is " nt) > "/dev/stderr"
+        ++nt
+        d[nt]["tnum"]=rr[1]
+        tnum2nthtr[rr[1]][length(tnum2thtr[rr[1]])+1]=nt
+        d[nt]["mode"]=rr[2]
+        d[nt]["tnumoffset"]=0+d[nt]["tnum"]-nt
+        if (d[nt]["tnumoffset"] != 0) {
+          print ("WARN: non-compliance: nonsequential tracknum found, " nt "th TRACK has a tnum of " d[nt]["tnum"] "(offset " sprintf("%+d",d[nt]["tnumoffset"]) ")") > "/dev/stderr"
+        }
         next
       }
       nt==""&&nt==0&&/[^\t ]/{
@@ -193,10 +196,10 @@ function .main {
          Map("^[\t ]*(REM [A-Z_]+) ([^ \"\t]*) *$",m) || \
          Map("^[\t ]*(CATALOG|CDTEXTFILE|PERFORMER|TITLE|SONGWRITER) \"(.*)\" *$",m) || \
          Map("^[\t ]*(CATALOG) ([^ \"\t]*) *$",m) || \
-         Map("^[\t ]*(FILE) \"(.*)\" *(BINARY|MOTOROLA|WAVE|FLAC|MP3) *$",m)))
+         Map("^[\t ]*(FILE) \"(.*)\" *(WAVE|FLAC) *$",m)))
           next;
         else {
-          print ("FATAL: unrecognized directive form -- " shell_quote($0)) > "/dev/stderr"
+          print ("FATAL: unrecognized cuesheet command specification found: " shell_quote($0)) > "/dev/stderr"
           exit(1);
         }
       }
@@ -209,7 +212,7 @@ function .main {
          Map("^[\t ]*(FLAGS) ((DCP|PRE|4CH|SCMS|DATA)( (DCP|PRE|4CH|SCMS|DATA))*) *$",m))) {
           next
         } else {
-          print ("FATAL: unrecognized directive form on track " nts[nt] " -- " shell_quote($0)) > "/dev/stderr"
+          print ("FATAL: unrecognized cuesheet command specification found on TRACK " d[nt]["tnum"] (0+d[nt]["tnum"]!=nt ? " (i.e. " nt "th TRACK)" : "") ": " shell_quote($0)) > "/dev/stderr"
           exit(1);
         }
       }
@@ -220,59 +223,63 @@ function .main {
           return mkbool(0);
       }
       END {
-        if (cnt==0) {
-          print "FATAL: no track ever specified" > "/dev/stderr"
+        if (nt==0) {
+          print "FATAL: no TRACK ever specified" > "/dev/stderr"
           exit(1);
         }
-        for (walknts=1;walknts<=cnt;walknts++) {
-        if (("t" nts[walknts]) in d) {
-          if (d["t" nts[walknts]]["mode"] == "AUDIO") {
-            if ("INDEX 01" in d["t" nts[walknts]]) {
-              if ("INDEX 00" in d["t" nts[walknts]]) {
-                if (msfts(d["t" nts[walknts]]["INDEX 00"]) > msfts(d["t" nts[walknts]]["INDEX 01"])) {
-                  print ("ERROR: INDEX 00 > INDEX 01 (" (0+nts[walknts]!=walknts ? "on " walknts "th track, " : "") "tracknum: " nts[walknts] ")") > "/dev/stderr"
+        for (walknt=1;walknt<=nt;walknt++) {
+          if ("INDEX 01" in d[walknt]) {
+            if ("INDEX 00" in d[walknt]) {
+              if (msfts(d[walknt]["INDEX 00"]) > msfts(d[walknt]["INDEX 01"])) {
+                print ("ERROR: INDEX 00 > INDEX 01 on TRACK " d[walknt]["tnum"] (0+d[walknt]["tnum"]!=walknt ? " (i.e. " nt "th TRACK)" : "")) > "/dev/stderr"
+                exit(2)
+              }
+
+              if (walknts>1) {
+                if (msfts(d[walknt]["INDEX 00"]) <= msfts(d[walknt-1]["INDEX 01"])) {
+                  print ("ERROR: bogus INDEX 00 position specified on TRACK " d[walknt]["tnum"] (0+d[walknt]["tnum"]!=walknt ? " (i.e. " nt "th TRACK)" : "")) > "/dev/stderr"
                   exit(2)
                 }
-
-                if (walknts>1) {
-                  if (msfts(d["t" nts[walknts]]["INDEX 00"]) <= msfts(d["t" nts[walknts-1]]["INDEX 01"])) {
-                    print ("ERROR: (INDEX 00) bogus position specified (" (0+nts[walknts]!=walknts ? "on " walknts "th track, " : "") "tracknum: " nts[walknts] ")") > "/dev/stderr"
-                    exit(2)
-                  }
-                  print ("t" nts[walknts-1] ":until " sprintf("%d",auntil[walknts-1]=msfts(d["t" nts[walknts]]["INDEX 00"])))
-                  if (rskip[walknts]=(msfts(d["t" nts[walknts]]["INDEX 01"]) - msfts(d["t" nts[walknts]]["INDEX 00"]))>44100*3)
-                    print ("NOTE: skip " rskip[walknts]/44100 " secs pregap on " walknts "th track (#" nts[walknts] ")") > "/dev/stderr"
-                } else if (hinthtoas=msfts(d["t" nts[walknts]]["INDEX 01"]) > 44100) {
-                  print ("NOTE: [HTOA] skip " hinthtoas/44100 " secs on " walknts "th track (#" nts[walknts] ")") > "/dev/stderr"
-                }
-              } else if (walknts>1) {
-                if (msfts(d["t" nts[walknts]]["INDEX 01"]) <= msfts(d["t" nts[walknts-1]]["INDEX 01"])) {
-                  print ("ERROR: (INDEX 01) bogus position specified (" (0+nts[walknts]!=walknts ? "on " walknts "th track, " : "") "tracknum: " nts[walknts] ")") > "/dev/stderr"
-                  exit(3)
-                }
-                print ("t" nts[walknts-1] ":until " sprintf("%d",auntil[walknts-1]=msfts(d["t" nts[walknts]]["INDEX 01"])))
+                print (walknt ":until " sprintf("%d",auntil[walknt-1]=msfts(d[walknt]["INDEX 00"])))
+                if (rskip[walknt]=(msfts(d[walknt]["INDEX 01"]) - msfts(d[walknt]["INDEX 00"]))>44100*3)
+                  print ("NOTE: found " rskip[walknt]/44100 " secs pregap on TRACK " d[walknt]["tnum"] (0+d[walknt]["tnum"]!=walknt ? " (i.e. " nt "th TRACK)" : "")") > "/dev/stderr"
+              } else if (hinthtoa=msfts(d[walknt]["INDEX 01"]) > 44100) {
+                print ("NOTE: [HTOA] found " hinthtoa/44100 " secs pregap") > "/dev/stderr"
               }
-              print ("t" nts[walknts] ":skip " sprintf("%d",askip[walknts]=msfts(d["t" nts[walknts]]["INDEX 01"])))
-            } else {
-              print ("ERROR: missing required index marker 01 (" (0+nts[walknts]!=walknts ? "on " walknts "th track, " : "") "tracknum: " nts[walknts] ")") > "/dev/stderr"
-              exit(4)
+            } else if (walknt>1) {
+              if (msfts(d[walknt]["INDEX 01"]) <= msfts(d[walknt-1]["INDEX 01"])) {
+                print ("ERROR: bogus INDEX 01 position specified on TRACK " d[walknt]["tnum"] (0+d[walknt]["tnum"]!=walknt ? " (i.e. " nt "th TRACK)" : "")") > "/dev/stderr"
+                exit(3)
+              }
+              print (walknt-1 ":until " sprintf("%d",auntil[walknt-1]=msfts(d[walknt]["INDEX 01"])))
             }
-          } else
-              continue
-        } else {
-          print ("ERROR: missing track num." nts[walknts]) > "/dev/stderr"
-          exit(4)
+            print (walknt ":skip " sprintf("%d",askip[walknt]=msfts(d[walknt]["INDEX 01"])))
+          } else {
+            print ("ERROR: missing INDEX 01 on TRACK " d[walknt]["tnum"] (0+d[walknt]["tnum"]!=walknt ? " (i.e. " nt "th TRACK)" : "")") > "/dev/stderr"
+            exit(4)
+          }
         }
+        for (k in tnum2nthtr) {
+          if (length(tnum2nthtr[k])>1) {
+            print ("WARN: " length(tnum2nthtr[k]) " TRACKs have a tnum of " k) > "/dev/stderr"
+          }
+          for (l in tnum2nthtr[k]) {
+            ll=(ll (length(ll) ? "|" : "") l)
+          }
+          print ("mat" k ": " ll)
         }
-        for (walknts=1;walknts<=cnt;walknts++) {
-          if (rskip[walknts]>0)
-            print (walknts ":pskip " (0+rskip[walknts]))
-          if (walknts==1&&askip[walknts]>0)
-            print (walknts ":pskip " (0+askip[walknts]))
-          if (walknts<cnt)
-            print (walknts ":plen " (0+auntil[walknts]-askip[walknts]))
+        for (walknt=1;walknt<=nt;walknt++) {
+          if (!(sprintf("%02d",walknt) in tnum2nthtr)) {
+            print ("WARN: missing TRACK " sprintf("%02d",walknt)) > "/dev/stderr"
+          }
+          if (rskip[walknt]>0)
+            print (walknt ":pskip " (0+rskip[walknt]))
+          if (walknt==1&&askip[walknt]>0)
+            print (walknt ":pskip " (0+askip[walknt]))
+          if (walknt<nt)
+            print (walknt ":plen " (0+auntil[walknt]-askip[walknt]))
         }
-        print ("tc " cnt)
+        print ("tc " nt)
       }
       '
       #shntool split ${=ofmt:--P none} ${ifmtstr:+-i} ${ifmtstr} ${ofmt:+-d} ${ofmt:+/sdcard/Music/albums/${${albumtitles[$walkcuefiles]//\?/？}//\*/＊}} -n "${${${(M)totaldiscs[$walkcuefiles]:#<2->}:+$(( discnumbers[$walkcuefiles] ))#%02d}:-%d}" -t '%n.%t@%p' -f <(print -r -- ${cuebuffers[$walkcuefiles]}) -o ${${ofmt:+${ostr[$ofmt]} $2 - ${${(M)ofmt:#opus}:+%f}}:-null} ${(s. .)3} -- $ifile
