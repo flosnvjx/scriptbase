@@ -371,15 +371,16 @@ function .main {
           ([^\n]) echo
           ;|
           (y)
-            if print -rn -- ${mbufs[-1]} | cueprint -i cue -d ":: %T" -t "%02n.%t"; then
-              if ! print -rn -- ${mbufs[-1]} | cmp -s -- ${cuefiles[$walkcuefiles]}; then
-                print -rn -- ${mbufs[-1]} | rw -- ${cuefiles[$walkcuefiles]}
-              fi
-              break
-            else
+            if ! print -rn -- ${mbufs[-1]} | cueprint -i cue -d ":: %T" -t "%02n.%t"; then
               .err 'malformed cuesheet'
               continue
             fi
+          ;|
+          (y)
+            if ! print -rn -- ${mbufs[-1]} | cmp -s -- ${cuefiles[$walkcuefiles]}; then
+              print -rn -- ${mbufs[-1]} | rw -- ${cuefiles[$walkcuefiles]}
+            fi
+            break
           ;|
           (e)
             mbuf="${$(print -rn -- $mbuf | zed):-$mbuf}" || continue
@@ -493,6 +494,7 @@ commontags=(
   'arranger:r' 'REM ARRANGER'
   'composer:c' 'REM COMPOSER'
   'comment:x' 'REM COMMENT'
+  'songwriter:w' 'SONGWRITER'
   'vocalist:v' 'REM VOCALIST'
 )
 declare -a exts=(wav flac tta ape tak wv)
