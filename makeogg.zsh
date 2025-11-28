@@ -266,12 +266,13 @@ function .main {
           for (l in tnum2nthtr[k]) {
             ll=(ll (length(ll) ? "|" : "") l)
           }
-          print ("mat" k ": " ll)
+          print ("mat" k " " ll)
         }
         for (walknt=1;walknt<=nt;walknt++) {
           if (!(sprintf("%02d",walknt) in tnum2nthtr)) {
             print ("WARN: missing TRACK " sprintf("%02d",walknt)) > "/dev/stderr"
           }
+          print (walknt ":tnum " d[walknt]["tnum"])
           if (rskip[walknt]>0)
             print (walknt ":pskip " (0+rskip[walknt]))
           if (walknt==1&&askip[walknt]>0)
@@ -370,7 +371,6 @@ function .main {
         }
       '$awkcueput) <(print -rn -- ${cuebuffers[$walkcuefiles]}) | readeof mbuf
       print -rn -- ${mbuf} | delta --paging never <(print -rn -- ${cuebuffers[$walkcuefiles]}) - || :
-      cuedump=("${(@Q)${(@z)${(@f)$(gawk -E <(print -rn -- $awkcuedump) <(print -rn -- ${cuebuffers[$walkcuefiles]}))}}}")
       local REPLY=
       mbufs+=($mbuf)
       while :; do
@@ -390,7 +390,7 @@ function .main {
               print -rn -- ${mbufs[-1]} | rw -- ${cuefiles[$walkcuefiles]}
             fi
           ;|
-          (y|p)
+          (y|[pP])
             if (( $#ofmt )); then
               cuedump=("${(@Q)${(@z)${(@f)$(gawk -E <(print -rn -- $awkcuedump) - <<< ${mbufs[-1]})}}}")
               local -A ffprobe
