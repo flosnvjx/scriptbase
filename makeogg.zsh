@@ -239,20 +239,20 @@ function .main {
                     print ("ERROR: (INDEX 00) bogus position specified (" (0+nts[walknts]!=walknts ? "on " walknts "th track, " : "") "tracknum: " nts[walknts] ")") > "/dev/stderr"
                     exit(2)
                   }
-                  print ("t" nts[walknts-1] ":until " sprintf("%d",msfts(d["t" nts[walknts]]["INDEX 00"])))
-                  if (pregap=(msfts(d["t" nts[walknts]]["INDEX 01"]) - msfts(d["t" nts[walknts]]["INDEX 00"]))>44100*3)
-                    print ("NOTE: skip " pregap/44100 " secs pregap on " walknts "th track (#" nts[walknts] ")") > "/dev/stderr"
-                } else if (htoa=msfts(d["t" nts[walknts]]["INDEX 01"]) > 44100) {
-                  print ("NOTE: [HTOA] skip " htoa/44100 " secs on " walknts "th track (#" nts[walknts] ")") > "/dev/stderr"
+                  print ("t" nts[walknts-1] ":until " sprintf("%d",auntil[walknts-1]=msfts(d["t" nts[walknts]]["INDEX 00"])))
+                  if (rskip[walknts]=(msfts(d["t" nts[walknts]]["INDEX 01"]) - msfts(d["t" nts[walknts]]["INDEX 00"]))>44100*3)
+                    print ("NOTE: skip " rskip[walknts]/44100 " secs pregap on " walknts "th track (#" nts[walknts] ")") > "/dev/stderr"
+                } else if (hinthtoas=msfts(d["t" nts[walknts]]["INDEX 01"]) > 44100) {
+                  print ("NOTE: [HTOA] skip " hinthtoas/44100 " secs on " walknts "th track (#" nts[walknts] ")") > "/dev/stderr"
                 }
               } else if (walknts>1) {
                 if (msfts(d["t" nts[walknts]]["INDEX 01"]) <= msfts(d["t" nts[walknts-1]]["INDEX 01"])) {
                   print ("ERROR: (INDEX 01) bogus position specified (" (0+nts[walknts]!=walknts ? "on " walknts "th track, " : "") "tracknum: " nts[walknts] ")") > "/dev/stderr"
                   exit(3)
                 }
-                print ("t" nts[walknts-1] ":until " sprintf("%d",msfts(d["t" nts[walknts]]["INDEX 01"])))
+                print ("t" nts[walknts-1] ":until " sprintf("%d",auntil[walknts-1]=msfts(d["t" nts[walknts]]["INDEX 01"])))
               }
-              print ("t" nts[walknts] ":skip " sprintf("%d",msfts(d["t" nts[walknts]]["INDEX 01"])))
+              print ("t" nts[walknts] ":skip " sprintf("%d",askip[walknts]=msfts(d["t" nts[walknts]]["INDEX 01"])))
             } else {
               print ("ERROR: missing required index marker 01 (" (0+nts[walknts]!=walknts ? "on " walknts "th track, " : "") "tracknum: " nts[walknts] ")") > "/dev/stderr"
               exit(4)
@@ -263,6 +263,14 @@ function .main {
           print ("ERROR: missing track num." nts[walknts]) > "/dev/stderr"
           exit(4)
         }
+        }
+        for (walknts=1;walknts<=cnt;walknts++) {
+          if (rskip[walknts]>0)
+            print (walknts ":pskip " (0+rskip[walknts]))
+          if (walknts==1&&askip[walknts]>0)
+            print (walknts ":pskip " (0+askip[walknts]))
+          if (walknts<cnt)
+            print (walknts ":plen " (0+auntil[walknts]-askip[walknts]))
         }
       }
       '
