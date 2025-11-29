@@ -508,12 +508,12 @@ ${cuedump[d:REM REPLAYPEAK_ALBUM_PEAK]:+--comment=REPLAYPEAK_ALBUM_PEAK=${cuedum
           (m)
             local askmbid=$askmbid
             timeout 0.01 cat >/dev/null || :
-            vared -hp 'm:mbid> ' askmbid
+            vared -ehp 'm:mbid> ' askmbid
             function {
               argv=(${(f)mbufs[-1]})
               if (( ${argv[(i)[ 	]#TRACK]} <= $# && ${argv[(i)[ 	]#TRACK]}>1 )); then argv=(${argv[1,$((${argv[(i)[ 	]#TRACK]}-1))]}); fi
               0=${${argv[(R)[ 	]#CATALOG ?(#c12,13)]}#[ 	]#CATALOG }
-              if python ${ZSH_ARGZERO%/*}/external.deps/mbcue/mbcue.py ${0:+-b $0} -n ${discnumbers[$walkcuefiles]} ${${(M)askmbid:#(|https://musicbrainz.org/release/)[0-9a-f](#c8)-[0-9a-f](#c4)-[0-9a-f](#c4)-[0-9a-f](#c4)-[0-9a-f](#c12)(|/*)}:+-r ${${askmbid#https://musicbrainz.org/release/}%%/*}} <(print -rn -- ${mbufs[-1]}) | readeof mbuf && (( $#mbuf )); then
+              if python ${ZSH_ARGZERO%/*}/external.deps/mbcue/mbcue.py ${0:+-b $0} -n ${discnumbers[$walkcuefiles]} ${(z)${(M)askmbid:#(|https://musicbrainz.org/release/)[0-9a-f](#c8)-[0-9a-f](#c4)-[0-9a-f](#c4)-[0-9a-f](#c4)-[0-9a-f](#c12)(|/*)}:+-r ${${askmbid#https://musicbrainz.org/release/}%%/*}} <(print -rn -- ${mbufs[-1]}) | readeof mbuf && (( $#mbuf )); then
                 if [[ ${mbufs[-1]} != $mbuf ]]; then
                   mbufs+=($mbuf)
                   print -rn -- ${mbufs[-1]} | delta --paging=never <(print -rn -- ${mbufs[-2]}) - || :
