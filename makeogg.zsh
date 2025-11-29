@@ -434,30 +434,30 @@ function .main {
                 (flac) runenc=$'flac\n-V8cs\n' ;|
                 (aotuv|flac)
                 runenc+='
---comment=TRACKNUMBER=${cuedump[$tn:tnum]}
-${cuedump[$tn:TITLE]:+--comment=TITLE=${cuedump[$tn:TITLE]}}
-${${${${(s| / |)${(s|, |)${(s|、|)${cuedump[$tn:REM COMPOSER]:-${cuedump[$tn:SONGWRITER]:-${cuedump[d:REM COMPOSER]:-${cuedump[d:SONGWRITER]}}}}}}}//#[	 ]##}//%[	 ]##}:+--comment=COMPOSER=}${^${${(s| / |)${(s|, |)${(s|、|)${cuedump[$tn:REM COMPOSER]:-${cuedump[$tn:SONGWRITER]:-${cuedump[d:REM COMPOSER]:-${cuedump[d:SONGWRITER]}}}}}}}//#[	 ]##}//%[	 ]##}
-${${${${(s| / |)${(s|, |)${(s|、|)${cuedump[$tn:REM ARRANGER]:-${cuedump[d:REM ARRANGER]}}}}}//#[	 ]##}//%[	 ]##}:+--comment=ARRANGER=}${^${${(s| / |)${(s|, |)${(s|、|)${cuedump[$tn:REM ARRANGER]:-${cuedump[d:REM ARRANGER]}}}}}//#[	 ]##}//%[	 ]##}
-${${${${(s| / |)${(s|, |)${(s|、|)${cuedump[$tn:REM LYRICIST]:-${cuedump[$tn:SONGWRITER]:-${cuedump[d:REM LYRICIST]:-${cuedump[d:SONGWRITER]}}}}}}}//#[	 ]##}//%[	 ]##}:+--comment=LYRICIST=}${^${${(s| / |)${(s|, |)${(s|、|)${cuedump[$tn:REM LYRICIST]:-${cuedump[$tn:SONGWRITER]:-${cuedump[d:REM LYRICIST]:-${cuedump[d:SONGWRITER]}}}}}}}//#[	 ]##}//%[	 ]##}
-${${${${(s| / |)${(s|, |)${(s|、|)${cuedump[$tn:VOCALIST]:-${cuedump[d:VOCALIST]}}}}}//#[	 ]##}//%[	 ]##}:+--comment=VOCALIST=}${^${${(s| / |)${(s|, |)${(s|、|)${cuedump[$tn:VOCALIST]:-${cuedump[d:VOCALIST]}}}}}/#[	 ]##}/%[	 ]##}
-${${${${(s| / |)${(s|, |)${(s|、|)${cuedump[$tn:PERFORMER]:-${cuedump[d:PERFORMER]}}}}}//#[	 ]##}//%[	 ]##}:+--comment=ARTIST=}${^${${(s| / |)${(s|, |)${(s|、|)${cuedump[$tn:PERFORMER]:-${cuedump[d:PERFORMER]}}}}}/#[	 ]##}/%[	 ]##}
-${${${${(s| / |)${(s|, |)${(s|、|)${cuedump[d:PERFORMER]}}}}//#[	 ]##}//%[	 ]##}:+--comment=ALBUMARTIST=}${^${${(s| / |)${(s|, |)${(s|、|)${cuedump[d:PERFORMER]}}}}//#[	 ]##}//%[	 ]##}
-${cuedump[d:date]:+--comment=DATE=${cuedump[d:date]}}
-${${${${(s| / |)${(s|×|)${(s|、|)${cuedump[d:REM LABEL]}}}}//#[	 ]##}//%[	 ]##}:+--comment=LABEL=}${^${${(s| / |)${(s|×|)${(s|、|)${cuedump[d:REM LABEL]}}}}/#[	 ]##}/%[	 ]##}
-${${${cuedump[$tn:REM COMMENT]:-${cuedump[d:REM COMMENT]}//#[ 	]##}//#[	 ]##}:+--comment=COMMENT=${${cuedump[$tn:REM COMMENT]:-${cuedump[d:REM COMMENT]}//#[ 	]##}//#[	 ]##}}
-${cuedump[d:REM CATALOGNUMBER]:+--comment=CATALOGNUMBER=${cuedump[d:REM CATALOGNUMBER]}}
-${cuedump[$tn:ISRC]:+--comment=ISRC=${cuedump[$tn:ISRC]}}
-${cuedump[d:REM DISCNUMBER]:+--comment=DISCNUMBER=${cuedump[d:REM DISCNUMBER]}}
-${cuedump[d:REM TOTALDISCS]:+--comment=DISCTOTAL=${cuedump[d:REM TOTALDISCS]}}
+--comment=TRACKNUMBER=${cuedump[$tn.tnum]/#0}
+${${${cuedump[$tn.TITLE]/#[    ]#}/%[   ]#}:+--comment=TITLE=${${cuedump[$tn.TITLE]/#[    ]#}/%[   ]#}}
+${${${${(s| / |)${(s|, |)${(s|、|)cuedump[$tn.REM COMPOSER]:-${cuedump[$tn.SONGWRITER]:-${cuedump[d.REM COMPOSER]:-${cuedump[d.SONGWRITER]}}}}}}/#[	 ]##}/%[	 ]##}:+--comment=COMPOSER=}${^${${(s| / |)${(s|, |)${(s|、|)cuedump[$tn.REM COMPOSER]:-${cuedump[$tn.SONGWRITER]:-${cuedump[d.REM COMPOSER]:-${cuedump[d.SONGWRITER]}}}}}}/#[	 ]##}/%[	 ]##}
+${${${${(s| / |)${(s|, |)${(s|、|)cuedump[$tn.REM ARRANGER]:-${cuedump[d.REM ARRANGER]}}}}/#[	 ]##}/%[	 ]##}:+--comment=ARRANGER=}${^${${(s| / |)${(s|, |)${(s|、|)cuedump[$tn.REM ARRANGER]:-${cuedump[d.REM ARRANGER]}}}}/#[	 ]##}/%[	 ]##}
+${${${${(s| / |)${(s|, |)${(s|、|)cuedump[$tn.REM LYRICIST]:-${cuedump[$tn.SONGWRITER]:-${cuedump[d.REM LYRICIST]:-${cuedump[d.SONGWRITER]}}}}}}/#[	 ]##}/%[	 ]##}:+--comment=LYRICIST=}${^${${(s| / |)${(s|, |)${(s|、|)cuedump[$tn.REM LYRICIST]:-${cuedump[$tn.SONGWRITER]:-${cuedump[d.REM LYRICIST]:-${cuedump[d.SONGWRITER]}}}}}}/#[	 ]##}/%[	 ]##}
+${${${${(s| / |)${(s|, |)${(s|、|)cuedump[$tn.VOCALIST]:-${cuedump[d.VOCALIST]}}}}/#[	 ]##}/%[	 ]##}:+--comment=VOCALIST=}${^${${(s| / |)${(s|, |)${(s|、|)cuedump[$tn.VOCALIST]:-${cuedump[d.VOCALIST]}}}}/#[	 ]##}/%[	 ]##}
+${${${${(s| / |)${(s|, |)${(s|、|)cuedump[$tn.PERFORMER]:-${cuedump[d.PERFORMER]}}}}/#[	 ]##}/%[	 ]##}:+--comment=ARTIST=}${^${${(s| / |)${(s|, |)${(s|、|)cuedump[$tn.PERFORMER]:-${cuedump[d.PERFORMER]}}}}/#[	 ]##}/%[	 ]##}
+${${${${(s| / |)${(s|, |)${(s|、|)cuedump[d.PERFORMER]}}}//#[	 ]##}//%[	 ]##}:+--comment=ALBUMARTIST=}${^${${(s| / |)${(s|, |)${(s|、|)cuedump[d.PERFORMER]}}}/#[	 ]##}/%[	 ]##}
+${cuedump[d.date]:+--comment=DATE=${cuedump[d.date]}}
+${${${${(s| / |)${(s|×|)${(s|、|)cuedump[d.REM LABEL]}}}//#[	 ]##}//%[	 ]##}:+--comment=LABEL=}${^${${(s| / |)${(s|×|)${(s|、|)cuedump[d.REM LABEL]}}}/#[	 ]##}/%[	 ]##}
+${${${${cuedump[$th.REM COMMENT]:-${cuedump[d.REM COMMENT]}}//#[	 ]#}//%[	 ]#}:+--comment=COMMENT=${${${cuedump[$th.REM COMMENT]:-${cuedump[d.REM COMMENT]}}/#[	 ]#}/%[	 ]#}}
+${cuedump[d.REM CATALOGNUMBER]:+--comment=CATALOGNUMBER=${cuedump[d.REM CATALOGNUMBER]}}
+${cuedump[$tn.ISRC]:+--comment=ISRC=${cuedump[$tn.ISRC]}}
+${cuedump[d.REM DISCNUMBER]:+--comment=DISCNUMBER=${cuedump[d.REM DISCNUMBER]}}
+${cuedump[d.REM TOTALDISCS]:+--comment=DISCTOTAL=${cuedump[d.REM TOTALDISCS]}}
 --comment=TRACKTOTAL=${cuedump[tc]}
-${cuedump[d:REM MUSICBRAINZ_ALBUMID]:+--comment=MUSICBRAINZ_ALBUMID=${cuedump[d:REM MUSICBRAINZ_ALBUMID]}}
-${cuedump[$tn:REM MUSICBRAINZ_RELEASETRACKID]:+--comment=MUSICBRAINZ_RELEASETRACKID=${cuedump[$tn:REM MUSICBRAINZ_RELEASETRACKID]}}
-${cuedump[$tn:REM REPLAYGAIN_TRACK_GAIN]:+--comment=REPLAYGAIN_TRACK_GAIN=${cuedump[$tn:REM REPLAYGAIN_TRACK_GAIN]}}
-${cuedump[$tn:REM REPLAYPEAK_TRACK_PEAK]:+--comment=REPLAYPEAK_TRACK_PEAK=${cuedump[$tn:REM REPLAYPEAK_TRACK_PEAK]}}
-${cuedump[d:REM REPLAYGAIN_ALBUM_GAIN]:+--comment=REPLAYGAIN_ALBUM_GAIN=${cuedump[d:REM REPLAYGAIN_ALBUM_GAIN]}}
-${cuedump[d:REM REPLAYPEAK_ALBUM_PEAK]:+--comment=REPLAYPEAK_ALBUM_PEAK=${cuedump[d:REM REPLAYPEAK_ALBUM_PEAK]}}
+${cuedump[d.REM MUSICBRAINZ_ALBUMID]:+--comment=MUSICBRAINZ_ALBUMID=${cuedump[d.REM MUSICBRAINZ_ALBUMID]}}
+${cuedump[$tn.REM MUSICBRAINZ_RELEASETRACKID]:+--comment=MUSICBRAINZ_RELEASETRACKID=${cuedump[$tn.REM MUSICBRAINZ_RELEASETRACKID]}}
+${cuedump[$tn.REM REPLAYGAIN_TRACK_GAIN]:+--comment=REPLAYGAIN_TRACK_GAIN=${cuedump[$tn.REM REPLAYGAIN_TRACK_GAIN]}}
+${cuedump[$tn.REM REPLAYPEAK_TRACK_PEAK]:+--comment=REPLAYPEAK_TRACK_PEAK=${cuedump[$tn.REM REPLAYPEAK_TRACK_PEAK]}}
+${cuedump[d.REM REPLAYGAIN_ALBUM_GAIN]:+--comment=REPLAYGAIN_ALBUM_GAIN=${cuedump[d.REM REPLAYGAIN_ALBUM_GAIN]}}
+${cuedump[d.REM REPLAYPEAK_ALBUM_PEAK]:+--comment=REPLAYPEAK_ALBUM_PEAK=${cuedump[d.REM REPLAYPEAK_ALBUM_PEAK]}}
 '
-                runenc+='--output=/sdcard/Music/albums/${${${${cuedump[d:TITLE]:- }/#./．}//\//／}:0:85}/${${:-${cuedump[d:REM DISCNUMBER]:+${cuedump[d:REM DISCNUMBER]}#}${cuedump[$tn:tnum]}${cuedump[$tn:TITLE]:+.${cuedump[$tn:TITLE]}}}:0:81}.ogg'
+                runenc+='--output=/sdcard/Music/albums/${${${${cuedump[d.TITLE]:- }/#./．}//\//／}:0:85}/${${:-${cuedump[d.REM DISCNUMBER]:+${cuedump[d.REM DISCNUMBER]}#}${cuedump[$tn.tnum]}${cuedump[$tn.TITLE]:+.${cuedump[$tn.TITLE]//\//／}}}:0:81}.ogg'
                 runenc+=$'\n-'
                 ;|
               esac
