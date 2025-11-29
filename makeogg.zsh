@@ -426,7 +426,7 @@ function .main {
                   fi
                   if [[ ! -d "/sdcard/Music/albums/${${${${cuedump[d:TITLE]:-
 }/#./．}//\//／}:0:85}" ]]; then
-                    mkdir -p -- "/sdcard/Music/albums/${${${${cuedump[d:TITLE]:- }/#./．}//\//／}:0:85}"
+                    mkdir -vp -- "/sdcard/Music/albums/${${${${cuedump[d:TITLE]:- }/#./．}//\//／}:0:85}"
                   fi
                 ;;
                 (*)
@@ -479,6 +479,11 @@ ${cuedump[d:REM REPLAYPEAK_ALBUM_PEAK]:+--comment=REPLAYPEAK_ALBUM_PEAK=${cuedum
                   done
                 ;|
                 (wav|tak|tta|ape)
+                  command ffmpeg -loglevel warning -xerror -hide_banner -err_detect explode -i $ifile -f s16le - | {
+                    for ((tn=1;;tn<=cuedump[tc];;tn++)); do
+                      dd bs=128K ${${(M)cuedump[$tn:pskip]:#<1->}:+skip=${cuedump[$tn:pskip]}B} ${${(M)cuedump[$tn:plen]}:+count=${cuedump[$tn:plen]}B} iflag=fullblock status=none | command ${(fe)runenc}
+                    done
+                  }
                 ;|
               esac
             fi
