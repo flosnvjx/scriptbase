@@ -610,8 +610,8 @@ declare -A ostr
 function .deps {
   fzf --version &>/dev/null
   aconv --version &>/dev/null
-  recode --version &>/dev/null
-  dos2unix --version &>/dev/null
+  ffprobe -version &>/dev/null
+  ffmpeg -version &>/dev/null
   rw --help &>/dev/null
   fmtstr[tta]='tta ffmpeg -loglevel quiet -xerror -hide_banner -err_detect explode -f tta -i %f -bitexact -f wav -'
   fmtstr[ape]='ape ffmpeg -loglevel quiet -xerror -hide_banner -err_detect explode -f ape -i %f -bitexact -f wav -'
