@@ -280,11 +280,27 @@ function .main {
           if (walknt<nt)
             print (walknt ":plen " (0+auntil[walknt]-askip[walknt]))
         }
+        if ("REM DATE" in d["d"] && strtonum(normdatestr(d["d"]["REM DATE"])))
+          print ("date " normdatestr(d["d"]["REM DATE"]))
         print ("tc " nt)
+      }
+      function normdatestr(l,  ll) {
+        if (match(l,/^([0-9][0-9][0-9][0-9])($|[/.-])/,normdatestrmatches)) {
+          ll=normdatestrmatches[1]
+          if (length(normdatestrmatches[2]) && match(l,/^.....([0-9]+)($|[/.-])/,normdatestrmatches) && length(normdatestrmatches[1])<=2) {
+            ll=(ll "-" normdatestrmatches[1])
+            if (length(normdatestrmatches[2]) && match(l,/^.....[0-9]+[/.-]([0-9]+)$/,normdatestrmatches) && length(normdatestrmatches[1])<=2)
+              ll=(ll "-" normdatestrmatches[1])
+          }
+          return ll
+        } else
+          return mkbool(0)
       }
       '
       #shntool split ${=ofmt:--P none} ${ifmtstr:+-i} ${ifmtstr} ${ofmt:+-d} ${ofmt:+/sdcard/Music/albums/${${albumtitles[$walkcuefiles]//\?/？}//\*/＊}} -n "${${${(M)totaldiscs[$walkcuefiles]:#<2->}:+$(( discnumbers[$walkcuefiles] ))#%02d}:-%d}" -t '%n.%t@%p' -f <(print -r -- ${cuebuffers[$walkcuefiles]}) -o ${${ofmt:+${ostr[$ofmt]} $2 - ${${(M)ofmt:#opus}:+%f}}:-null} ${(s. .)3} -- $ifile
-      shntool split -P none ${ifmtstr:+-i} ${ifmtstr} -f <(print -r -- ${cuebuffers[$walkcuefiles]}) -o null ${(s. .)3} -- $ifile
+      if [[ "$ifmt" != wv ]]; then
+        shntool split -P none ${ifmtstr:+-i} ${ifmtstr} -f <(print -r -- ${cuebuffers[$walkcuefiles]}) -o null ${(s. .)3} -- $ifile
+      fi
       local mbufs=()
       local mbuf= \
       awkcueput='
@@ -408,15 +424,59 @@ function .main {
                   elif (( ffprobe[streams.stream.0.duration_ts] < cuedump[${cuedump[tc]}:pskip]+588 ))
                     .fatal 'cuesheet specified a timestamp beyond the duration of FILE (mismatched FILE?)'
                   fi
+                  if [[ ! -d "/sdcard/Music/albums/${${${${cuedump[d:TITLE]:-
+}/#./．}//\//／}:0:85}" ]]; then
+                    mkdir -p -- "/sdcard/Music/albums/${${${${cuedump[d:TITLE]:- }/#./．}//\//／}:0:85}"
+                  fi
                 ;;
                 (*)
                 .fatal 'unsupported fmt: '${format.format_name}
               esac
+              local runenc rundec tn
+              case "$ofmt" in
+                (aotuv) runenc=$'oggenc\n-Qq5\n-s\n....\n' ;|
+                (flac) runenc=$'flac\n-V8cs\n' ;|
+                (aotuv|flac)
+                runenc+='
+--comment=TRACKNUMBER=${cuedump[$tn:tnum]}
+${cuedump[$tn:TITLE]:+--comment=TITLE=${cuedump[$tn:TITLE]}}
+${${${${(s| / |)${(s|, |)${(s|、|)${cuedump[$tn:REM COMPOSER]:-${cuedump[$tn:SONGWRITER]:-${cuedump[d:REM COMPOSER]:-${cuedump[d:SONGWRITER]}}}}}}}//#[	 ]##}//%[	 ]##}:+--comment=COMPOSER=}${^${${(s| / |)${(s|, |)${(s|、|)${cuedump[$tn:REM COMPOSER]:-${cuedump[$tn:SONGWRITER]:-${cuedump[d:REM COMPOSER]:-${cuedump[d:SONGWRITER]}}}}}}}//#[	 ]##}//%[	 ]##}
+${${${${(s| / |)${(s|, |)${(s|、|)${cuedump[$tn:REM ARRANGER]:-${cuedump[d:REM ARRANGER]}}}}}//#[	 ]##}//%[	 ]##}:+--comment=ARRANGER=}${^${${(s| / |)${(s|, |)${(s|、|)${cuedump[$tn:REM ARRANGER]:-${cuedump[d:REM ARRANGER]}}}}}//#[	 ]##}//%[	 ]##}
+${${${${(s| / |)${(s|, |)${(s|、|)${cuedump[$tn:REM LYRICIST]:-${cuedump[$tn:SONGWRITER]:-${cuedump[d:REM LYRICIST]:-${cuedump[d:SONGWRITER]}}}}}}}//#[	 ]##}//%[	 ]##}:+--comment=LYRICIST=}${^${${(s| / |)${(s|, |)${(s|、|)${cuedump[$tn:REM LYRICIST]:-${cuedump[$tn:SONGWRITER]:-${cuedump[d:REM LYRICIST]:-${cuedump[d:SONGWRITER]}}}}}}}//#[	 ]##}//%[	 ]##}
+${${${${(s| / |)${(s|, |)${(s|、|)${cuedump[$tn:VOCALIST]:-${cuedump[d:VOCALIST]}}}}}//#[	 ]##}//%[	 ]##}:+--comment=VOCALIST=}${^${${(s| / |)${(s|, |)${(s|、|)${cuedump[$tn:VOCALIST]:-${cuedump[d:VOCALIST]}}}}}/#[	 ]##}/%[	 ]##}
+${${${${(s| / |)${(s|, |)${(s|、|)${cuedump[$tn:PERFORMER]:-${cuedump[d:PERFORMER]}}}}}//#[	 ]##}//%[	 ]##}:+--comment=ARTIST=}${^${${(s| / |)${(s|, |)${(s|、|)${cuedump[$tn:PERFORMER]:-${cuedump[d:PERFORMER]}}}}}/#[	 ]##}/%[	 ]##}
+${${${${(s| / |)${(s|, |)${(s|、|)${cuedump[d:PERFORMER]}}}}//#[	 ]##}//%[	 ]##}:+--comment=ALBUMARTIST=}${^${${(s| / |)${(s|, |)${(s|、|)${cuedump[d:PERFORMER]}}}}//#[	 ]##}//%[	 ]##}
+${cuedump[d:date]:+--comment=DATE=${cuedump[d:date]}}
+${${${${(s| / |)${(s|×|)${(s|、|)${cuedump[d:REM LABEL]}}}}//#[	 ]##}//%[	 ]##}:+--comment=LABEL=}${^${${(s| / |)${(s|×|)${(s|、|)${cuedump[d:REM LABEL]}}}}/#[	 ]##}/%[	 ]##}
+${${${cuedump[$tn:REM COMMENT]:-${cuedump[d:REM COMMENT]}//#[ 	]##}//#[	 ]##}:+--comment=COMMENT=${${cuedump[$tn:REM COMMENT]:-${cuedump[d:REM COMMENT]}//#[ 	]##}//#[	 ]##}}
+${cuedump[d:REM CATALOGNUMBER]:+--comment=CATALOGNUMBER=${cuedump[d:REM CATALOGNUMBER]}}
+${cuedump[$tn:ISRC]:+--comment=ISRC=${cuedump[$tn:ISRC]}}
+${cuedump[d:REM DISCNUMBER]:+--comment=DISCNUMBER=${cuedump[d:REM DISCNUMBER]}}
+${cuedump[d:REM TOTALDISCS]:+--comment=TOTALDISCS=${cuedump[d:REM TOTALDISCS]}}
+--coment=TRACKTOTAL=${cuedump[tc]}
+${cuedump[d:REM MUSICBRAINZ_ALBUMID]:+--comment=MUSICBRAINZ_ALBUMID=${cuedump[d:REM MUSICBRAINZ_ALBUMID]}}
+${cuedump[$tn:REM MUSICBRAINZ_RELEASETRACKID]:+--comment=MUSICBRAINZ_RELEASETRACKID=${cuedump[$tn:REM MUSICBRAINZ_RELEASETRACKID]}}
+${cuedump[$tn:REM REPLAYGAIN_TRACK_GAIN]:+--comment=REPLAYGAIN_TRACK_GAIN=${cuedump[$tn:REM REPLAYGAIN_TRACK_GAIN]}}
+${cuedump[$tn:REM REPLAYPEAK_TRACK_PEAK]:+--comment=REPLAYPEAK_TRACK_PEAK=${cuedump[$tn:REM REPLAYPEAK_TRACK_PEAK]}}
+${cuedump[d:REM REPLAYGAIN_ALBUM_GAIN]:+--comment=REPLAYGAIN_ALBUM_GAIN=${cuedump[d:REM REPLAYGAIN_ALBUM_GAIN]}}
+${cuedump[d:REM REPLAYPEAK_ALBUM_PEAK]:+--comment=REPLAYPEAK_ALBUM_PEAK=${cuedump[d:REM REPLAYPEAK_ALBUM_PEAK]}}
+'
+                runenc+='--output=/sdcard/Music/albums/${${${${cuedump[d:TITLE]:- }/#./．}//\//／}:0:85}/${${:-${cuedump[d:REM DISCNUMBER]:+${cuedump[d:REM DISCNUMBER]}#}${cuedump[$tn:tnum]}${cuedump[$tn:TITLE]:+.${cuedump[$tn:TITLE]}}}:0:81}.ogg'
+                runenc+=$'\n-'
+                ;|
+              esac
               case "${ffprobe[format.format_name]}" in
-                (wv)
-                  wvunpack -qmvz0 -- $ifile
+                (wv) wvunpack -qmvz0 -- $ifile
+                rundec='wvunpack -q -z0 -o -'
+                ;|
+                (flac)
+                rundec='flac -dcs'
                 ;|
                 (flac|wv)
+                  for ((tn=1;;tn<=cuedump[tc];;tn++));do
+                    command ${(s. .)rundec} ${${(M)cuedump[$tn:skip]:#<1->}:+--skip=${cuedump[$tn:skip]}} ${${(M)cuedump[$tn:until]:#<1->}:+--until=${cuedump[$1:until]}} -- $ifile | rw | command ${(fe)runenc}
+                    shift
+                  done
                 ;|
                 (wav|tak|tta|ape)
                 ;|
