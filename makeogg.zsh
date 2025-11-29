@@ -417,11 +417,11 @@ function .main {
                 (wv)
                 ;&
                 (wav|tak|tta|ape)
-                  [[ "${ffprobe[streams.stream.0.sample_rate]}:c${ffprobe[streams.stream.0.channels]}:${ffprobe[streams.stream.0.sample_fmt]}" = 44100:c2:s16(|p)]] || .fatal 'unsupported rate/channel/samplefmt setup: '${ffprobe[streams.stream.0.sample_rate]}:c${ffprobe[streams.stream.0.channels]}:${ffprobe[streams.stream.0.sample_fmt]}
+                  [[ "${ffprobe[streams.stream.0.sample_rate]}:c${ffprobe[streams.stream.0.channels]}:${ffprobe[streams.stream.0.sample_fmt]}" = 44100:c2:s16(|p) ]] || .fatal "unsupported rate/channel/samplefmt setup: ${ffprobe[streams.stream.0.sample_rate]}:c${ffprobe[streams.stream.0.channels]}:${ffprobe[streams.stream.0.sample_fmt]}"
                   (( ffprobe[streams.stream.0.duration_ts]%588==0 )) || .warn 'uneven number of samples, not a CD-DA source?'
                   if (( ffprobe[streams.stream.0.duration_ts] - cuedump[${cuedump[tc]}:pskip] < 44100*3 )); then
                     .warn 'last track only last '$(( (ffprobe[streams.stream.0.duration_ts] - cuedump[${cuedump[tc]}:pskip]) / 44100 ))' seconds'
-                  elif (( ffprobe[streams.stream.0.duration_ts] < cuedump[${cuedump[tc]}:pskip]+588 ))
+                  elif (( ffprobe[streams.stream.0.duration_ts] < cuedump[${cuedump[tc]}:pskip]+588 )); then
                     .fatal 'cuesheet specified a timestamp beyond the duration of FILE (mismatched FILE?)'
                   fi
                   if [[ ! -d "/sdcard/Music/albums/${${${${cuedump[d:TITLE]:-
@@ -452,7 +452,7 @@ ${${${cuedump[$tn:REM COMMENT]:-${cuedump[d:REM COMMENT]}//#[ 	]##}//#[	 ]##}:+-
 ${cuedump[d:REM CATALOGNUMBER]:+--comment=CATALOGNUMBER=${cuedump[d:REM CATALOGNUMBER]}}
 ${cuedump[$tn:ISRC]:+--comment=ISRC=${cuedump[$tn:ISRC]}}
 ${cuedump[d:REM DISCNUMBER]:+--comment=DISCNUMBER=${cuedump[d:REM DISCNUMBER]}}
-${cuedump[d:REM TOTALDISCS]:+--comment=TOTALDISCS=${cuedump[d:REM TOTALDISCS]}}
+${cuedump[d:REM TOTALDISCS]:+--comment=DISCTOTAL=${cuedump[d:REM TOTALDISCS]}}
 --coment=TRACKTOTAL=${cuedump[tc]}
 ${cuedump[d:REM MUSICBRAINZ_ALBUMID]:+--comment=MUSICBRAINZ_ALBUMID=${cuedump[d:REM MUSICBRAINZ_ALBUMID]}}
 ${cuedump[$tn:REM MUSICBRAINZ_RELEASETRACKID]:+--comment=MUSICBRAINZ_RELEASETRACKID=${cuedump[$tn:REM MUSICBRAINZ_RELEASETRACKID]}}
