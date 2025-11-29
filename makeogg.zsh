@@ -128,7 +128,7 @@ function .main {
             while :;do
               timeout 0.01 cat > /dev/null||:
               vared -ehp 'pn> ' "catnos[$walkcuefiles]"
-              if (( ${#catnos[$walkcuefiles]} )) && [[ "${catnos[$walkcuefiles]}" = [-A-Z0-9]# ]]; then
+              if [[ "${catnos[$walkcuefiles]}" = ([-A-Z0-9]#|) ]]; then
                 break
               fi
             done
