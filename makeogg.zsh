@@ -61,16 +61,11 @@ function .main {
       fi
       cuebuffers[$walkcuefiles]=$buf
       unset buf
-      cuefiledirectives+=( "${${${${(@)${(@f)${${cuebuffers[$walkcuefiles]:#[ 	]#TRACK *}%%
-[ 	]#TRACK *}}[(R)[ 	]#FILE "*" (WAVE|FLAC)]}#*\"}%\"*}:#*\"*}" )
-      cuefiletitledirectives+=("${${${${(@)${(@f)${${cuebuffers[$walkcuefiles]:#[ 	]#TRACK *}%%
-[ 	]#TRACK *}}[(R)[ 	]#TITLE "*"]}#*\"}%\"*}:#*\"*}")
-      cuediscnumberdirectives+=("${${(@)${(@f)${${cuebuffers[$walkcuefiles]:#[ 	]#TRACK *}%%
-[ 	]#TRACK *}}[(R)[ 	]#REM DISCNUMBER [1-9][0-9]#]}#[ 	]#REM DISCNUMBER }")
-      cuetotaldiscsdirectives+=("${${(@)${(@f)${${cuebuffers[$walkcuefiles]:#[ 	]#TRACK *}%%
-[ 	]#TRACK *}}[(R)[ 	]#REM TOTALDISCS [1-9][0-9]#]}#[ 	]#REM TOTALDISCS }")
-      cuecatnodirectives+=("${${${${(@)${(@f)${${cuebuffers[$walkcuefiles]:#[ 	]#TRACK *}%%
-[ 	]#TRACK *}}[(R)[ 	]#REM CATALOGNUMBER ([-0-9A-Z]##|"[-0-9A-Z]##")]}#[ 	]#REM CATALOGNUMBER }#\"}%\"}")
+      cuefiledirectives+=( "${${(@)${(@f)cuebuffers[$walkcuefiles]}[1,${(@)${(@f)cuebuffers[$walkcuefiles]}[(i)[ 	 ]#TRACK*]}-1][(R)[ 	 ]#FILE "*" (WAVE|FLAC) #]#*\"}%\"*}" )
+      cuefiletitledirectives+=( "${${(@)${(@f)cuebuffers[$walkcuefiles]}[1,${(@)${(@f)cuebuffers[$walkcuefiles]}[(i)[ 	 ]#TRACK*]}-1][(R)[ 	 ]#TITLE "*" #]#*\"}%\"*}" )
+      cuediscnumberdirectives+=("${${(@)${(@f)cuebuffers[$walkcuefiles]}[1,${(@)${(@f)cuebuffers[$walkcuefiles]}[(i)[ 	 ]#TRACK*]}-1][(R)[ 	 ]#REM DISCNUMBER [1-9][0-9]# #]#[ 	 ]#REM DISCNUMBER }% #}")
+      cuetotaldiscsdirectives+=("${${(@)${(@f)cuebuffers[$walkcuefiles]}[1,${(@)${(@f)cuebuffers[$walkcuefiles]}[(i)[ 	 ]#TRACK*]}-1][(R)[ 	 ]#REM TOTALDISCS [1-9][0-9]# #]#[ 	 ]#REM TOTALDISCS }% #}")
+      cuecatnodirectives+=("${${(@)${(@f)cuebuffers[$walkcuefiles]}[1,${(@)${(@f)cuebuffers[$walkcuefiles]}[(i)[ 	 ]#TRACK*]}-1][(R)[ 	 ]#REM CATALOGNUMBER ("[A-Z][-0-9A-Z](#c4,)"|[A-Z][-0-9A-Z](#c4,)) #]#[ 	 ]#REM CATALOGNUMBER (\"|)}%(\"|) #}")
     done
     (( $#cuefiledirectives == $#cuefiles )) || .fatal "specified $#cuefiles cue sheet(s), but found $#cuefiledirectives FILE directive(s)"
     (( $#cuefiledirectives == ${(@)#${(@u)cuefiledirectives}} )) || .fatal "multiple cue sheets referenced same FILE"
@@ -173,7 +168,7 @@ function .main {
       @include "shellquote"
       function Map(re, arr) {
         if (match($0,re,arr)) {
-          print (shell_quote((nt==""&&nt==0 ? "d" : nt ) ":" arr[1]) " " shell_quote(arr[2]));
+          print (shell_quote((nt==""&&nt==0 ? "d" : nt ) "." arr[1]) " " shell_quote(arr[2]));
           d[nt==""&&nt==0 ? "d" : nt][arr[1]]=arr[2]
           return mkbool(1)
         } else
@@ -240,31 +235,32 @@ function .main {
                   print ("ERROR: bogus INDEX 00 position specified on TRACK " d[walknt]["tnum"] (0+d[walknt]["tnum"]!=walknt ? " (i.e. " nt "th TRACK)" : "")) > "/dev/stderr"
                   exit(2)
                 }
-                print (walknt ":until " sprintf("%d",auntil[walknt-1]=msfts(d[walknt]["INDEX 00"])))
+                print (walknt ".until " sprintf("%d",auntil[walknt-1]=msfts(d[walknt]["INDEX 00"])))
                 if (rskip[walknt]=(msfts(d[walknt]["INDEX 01"]) - msfts(d[walknt]["INDEX 00"]))>44100*3)
-                  print ("NOTE: found " rskip[walknt]/44100 " secs pregap on TRACK " d[walknt]["tnum"] (0+d[walknt]["tnum"]!=walknt ? " (i.e. " nt "th TRACK)" : "")") > "/dev/stderr"
+                  print ("NOTE: found " rskip[walknt]/44100 " secs pregap on TRACK " d[walknt]["tnum"] (0+d[walknt]["tnum"]!=walknt ? " (i.e. " nt "th TRACK)" : "")) > "/dev/stderr"
               } else if (hinthtoa=msfts(d[walknt]["INDEX 01"]) > 44100) {
                 print ("NOTE: [HTOA] found " hinthtoa/44100 " secs pregap") > "/dev/stderr"
               }
             } else if (walknt>1) {
               if (msfts(d[walknt]["INDEX 01"]) <= msfts(d[walknt-1]["INDEX 01"])) {
-                print ("ERROR: bogus INDEX 01 position specified on TRACK " d[walknt]["tnum"] (0+d[walknt]["tnum"]!=walknt ? " (i.e. " nt "th TRACK)" : "")") > "/dev/stderr"
+                print ("ERROR: bogus INDEX 01 position specified on TRACK " d[walknt]["tnum"] (0+d[walknt]["tnum"]!=walknt ? " (i.e. " nt "th TRACK)" : "")) > "/dev/stderr"
                 exit(3)
               }
-              print (walknt-1 ":until " sprintf("%d",auntil[walknt-1]=msfts(d[walknt]["INDEX 01"])))
+              print (walknt-1 ".until " sprintf("%d",auntil[walknt-1]=msfts(d[walknt]["INDEX 01"])))
             }
-            print (walknt ":skip " sprintf("%d",askip[walknt]=msfts(d[walknt]["INDEX 01"])))
+            print (walknt ".skip " sprintf("%d",askip[walknt]=msfts(d[walknt]["INDEX 01"])))
           } else {
-            print ("ERROR: missing INDEX 01 on TRACK " d[walknt]["tnum"] (0+d[walknt]["tnum"]!=walknt ? " (i.e. " nt "th TRACK)" : "")") > "/dev/stderr"
+            print ("ERROR: missing INDEX 01 on TRACK " d[walknt]["tnum"] (0+d[walknt]["tnum"]!=walknt ? " (i.e. " nt "th TRACK)" : "")) > "/dev/stderr"
             exit(4)
           }
         }
         for (k in tnum2nthtr) {
+          ll=""
           if (length(tnum2nthtr[k])>1) {
-            print ("WARN: " length(tnum2nthtr[k]) " TRACKs have a tnum of " k) > "/dev/stderr"
+            print ("WARN: there are " length(tnum2nthtr[k]) " TRACKs have a tnum of " k) > "/dev/stderr"
           }
           for (l in tnum2nthtr[k]) {
-            ll=(ll (length(ll) ? "|" : "") l)
+            ll=(ll (length(ll) ? "|" : "") tnum2nthtr[k][l])
           }
           print ("mat" k " " ll)
         }
@@ -272,13 +268,13 @@ function .main {
           if (!(sprintf("%02d",walknt) in tnum2nthtr)) {
             print ("WARN: missing TRACK " sprintf("%02d",walknt)) > "/dev/stderr"
           }
-          print (walknt ":tnum " d[walknt]["tnum"])
+          print (walknt ".tnum " d[walknt]["tnum"])
           if (rskip[walknt]>0)
-            print (walknt ":pskip " (0+rskip[walknt]))
+            print (walknt ".pskip " (0+rskip[walknt]))
           if (walknt==1&&askip[walknt]>0)
-            print (walknt ":pskip " (0+askip[walknt]))
+            print (walknt ".pskip " (0+askip[walknt]))
           if (walknt<nt)
-            print (walknt ":plen " (0+auntil[walknt]-askip[walknt]))
+            print (walknt ".plen " (0+auntil[walknt]-askip[walknt]))
         }
         if ("REM DATE" in d["d"] && strtonum(normdatestr(d["d"]["REM DATE"])))
           print ("date " normdatestr(d["d"]["REM DATE"]))
@@ -298,9 +294,9 @@ function .main {
       }
       '
       #shntool split ${=ofmt:--P none} ${ifmtstr:+-i} ${ifmtstr} ${ofmt:+-d} ${ofmt:+/sdcard/Music/albums/${${albumtitles[$walkcuefiles]//\?/？}//\*/＊}} -n "${${${(M)totaldiscs[$walkcuefiles]:#<2->}:+$(( discnumbers[$walkcuefiles] ))#%02d}:-%d}" -t '%n.%t@%p' -f <(print -r -- ${cuebuffers[$walkcuefiles]}) -o ${${ofmt:+${ostr[$ofmt]} $2 - ${${(M)ofmt:#opus}:+%f}}:-null} ${(s. .)3} -- $ifile
-      if [[ "$ifmt" != wv ]]; then
-        shntool split -P none ${ifmtstr:+-i} ${ifmtstr} -f <(print -r -- ${cuebuffers[$walkcuefiles]}) -o null ${(s. .)3} -- $ifile
-      fi
+      #if [[ "$ifmt" != wv ]]; then
+      #  shntool split -P none ${ifmtstr:+-i} ${ifmtstr} -f <(print -r -- ${cuebuffers[$walkcuefiles]}) -o null ${(s. .)3} -- $ifile
+      #fi
       local mbufs=()
       local mbuf= \
       awkcueput='
@@ -396,7 +392,7 @@ function .main {
           ([^\n]) echo
           ;|
           (y|p)
-            if ! print -rn -- ${mbufs[-1]} | cueprint -i cue -d ":: %T" -t "%02n.%t"; then
+            if ! print -rn -- ${mbufs[-1]} | cueprint -i cue -d ":: %T\n" -t "%02n.%t\n"; then
               .err 'malformed cuesheet'
               continue
             fi
@@ -419,14 +415,14 @@ function .main {
                 (wav|tak|tta|ape)
                   [[ "${ffprobe[streams.stream.0.sample_rate]}:c${ffprobe[streams.stream.0.channels]}:${ffprobe[streams.stream.0.sample_fmt]}" = 44100:c2:s16(|p) ]] || .fatal "unsupported rate/channel/samplefmt setup: ${ffprobe[streams.stream.0.sample_rate]}:c${ffprobe[streams.stream.0.channels]}:${ffprobe[streams.stream.0.sample_fmt]}"
                   (( ffprobe[streams.stream.0.duration_ts]%588==0 )) || .warn 'uneven number of samples, not a CD-DA source?'
-                  if (( ffprobe[streams.stream.0.duration_ts] - cuedump[${cuedump[tc]}:pskip] < 44100*3 )); then
-                    .warn 'last track only last '$(( (ffprobe[streams.stream.0.duration_ts] - cuedump[${cuedump[tc]}:pskip]) / 44100 ))' seconds'
-                  elif (( ffprobe[streams.stream.0.duration_ts] < cuedump[${cuedump[tc]}:pskip]+588 )); then
+                  if (( ffprobe[streams.stream.0.duration_ts] - cuedump[${cuedump[tc]}.pskip] < 44100*3 )); then
+                    .warn 'last track only last '$(( (ffprobe[streams.stream.0.duration_ts] - cuedump[${cuedump[tc]}.pskip]) / 44100 ))' seconds'
+                  elif (( ffprobe[streams.stream.0.duration_ts] < cuedump[${cuedump[tc]}.pskip]+588 )); then
                     .fatal 'cuesheet specified a timestamp beyond the duration of FILE (mismatched FILE?)'
                   fi
-                  if [[ ! -d "/sdcard/Music/albums/${${${${cuedump[d:TITLE]:-
+                  if [[ ! -d "/sdcard/Music/albums/${${${${cuedump[d.TITLE]:-
 }/#./．}//\//／}:0:85}" ]]; then
-                    mkdir -vp -- "/sdcard/Music/albums/${${${${cuedump[d:TITLE]:- }/#./．}//\//／}:0:85}"
+                    mkdir -vp -- "/sdcard/Music/albums/${${${${cuedump[d.TITLE]:- }/#./．}//\//／}:0:85}"
                   fi
                 ;;
                 (*)
@@ -453,7 +449,7 @@ ${cuedump[d:REM CATALOGNUMBER]:+--comment=CATALOGNUMBER=${cuedump[d:REM CATALOGN
 ${cuedump[$tn:ISRC]:+--comment=ISRC=${cuedump[$tn:ISRC]}}
 ${cuedump[d:REM DISCNUMBER]:+--comment=DISCNUMBER=${cuedump[d:REM DISCNUMBER]}}
 ${cuedump[d:REM TOTALDISCS]:+--comment=DISCTOTAL=${cuedump[d:REM TOTALDISCS]}}
---coment=TRACKTOTAL=${cuedump[tc]}
+--comment=TRACKTOTAL=${cuedump[tc]}
 ${cuedump[d:REM MUSICBRAINZ_ALBUMID]:+--comment=MUSICBRAINZ_ALBUMID=${cuedump[d:REM MUSICBRAINZ_ALBUMID]}}
 ${cuedump[$tn:REM MUSICBRAINZ_RELEASETRACKID]:+--comment=MUSICBRAINZ_RELEASETRACKID=${cuedump[$tn:REM MUSICBRAINZ_RELEASETRACKID]}}
 ${cuedump[$tn:REM REPLAYGAIN_TRACK_GAIN]:+--comment=REPLAYGAIN_TRACK_GAIN=${cuedump[$tn:REM REPLAYGAIN_TRACK_GAIN]}}
@@ -473,15 +469,15 @@ ${cuedump[d:REM REPLAYPEAK_ALBUM_PEAK]:+--comment=REPLAYPEAK_ALBUM_PEAK=${cuedum
                 rundec='flac -dcs'
                 ;|
                 (flac|wv)
-                  for ((tn=1;;tn<=cuedump[tc];;tn++));do
-                    command ${(s. .)rundec} ${${(M)cuedump[$tn:skip]:#<1->}:+--skip=${cuedump[$tn:skip]}} ${${(M)cuedump[$tn:until]:#<1->}:+--until=${cuedump[$1:until]}} -- $ifile | rw | command ${(fe)runenc}
+                  for ((tn=1;tn<=cuedump[tc];tn++));do
+                    command ${(s. .)rundec} ${${(M)cuedump[$tn.skip]:#<1->}:+--skip=${cuedump[$tn.skip]}} ${${(M)cuedump[$tn.until]:#<1->}:+--until=${cuedump[$1.until]}} -- $ifile | rw | eval command echo ${${(f)runenc}:#}
                     shift
                   done
                 ;|
                 (wav|tak|tta|ape)
                   command ffmpeg -loglevel warning -xerror -hide_banner -err_detect explode -i $ifile -f s16le - | {
-                    for ((tn=1;;tn<=cuedump[tc];;tn++)); do
-                      dd bs=128K ${${(M)cuedump[$tn:pskip]:#<1->}:+skip=${cuedump[$tn:pskip]}B} ${${(M)cuedump[$tn:plen]}:+count=${cuedump[$tn:plen]}B} iflag=fullblock status=none | command ${(fe)runenc}
+                    for ((tn=1;tn<=cuedump[tc];tn++)); do
+                      dd bs=128K ${${(M)cuedump[$tn.pskip]:#<1->}:+skip=${cuedump[$tn.pskip]}B} ${${(M)cuedump[$tn.plen]}:+count=${cuedump[$tn.plen]}B} iflag=fullblock status=none | eval command echo ${${(f)runenc}:#}
                     done
                   }
                 ;|
