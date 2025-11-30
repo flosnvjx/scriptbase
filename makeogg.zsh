@@ -17,7 +17,7 @@ function .main {
           fi
           shift
         done
-      } aotuv fdk flac
+      } aotuv flac
     elif [[ "$1" != cue ]]; then
       .fatal "unsupported output fmt: $1"
     fi
@@ -435,6 +435,7 @@ function .main {
               case "$ofmt" in
                 (aotuv) runenc=$'oggenc\n-Qq5\n-s\n....\n' ;|
                 (flac) runenc=$'flac\n-V8cs\n' ;|
+                ## (fdkaac) runenc=$'fdkaac\n-m\n5\n-w\n20000\n-G\n2\n-S\n--no-timestamp\n' ;|
                 (aotuv|flac)
                 runenc+='
 --comment=TRACKNUMBER=${cuedump[$tn.tnum]/#0}
@@ -444,6 +445,7 @@ ${${${${(s| / |)${(s|, |)${(s|、|)cuedump[$tn.REM ARRANGER]:-${cuedump[d.REM AR
 ${${${${(s| / |)${(s|, |)${(s|、|)cuedump[$tn.REM LYRICIST]:-${cuedump[$tn.SONGWRITER]:-${cuedump[d.REM LYRICIST]:-${cuedump[d.SONGWRITER]}}}}}}/#[	 ]##}/%[	 ]##}:+--comment=LYRICIST=}${^${${(s| / |)${(s|, |)${(s|、|)cuedump[$tn.REM LYRICIST]:-${cuedump[$tn.SONGWRITER]:-${cuedump[d.REM LYRICIST]:-${cuedump[d.SONGWRITER]}}}}}}/#[	 ]##}/%[	 ]##}
 ${${${${(s| / |)${(s|, |)${(s|、|)cuedump[$tn.VOCALIST]:-${cuedump[d.VOCALIST]}}}}/#[	 ]##}/%[	 ]##}:+--comment=VOCALIST=}${^${${(s| / |)${(s|, |)${(s|、|)cuedump[$tn.VOCALIST]:-${cuedump[d.VOCALIST]}}}}/#[	 ]##}/%[	 ]##}
 ${${${${(s| / |)${(s|, |)${(s|、|)cuedump[$tn.PERFORMER]:-${cuedump[d.PERFORMER]}}}}/#[	 ]##}/%[	 ]##}:+--comment=ARTIST=}${^${${(s| / |)${(s|, |)${(s|、|)cuedump[$tn.PERFORMER]:-${cuedump[d.PERFORMER]}}}}/#[	 ]##}/%[	 ]##}
+${${${cuedump[d.TITLE]/#[    ]#}/%[   ]#}:+--comment=ALBUM=${${cuedump[d.TITLE]/#[    ]#}/%[   ]#}}
 ${${${${(s| / |)${(s|, |)${(s|、|)cuedump[d.PERFORMER]}}}//#[	 ]##}//%[	 ]##}:+--comment=ALBUMARTIST=}${^${${(s| / |)${(s|, |)${(s|、|)cuedump[d.PERFORMER]}}}/#[	 ]##}/%[	 ]##}
 ${cuedump[d.date]:+--comment=DATE=${cuedump[d.date]}}
 ${${${${(s| / |)${(s|×|)${(s|、|)cuedump[d.REM LABEL]}}}//#[	 ]##}//%[	 ]##}:+--comment=LABEL=}${^${${(s| / |)${(s|×|)${(s|、|)cuedump[d.REM LABEL]}}}/#[	 ]##}/%[	 ]##}
@@ -460,9 +462,12 @@ ${cuedump[$tn.REM REPLAYPEAK_TRACK_PEAK]:+--comment=REPLAYPEAK_TRACK_PEAK=${cued
 ${cuedump[d.REM REPLAYGAIN_ALBUM_GAIN]:+--comment=REPLAYGAIN_ALBUM_GAIN=${cuedump[d.REM REPLAYGAIN_ALBUM_GAIN]}}
 ${cuedump[d.REM REPLAYPEAK_ALBUM_PEAK]:+--comment=REPLAYPEAK_ALBUM_PEAK=${cuedump[d.REM REPLAYPEAK_ALBUM_PEAK]}}
 '
-                runenc+='--output=/sdcard/Music/albums/${${${${cuedump[d.TITLE]:- }/#./．}//\//／}:0:85}/${${:-${cuedump[d.REM DISCNUMBER]:+${cuedump[d.REM DISCNUMBER]}#}${cuedump[$tn.tnum]}${cuedump[$tn.TITLE]:+.${cuedump[$tn.TITLE]//\//／}}}:0:81}.ogg'
-                runenc+=$'\n-'
+                runenc+='-o
+/sdcard/Music/albums/${${${${cuedump[d.TITLE]:- }/#./．}//\//／}:0:85}/${${:-${cuedump[d.REM DISCNUMBER]:+${cuedump[d.REM DISCNUMBER]}#}${cuedump[$tn.tnum]}${cuedump[$tn.TITLE]:+.${cuedump[$tn.TITLE]//\//／}}}:0:80}'
                 ;|
+                (aotuv) runenc+=.ogg ;|
+                (flac) runenc+=.flac ;|
+                (flac) runenc=${runenc//--comment=/--tag=} ;|
               esac
               case "${ffprobe[format.format_name]}" in
                 (wv) wvunpack -qmvz0 -- $ifile
@@ -473,14 +478,20 @@ ${cuedump[d.REM REPLAYPEAK_ALBUM_PEAK]:+--comment=REPLAYPEAK_ALBUM_PEAK=${cuedum
                 ;|
                 (flac|wv)
                   for ((tn=1;tn<=cuedump[tc];tn++));do
-                    command ${(s. .)rundec} ${${(M)cuedump[$tn.skip]:#<1->}:+--skip=${cuedump[$tn.skip]}} ${${(M)cuedump[$tn.until]:#<1->}:+--until=${cuedump[$1.until]}} -- $ifile | rw | eval command echo ${${(f)runenc}:#}
+                    command ${(s. .)rundec} ${${(M)cuedump[$tn.skip]:#<1->}:+--skip=${cuedump[$tn.skip]}} ${${(M)cuedump[$tn.until]:#<1->}:+--until=${cuedump[$1.until]}} -- $ifile | rw | eval command ${${(f)runenc}:#} -
                     shift
                   done
                 ;|
                 (wav|tak|tta|ape)
+                  case "$ofmt" in
+                    (flac) runenc+=$'\n--force-raw-format\n--sign=signed\n--endian=little\n--channels=2\n--bps=16\n--sample-rate=44100\n'
+                    ;;
+                    (aotuv) runenc+=$'\n--raw\n'
+                    ;;
+                  esac
                   command ffmpeg -loglevel warning -xerror -hide_banner -err_detect explode -i $ifile -f s16le - | {
                     for ((tn=1;tn<=cuedump[tc];tn++)); do
-                      dd bs=128K ${${(M)cuedump[$tn.pskip]:#<1->}:+skip=${cuedump[$tn.pskip]}B} ${${(M)cuedump[$tn.plen]}:+count=${cuedump[$tn.plen]}B} iflag=fullblock status=none | eval command echo ${${(f)runenc}:#}
+                      dd bs=128K ${${(M)cuedump[$tn.pskip]:#<1->}:+skip=${cuedump[$tn.pskip]}B} ${${(M)cuedump[$tn.plen]}:+count=${cuedump[$tn.plen]}B} iflag=fullblock status=none | rw | eval command ${${(f)runenc}:#} -
                     done
                   }
                 ;|
@@ -619,9 +630,6 @@ function .deps {
   flac --version &>/dev/null
   ostr[flac]='flac flac -sV8co %f'
 
-  if fdkaac --version &>/dev/null; then
-    ostr[fdk]='cust ext=m4a fdkaac -m 5 -w 20000 -G 2 -S --no-timestamp -o %f'
-  fi
   if oggenc --help | grep -se "aoTuV"; then
     ostr[aotuv]='cust ext=ogg oggenc -Q -q 5 -s .... -o %f'
   fi
