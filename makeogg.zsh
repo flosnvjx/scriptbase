@@ -473,7 +473,7 @@ ${cuedump[d.REM REPLAYPEAK_ALBUM_PEAK]:+--comment=REPLAYPEAK_ALBUM_PEAK=${cuedum
                 (wv) wvunpack -qmvz0 -- $ifile
                 rundec='wvunpack -q -z0 -o -'
                 ;|
-                (flac)
+                (flac) flac -ts -- $ifile
                 rundec='flac -dcs'
                 ;|
                 (flac|wv)
@@ -491,7 +491,7 @@ ${cuedump[d.REM REPLAYPEAK_ALBUM_PEAK]:+--comment=REPLAYPEAK_ALBUM_PEAK=${cuedum
                   esac
                   command ffmpeg -loglevel warning -xerror -hide_banner -err_detect explode -i $ifile -f s16le - | {
                     for ((tn=1;tn<=cuedump[tc];tn++)); do
-                      dd bs=128K ${${(M)cuedump[$tn.pskip]:#<1->}:+skip=${cuedump[$tn.pskip]}B} ${${(M)cuedump[$tn.plen]}:+count=${cuedump[$tn.plen]}B} iflag=fullblock status=none | rw | eval command ${${(f)runenc}:#} -
+                      dd bs=128K ${${(M)cuedump[$tn.pskip]:#<1->}:+skip=$(( 2 * ${cuedump[$tn.pskip]} ))B} ${${(M)cuedump[$tn.plen]}:+count=$(( 2 * ${cuedump[$tn.plen]} ))B} iflag=fullblock status=none | rw | eval command ${${(f)runenc}:#} -
                     done
                   }
                 ;|
