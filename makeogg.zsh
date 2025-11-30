@@ -400,7 +400,7 @@ function .main {
               continue
             fi
           ;|
-          (y)
+          ([yY])
             if ! print -rn -- ${mbufs[-1]} | cmp -s -- ${cuefiles[$walkcuefiles]}; then
               print -rn -- ${mbufs[-1]} | rw -- ${cuefiles[$walkcuefiles]}
             fi
@@ -469,6 +469,27 @@ ${cuedump[d.REM REPLAYPEAK_ALBUM_PEAK]:+--comment=REPLAYPEAK_ALBUM_PEAK=${cuedum
                 (flac) runenc+=.flac ;|
                 (flac) runenc=${runenc//--comment=/--tag=} ;|
               esac
+              local -a seltnums=()
+              timeout 0.01 cat >/dev/null||:
+              seltnums=("${(f)$(function {
+  while ((#)); do
+    printf '%-2d  %s\n' ${1%%.*} ${cuedump[${1%%.*}.TITLE]}${cuedump[${1%%.*}.PERFORMER]:+		"[@"${cuedump[${1%%.*}.PERFORMER]}"]"}
+    shift
+  done
+} ${(@Mn)${(@k)cuedump}:#<1->.tnum} | fzf -m --layout=reverse-list --prompt="${${cuefiles[$walkcuefiles]:t}:0:${$(( ${WIDTH:-80}/2 ))%.*}} select:")%% *}") || {
+                seltnums=(${(@)${(@Mn)${(@k)cuedump}:#<1->.tnum}%.*})
+                function {
+                  if argv=("${(f)$(function {
+  while ((#)); do
+    printf '%-2d  %s\n' ${1} ${cuedump[${1}.TITLE]}${cuedump[${1}.PERFORMER]:+		"[@"${cuedump[${1}.PERFORMER]}"]"}
+    shift
+  done
+} $seltnums | fzf -m --layout=reverse-list --prompt="${${cuefiles[$walkcuefiles]:t}:0:${$(( ${WIDTH:-80}/2 ))%.*}} skip:")%% *}"); then
+                    seltnums=(${seltnums:|argv})
+                  fi
+                }
+                (( $#seltnums )) || continue
+              }
               case "${ffprobe[format.format_name]}" in
                 (wv) wvunpack -qmvz0 -- $ifile
                 rundec='wvunpack -q -z0 -o -'
