@@ -1,14 +1,18 @@
 #!/usr/bin/env -S zsh -f
 ## vim:syntax=zsh:foldmethod=marker
 
+autoload -UR replace-string
+zle -N replace-string
+zle -N replace-string-again
+zle -N replace-pattern replace-string
+zle -N replace-regex replace-string
+bindkey -${${vicmd:+a}:-v}
 autoload -UR zed
-bindkey -v
 zed&>/dev/null
 
 unset HISTFILE IFS zed_dw_filename
 
 eval "$(functions zed | sed -Ee '/zed_file_name="\$1"/{s|"\$1"|"${zed_dw_filename:-$1}"|;n;s@[[:space:]]+\[\[ [^]]+ \]\] && (var=)@[[ -r "$1" \&\& ( -f "$1" || -p "$1" || "$1" = /dev/stdin ) ]] \&\& \1@}')"
-zed -b
 
 ((#)) || argv=(-)
 
@@ -17,7 +21,7 @@ while ((#)); do
   if [[ ! -t 0 && ( ! -e "$1" || ( -f "$1" && ! -s "$1" ) ) ]]; then
     zed_dw_filename="${${1:#-}:-/dev/stdout}" zed /dev/stdin
   else
-    zed -- "${${1:#-}:-/dev/stdout}"
+    zed_dw_filename="${${1:#-}:-/dev/stdout}" zed -- "${${1:#-}:-/dev/null}"
   fi
   shift
 done
