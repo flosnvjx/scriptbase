@@ -541,6 +541,7 @@ ${cuedump[d.REM REPLAYPEAK_ALBUM_PEAK]:+--comment=REPLAYPEAK_ALBUM_PEAK=${cuedum
             fi
           ;|
           (t)
+            cuedump=("${(@Q)${(@z)${(@f)$(gawk -E <(print -rn -- $awkcuedump) - <<< ${mbufs[-1]})}}}") || continue
             while :;do
               local tagkey=
               local -aU tagtnums=()
@@ -562,17 +563,35 @@ ${cuedump[d.REM REPLAYPEAK_ALBUM_PEAK]:+--comment=REPLAYPEAK_ALBUM_PEAK=${cuedum
                 ;;
               esac
               if [[ "$tagkey" = n ]]; then
-                tagtnums=("${(f)$(cueprint -i cue -t "%n. %t\n" <<< "${mbufs[-1]}" | fzf --layout=reverse-list --prompt="${${cuefiles[$walkcuefiles]:t}:0:${$(( ${WIDTH:-80}/2 ))%.*}} tag(${(@)${(@k)commontags}[(r)(#i)*:$tagkey]%:?}).track:")%%.*}") ||  continue
+                tagtnums=("${(f)$(function {
+  while ((#)); do
+    printf '%-2d  %s\n' ${1%%.*} ${cuedump[${1%%.*}.TITLE]}${cuedump[${1%%.*}.PERFORMER]:+		"[@"${cuedump[${1%%.*}.PERFORMER]}"]"}
+    shift
+  done
+} ${(@Mn)${(@k)cuedump}:#<1->.tnum} | fzf --layout=reverse-list --prompt="${${cuefiles[$walkcuefiles]:t}:0:${$(( ${WIDTH:-80}/2 ))%.*}} tag(${(@)${(@k)commontags}[(r)(#i)*:$tagkey]%:?}).track:")%% *}") || continue
               elif eval '[[ "$tagkey" = ['${(@j..)${(@M)${(@k)commontags#*:}:#[a-z]}:l}'] ]]'; then
                 if IFS=" ,	" vared -ehp "${${cuefiles[$walkcuefiles]:t}:0:${$(( ${WIDTH:-80}/2 ))%.*}} tag(${(@)${(@k)commontags}[(r)(#i)*:$tagkey]%:?}).tracks:" tagtnums && (( ${(@)#${(@M)tagtnums:#[0-9]##(-[0-9]#|)}} )); then :
                   function {
-                    argv=("${(f)$(cueprint -i cue -t "%n\n" <<< "${mbufs[-1]}")}") || continue
+                    argv=("${(@)${(@Mn)${(@k)cuedump}:#<1->.tnum}%.*}")
+                    ((#)) || continue
                     tagtnums=("${(@)${(@)${(@M)tagtnums:#[0-9]##-[0-9]#}/#/<}/%/>}" "${(@M)tagtnums:#[0-9]##}")
                     tagtnums=(${(@M)argv:#${(@)~${(@j.|.)tagtnums}}})
+                    argv=(${cuedump[(I)(${(@j.|.)tagtnums}).${(@)commontags[${(@)commontags[(i)*:${tagkey:l}]}]}]})
+                    while ((#)); do
+                      0+=${${cuedump[$1]/#[	 ]#}/%[	 ]#}$'\n'
+                      shift
+                    done
+                    argv=(${(fu)0})
+                    if (( $#==1 )); then
+                      tagvalue=${argv}
+                    fi
                   }
                 else continue
                 fi
-              elif eval '[[ "$tagkey" != ['${(@j..)${(@M)${(@k)commontags#*:}:#[A-Z]}:l}'] ]]'; then continue;
+              elif eval '[[ "$tagkey" == ['${(@j..)${(@M)${(@k)commontags#*:}:#[A-Z]}:l}'] ]]'; then
+                tagvalue=${cuedump[d.${(@)commontags[${(@)commontags[(i)*:${tagkey:u}]}]}]}
+              else
+                continue
               fi
               if eval '[[ "$tagkey" = ['${(@j..)${(@M)${(@k)commontags#*:}:#[A-Za-z]}:l}'] ]]'; then
                 vared -ehp "${${cuefiles[$walkcuefiles]:t}:0:${$(( ${WIDTH:-80}/2 ))%.*}} tag(${(@)${(@k)commontags}[(r)(#i)*:$tagkey]%:?}).value:" tagvalue || continue
