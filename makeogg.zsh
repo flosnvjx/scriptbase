@@ -165,6 +165,9 @@ function .main {
           ;;
       esac
       local awkcuedump='
+      BEGIN{
+        CONVFMT="%.3f"
+      }
       @include "shellquote"
       function Map(re, arr) {
         if (match($0,re,arr)) {
@@ -230,27 +233,29 @@ function .main {
                 exit(2)
               }
 
-              if (walknts>1) {
+              if (walknt>1) {
                 if (msfts(d[walknt]["INDEX 00"]) <= msfts(d[walknt-1]["INDEX 01"])) {
-                  print ("ERROR: bogus INDEX 00 position specified on TRACK " d[walknt]["tnum"] (0+d[walknt]["tnum"]!=walknt ? " (i.e. " nt "th TRACK)" : "")) > "/dev/stderr"
+                  print ("ERROR: bogus INDEX 00 position specified on TRACK " d[walknt]["tnum"] (0+d[walknt]["tnum"]!=walknt ? " (i.e. " walknt "th TRACK)" : "")) > "/dev/stderr"
                   exit(2)
                 }
-                print (walknt ".until " sprintf("%d",auntil[walknt-1]=msfts(d[walknt]["INDEX 00"])))
-                if (rskip[walknt]=(msfts(d[walknt]["INDEX 01"]) - msfts(d[walknt]["INDEX 00"]))>44100*3)
-                  print ("NOTE: found " rskip[walknt]/44100 " secs pregap on TRACK " d[walknt]["tnum"] (0+d[walknt]["tnum"]!=walknt ? " (i.e. " nt "th TRACK)" : "")) > "/dev/stderr"
-              } else if (hinthtoa=msfts(d[walknt]["INDEX 01"]) > 44100) {
+                print (walknt-1 ".until " sprintf("%d",auntil[walknt-1]=msfts(d[walknt]["INDEX 00"])))
+                if ((rskip[walknt]=msfts(d[walknt]["INDEX 01"]) - msfts(d[walknt]["INDEX 00"]))>44100*3)
+                  print ("NOTE: found " rskip[walknt]/44100 " secs pregap on TRACK " d[walknt]["tnum"] (0+d[walknt]["tnum"]!=walknt ? " (i.e. " walknt "th TRACK)" : "")) > "/dev/stderr"
+              } else if ((hinthtoa=msfts(d[walknt]["INDEX 01"])) > 44100) {
                 print ("NOTE: [HTOA] found " hinthtoa/44100 " secs pregap") > "/dev/stderr"
               }
             } else if (walknt>1) {
               if (msfts(d[walknt]["INDEX 01"]) <= msfts(d[walknt-1]["INDEX 01"])) {
-                print ("ERROR: bogus INDEX 01 position specified on TRACK " d[walknt]["tnum"] (0+d[walknt]["tnum"]!=walknt ? " (i.e. " nt "th TRACK)" : "")) > "/dev/stderr"
+                print ("ERROR: bogus INDEX 01 position specified on TRACK " d[walknt]["tnum"] (0+d[walknt]["tnum"]!=walknt ? " (i.e. " walknt "th TRACK)" : "")) > "/dev/stderr"
                 exit(3)
               }
               print (walknt-1 ".until " sprintf("%d",auntil[walknt-1]=msfts(d[walknt]["INDEX 01"])))
+            } else if (walknt==1 && askip[walknt]) {
+              print ("WARN: missing INDEX 00 on first TRACK") > "/dev/stderr"
             }
             print (walknt ".skip " sprintf("%d",askip[walknt]=msfts(d[walknt]["INDEX 01"])))
           } else {
-            print ("ERROR: missing INDEX 01 on TRACK " d[walknt]["tnum"] (0+d[walknt]["tnum"]!=walknt ? " (i.e. " nt "th TRACK)" : "")) > "/dev/stderr"
+            print ("ERROR: missing INDEX 01 on TRACK " d[walknt]["tnum"] (0+d[walknt]["tnum"]!=walknt ? " (i.e. " walknt "th TRACK)" : "")) > "/dev/stderr"
             exit(4)
           }
         }
@@ -262,19 +267,17 @@ function .main {
           for (l in tnum2nthtr[k]) {
             ll=(ll (length(ll) ? "|" : "") tnum2nthtr[k][l])
           }
-          print ("mat" k " " ll)
+          print ("mat." k " " ll)
         }
         for (walknt=1;walknt<=nt;walknt++) {
           if (!(sprintf("%02d",walknt) in tnum2nthtr)) {
             print ("WARN: missing TRACK " sprintf("%02d",walknt)) > "/dev/stderr"
           }
           print (walknt ".tnum " d[walknt]["tnum"])
-          if (rskip[walknt]>0)
-            print (walknt ".pskip " (0+rskip[walknt]))
-          if (walknt==1&&askip[walknt]>0)
-            print (walknt ".pskip " (0+askip[walknt]))
           if (walknt<nt)
             print (walknt ".plen " (0+auntil[walknt]-askip[walknt]))
+          if (rskip[walknt])
+            print (walknt ".pskip " (0+rskip[walknt]))
         }
         if ("REM DATE" in d["d"] && strtonum(normdatestr(d["d"]["REM DATE"])))
           print ("date " normdatestr(d["d"]["REM DATE"]))
