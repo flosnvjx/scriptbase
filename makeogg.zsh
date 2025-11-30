@@ -477,6 +477,7 @@ ${cuedump[d.REM REPLAYPEAK_ALBUM_PEAK]:+--comment=REPLAYPEAK_ALBUM_PEAK=${cuedum
     shift
   done
 } ${(@Mn)${(@k)cuedump}:#<1->.tnum} | fzf -m --layout=reverse-list --prompt="${${cuefiles[$walkcuefiles]:t}:0:${$(( ${WIDTH:-80}/2 ))%.*}} select:")%% *}") || {
+                timeout 0.01 cat >/dev/null||:
                 seltnums=(${(@)${(@Mn)${(@k)cuedump}:#<1->.tnum}%.*})
                 function {
                   if argv=("${(f)$(function {
@@ -498,9 +499,9 @@ ${cuedump[d.REM REPLAYPEAK_ALBUM_PEAK]:+--comment=REPLAYPEAK_ALBUM_PEAK=${cuedum
                 rundec='flac -dcs'
                 ;|
                 (flac|wv)
-                  for ((tn=1;tn<=cuedump[tc];tn++));do
-                    command ${(s. .)rundec} ${${(M)cuedump[$tn.skip]:#<1->}:+--skip=${cuedump[$tn.skip]}} ${${(M)cuedump[$tn.until]:#<1->}:+--until=${cuedump[$1.until]}} -- $ifile | rw | eval command ${${(f)runenc}:#} -
-                    shift
+                  while (( $#seltnums )); do
+                    command ${(s. .)rundec} ${${(M)cuedump[${seltnums[1]}.skip]:#<1->}:+--skip=${cuedump[${seltnums[1]}.skip]}} ${${(M)cuedump[${seltnums[1]}.until]:#<1->}:+--until=${cuedump[${seltnums[1]}.until]}} -- $ifile | rw | eval command ${${(f)runenc}:#} -
+                    shift seltnums
                   done
                 ;|
                 (wav|tak|tta|ape)
@@ -512,7 +513,11 @@ ${cuedump[d.REM REPLAYPEAK_ALBUM_PEAK]:+--comment=REPLAYPEAK_ALBUM_PEAK=${cuedum
                   esac
                   command ffmpeg -loglevel warning -xerror -hide_banner -err_detect explode -i $ifile -f s16le - | {
                     for ((tn=1;tn<=cuedump[tc];tn++)); do
-                      dd bs=128K ${${(M)cuedump[$tn.pskip]:#<1->}:+skip=$(( 2 * ${cuedump[$tn.pskip]} ))B} ${${(M)cuedump[$tn.plen]}:+count=$(( 2 * ${cuedump[$tn.plen]} ))B} iflag=fullblock status=none | rw | eval command ${${(f)runenc}:#} -
+                      if (( ${seltnums[(I)$tn]} )); then
+                        dd bs=128K ${${(M)cuedump[$tn.pskip]:#<1->}:+skip=$(( 2 * ${cuedump[$tn.pskip]} ))B} ${${(M)cuedump[$tn.plen]}:+count=$(( 2 * ${cuedump[$tn.plen]} ))B} iflag=fullblock status=none | rw | eval command ${${(f)runenc}:#} -
+                      else
+                        dd bs=128K ${${(M)cuedump[$tn.pskip]:#<1->}:+skip=$(( 2 * ${cuedump[$tn.pskip]} ))B} ${${(M)cuedump[$tn.plen]}:+count=$(( 2 * ${cuedump[$tn.plen]} ))B} iflag=fullblock status=none of=/dev/null
+                      fi
                     done
                   }
                 ;|
