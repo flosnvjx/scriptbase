@@ -407,7 +407,7 @@ function .main {
           ;|
           (y|[pP])
             if (( $#ofmt )); then
-              cuedump=("${(@Q)${(@z)${(@f)$(gawk -E <(print -rn -- $awkcuedump) - <<< ${mbufs[-1]})}}}")
+              cuedump=("${(@Q)${(@z)${(@f)$(gawk -E <(print -rn -- $awkcuedump) - <<< ${mbufs[-1]})}}}") || continue
               local -A ffprobe
               ffprobe=("${(@Q)${(@z)${(@f)"$(ffprobe -err_detect explode -show_entries streams:format -of flat -hide_banner -loglevel warning -select_streams a -i $ifile)"}/=/ }}")
               case "${ffprobe[format.format_name]}" in
@@ -562,15 +562,13 @@ ${cuedump[d.REM REPLAYPEAK_ALBUM_PEAK]:+--comment=REPLAYPEAK_ALBUM_PEAK=${cuedum
                 ;;
               esac
               if [[ "$tagkey" = n ]]; then
-                tagtnums=("${(f)$(cueprint -i cue -t "%n. %t\n" <<< "${mbufs[-1]%
-}" | fzf --layout=reverse-list --prompt="${${cuefiles[$walkcuefiles]:t}:0:${$(( ${WIDTH:-80}/2 ))%.*}} tag(${(@)${(@k)commontags}[(r)(#i)*:$tagkey]%:?}).track:")%%.*}") || continue
+                tagtnums=("${(f)$(cueprint -i cue -t "%n. %t\n" <<< "${mbufs[-1]}" | fzf --layout=reverse-list --prompt="${${cuefiles[$walkcuefiles]:t}:0:${$(( ${WIDTH:-80}/2 ))%.*}} tag(${(@)${(@k)commontags}[(r)(#i)*:$tagkey]%:?}).track:")%%.*}") ||  continue
               elif eval '[[ "$tagkey" = ['${(@j..)${(@M)${(@k)commontags#*:}:#[a-z]}:l}'] ]]'; then
                 if IFS=" ,	" vared -ehp "${${cuefiles[$walkcuefiles]:t}:0:${$(( ${WIDTH:-80}/2 ))%.*}} tag(${(@)${(@k)commontags}[(r)(#i)*:$tagkey]%:?}).tracks:" tagtnums && (( ${(@)#${(@M)tagtnums:#[0-9]##(-[0-9]#|)}} )); then :
                   function {
-                    argv=("${(f)$(cueprint -i cue -t "%n\n" <<< "${mbufs[-1]%
-}")}") || continue
-                    tagtnums=("${${${(@M)tagtnums:#*-*}/#/<}/%/>}" "${(@)tagtnums:#*-*}")
-                    tagtnums=("${(@M)argv:#${(@)~${(@j.|.)tagtnums}}}")
+                    argv=("${(f)$(cueprint -i cue -t "%n\n" <<< "${mbufs[-1]}")}") || continue
+                    tagtnums=("${(@)${(@)${(@M)tagtnums:#[0-9]##-[0-9]#}/#/<}/%/>}" "${(@M)tagtnums:#[0-9]##}")
+                    tagtnums=(${(@M)argv:#${(@)~${(@j.|.)tagtnums}}})
                   }
                 else continue
                 fi
