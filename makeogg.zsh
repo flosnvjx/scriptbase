@@ -296,10 +296,6 @@ function .main {
           return mkbool(0)
       }
       '
-      #shntool split ${=ofmt:--P none} ${ifmtstr:+-i} ${ifmtstr} ${ofmt:+-d} ${ofmt:+/sdcard/Music/albums/${${albumtitles[$walkcuefiles]//\?/？}//\*/＊}} -n "${${${(M)totaldiscs[$walkcuefiles]:#<2->}:+$(( discnumbers[$walkcuefiles] ))#%02d}:-%d}" -t '%n.%t@%p' -f <(print -r -- ${cuebuffers[$walkcuefiles]}) -o ${${ofmt:+${ostr[$ofmt]} $2 - ${${(M)ofmt:#opus}:+%f}}:-null} ${(s. .)3} -- $ifile
-      #if [[ "$ifmt" != wv ]]; then
-      #  shntool split -P none ${ifmtstr:+-i} ${ifmtstr} -f <(print -r -- ${cuebuffers[$walkcuefiles]}) -o null ${(s. .)3} -- $ifile
-      #fi
       local mbufs=()
       local mbuf= \
       awkcueput='
@@ -378,7 +374,7 @@ function .main {
       '
       gawk -E <(print -r -- '
         BEGIN {
-          d["d"]["FILE"]="'${albumfiles[$walkcuefiles]//\\/\\\\}'";
+          d["d"]["FILE"]="'${${albumfiles[$walkcuefiles]//\\/\\\\}//\"/\\\"}'";
           d["d"]["TITLE"]="'${${albumtitles[$walkcuefiles]//\"/＂}//\\/\\\\}'";
           d["d"]["REM DISCNUMBER"]="'${${totaldiscs[$walkcuefiles]:#1}:+$(( discnumbers[$walkcuefiles] ))}'";
           d["d"]["REM TOTALDISCS"]="'$(( totaldiscs[$walkcuefiles] ))'";
