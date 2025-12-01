@@ -43,7 +43,7 @@ function .main {
         while :; do
           read -k1 "REPLY?Is that okay? ${cuefilecodepages[-1]:+${cuefilecodepages[-1]} }(y/N)" < ${TTY:-/dev/tty}
           case "$REPLY" in
-            ([^\n]) echo ;|
+            ([^$'\n']) echo ;|
             ([yY]) break ;;
           esac
           cuefilecodepages[-1]="${$(iconv -l | fzf --layout=reverse-list --prompt="Select a codepage> ")// *}"
@@ -392,7 +392,7 @@ function .main {
         timeout 0.1 cat >/dev/null || :
         read -k1 "REPLY?${cuefiles[$walkcuefiles]:t} [y/p/e/d/u($((${#mbufs}-1)))/m/t/q] "
         case "$REPLY" in
-          ([^\n]) echo
+          ([^$'\n']) echo
           ;|
           (y|p)
             if ! print -rn -- ${mbufs[-1]} | cueprint -i cue -d ":: %T\n" -t "%02n.%t\n"; then
@@ -555,7 +555,7 @@ ${cuedump[d.REM REPLAYPEAK_ALBUM_PEAK]:+--comment=REPLAYPEAK_ALBUM_PEAK=${cuedum
               fi
             }
           ;|
-          ([\t])
+          ([$'\t'])
             local awktxt2tracktitledump='
             /^(|Edit )Disc [0-9]+(| \[[A-Z0-9][-A-Z0-9]*])$/ {
               match($0,/^(|Edit )Disc ([0-9]+)(| \[[A-Z0-9][-A-Z0-9]*])$/,ms)
@@ -679,7 +679,7 @@ ${cuedump[d.REM REPLAYPEAK_ALBUM_PEAK]:+--comment=REPLAYPEAK_ALBUM_PEAK=${cuedum
               done
             } | gawk -E <(print -r -- $awkcuemput) - <(print -r -- ${mbufs[-1]}) | readeof mbuf
           ;|
-          ([m\t])
+          ([m$'\t'])
             if (( $#mbuf )) && [[ "${mbufs[-1]}" != "$mbuf" ]]; then
               mbufs+=($mbuf)
               print -rn -- ${mbufs[-1]} | delta --paging=never <(print -rn -- ${mbufs[-2]}) - || :
@@ -702,7 +702,7 @@ ${cuedump[d.REM REPLAYPEAK_ALBUM_PEAK]:+--comment=REPLAYPEAK_ALBUM_PEAK=${cuedum
               local tagvalue=
               read -k 1 "tagkey?${${cuefiles[$walkcuefiles]:t}:0:${$(( ${WIDTH:-80}/2 ))%.*}} [${${(@j..)${(@k)commontags}#*:}:l}?q] "
               case "$tagkey" in
-                ([^\n]) echo
+                ([^$'\n']) echo
                   ;|
                 (\?)
                   function {
