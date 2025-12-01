@@ -500,7 +500,7 @@ ${cuedump[d.REM REPLAYPEAK_ALBUM_PEAK]:+--comment=REPLAYPEAK_ALBUM_PEAK=${cuedum
                 ;|
                 (flac|wv)
                   while (( $#seltnums )); do
-                    command ${(s. .)rundec} ${${(M)cuedump[${seltnums[1]}.skip]:#<1->}:+--skip=${cuedump[${seltnums[1]}.skip]}} ${${(M)cuedump[${seltnums[1]}.until]:#<1->}:+--until=${cuedump[${seltnums[1]}.until]}} -- $ifile | rw | eval command ${${(f)runenc}:#} -
+                    command ${(s. .)rundec} ${${(M)cuedump[${seltnums[1]}.skip]:#<1->}:+--skip=${cuedump[${seltnums[1]}.skip]}} ${${(M)cuedump[${seltnums[1]}.until]:#<1->}:+--until=${cuedump[${seltnums[1]}.until]}} -- $ifile | rw | eval command ${${${(f)runenc}:#}//\[\$tn./'[${seltnums[1]}.'} -
                     shift seltnums
                   done
                 ;|
@@ -664,8 +664,9 @@ ${cuedump[d.REM REPLAYPEAK_ALBUM_PEAK]:+--comment=REPLAYPEAK_ALBUM_PEAK=${cuedum
                   pd(k, nt, matches[1])
               }
             }
-            BEGINFILE&&ARGIND==2 {
-              jdd=("d" in d && length(d["d"]) ? joinkey(d["d"]) : "")
+            BEGINFILE {
+              if (ARGIND==2)
+                jdd=("d" in d && length(d["d"]) ? joinkey(d["d"]) : "")
             }
             ARGIND==2&&!nt&&/[^ \t]/ {
               if (length(jdd) && match($0,("^([ \t]*)((" jdd ")( |$)|)"),matches) && length(matches[3])) {
@@ -687,10 +688,10 @@ ${cuedump[d.REM REPLAYPEAK_ALBUM_PEAK]:+--comment=REPLAYPEAK_ALBUM_PEAK=${cuedum
             if (( $#mbuf )) && [[ "${mbufs[-1]}" != "$mbuf" ]]; then
               mbufs+=($mbuf)
               print -rn -- ${mbufs[-1]} | delta --paging=never <(print -rn -- ${mbufs[-2]}) - || :
-              break
             else
               mbuf=${mbufs[-1]}
             fi
+            continue
           ;|
           (u)
             if (( $#mbufs>1 )); then
