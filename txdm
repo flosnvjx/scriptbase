@@ -201,6 +201,25 @@ function _delay_next {
   fi
 }
 
+function gen:listitem:compset::h5 {
+  bsdcat -- ${0##*::}:{list,item}.lst | _awk_sel_last_occur_list_item | gawk -E <(printf %s '
+$0 {
+  seen[$0]++;
+  if (length($0)-2>3)
+    prefix_pool[substr($0,1,length($0)-2)]++;
+}
+
+END {
+  PROCINFO["sorted_in"]="@ind_num_desc";
+  for (p in prefix_pool) {
+    for (l=strtonum(p "99"); l>=strtonum(p "00"); l--)
+      if (!seen[l])
+        print l;
+  }
+}
+')
+}
+
 # invoke 1: -by:listfile {listfile}
 # invoke 2: {item_id(s)}...
 function get:item::h5 {
@@ -267,8 +286,18 @@ ARGIND==3&&$'${tabcols[(ie)id]}' {
       shift listbufs
     done
   else
+    ((#))
     [[ ${(@)argv[(I)^<1->]} == 0 ]]
     argv=(${(@u)argv})
+    local -a genlistbuf=()
+    while ((#)); do
+      local -a buf=()
+      buf[${tabcols[(i)stat]}]=${stat_map[dummy]}
+      buf[${tabcols[(i)id]}]=$1
+      genlistbuf+=("${(@pj.\t.)buf}")
+      shift
+    done
+    builtin printf '%s\n' $genlistbuf | filtering_ge_bonjour= get:item::h5 -by:listfile -
   fi
 }
 
@@ -342,6 +371,12 @@ function syncdb::h5 {
     fi
     echo $listfmtime
     get:item::${0##*::} -by:listfile $listf
+
+    local filtering_ge_bonjour=
+    get:item::${0##*::} -by:listfile <(bsdcat -- $itemf | _awk_sel_last_occur_list_item | awk -F $'\t' '$'${tabcols[(ie)stat]}'~/['${stat_map[(i)tba]}${stat_map[(i)err]}']/') || [[ $? == 5 ]]
+    get:item::${0##*::} $(cat <(gen:listitem:compset::h5 | head -n128) <(gen:listitem:compset::h5 | shuf -n32) | anewer | shuf)
+  else
+    get:item::${0##*::} $(cat <(gen:listitem:compset::h5 | shuf -n64) | anewer | shuf)
   fi
   local -a mya=()
   builtin zstat -A mya +mtime -- $itemf

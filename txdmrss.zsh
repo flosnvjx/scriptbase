@@ -1,6 +1,8 @@
 #!/usr/bin/env shorthandzsh
 alias furl='command curl -qgsf --compressed'
 alias fie='furl -A "Mozilla/5.0 (Windows NT 6.3; Trident/7.0; rv 11.0) like Gecko"'
+alias nfkc='uconv -x ":: NFKC; [[[:General_Category=Format:][:General_Category=Nonspacing_Mark:][:print=No:][:Cc:]] - [\u000A]] >;"'
+alias mulrg='rg -U --multiline-dotall'
 builtin zmodload -Fa zsh/datetime p:EPOCHSECONDS b:strftime
 builtin zmodload -Fa zsh/zutil b:zparseopts
 
@@ -52,12 +54,14 @@ update() {
     while [[ "$1" == txdm-noncomm ]] || ((pn<=${maxpn:-50})); do
       local -a these_ids=()
       local +x reply=
-      eval getlist.${(q)1} '$pn' | readeof reply
+      getlist.${1} $pn | readeof reply
       if [[ -e $1.sfeed ]]; then
+        set +e
         printj $reply | cut -f5 | grep -ve '^[ ]*$' \
         | anewer <(zstdcat -- $1.sfeed | cut -f6) | readarray these_ids
       else
         printj $reply | cut -f5 | readarray these_ids
+        set -e
       fi || if [[ $?==5 ]]; then
           if [[ "$1" == txdm-noncomm && "$pn" == 1 ]]; then
             setlistgeom.txdm-noncomm
@@ -101,7 +105,7 @@ expand.list.txdm-newserial() {
     if [[ ${#columns[5]#txdm:} -gt 0 ]] && [[ ${(@)argv[(Ie)${columns[5]}]} -gt 0 ]]; then
       local +x htmlreply= desc= vcover=
       local -a auts=()
-      retry -w 15 3 pipeok fie "https://m.ac.qq.com/comic/index/id/${columns[2]##?*/id/}" | rw | uconv -x ':: NFKC; [[:General_Category=Format:][:General_Category=Nonspacing_Mark:][:print=No:][:Cc:]] >;' | readeof htmlreply
+      retry -w 15 3 pipeok fie "https://m.ac.qq.com/comic/index/id/${columns[2]##?*/id/}" | rw | nfkc | readeof htmlreply
       printj $htmlreply | html2data - '.head-info-author .author-list .author-wr' | readarray auts
 
       local +x this_serial_is_excluded=
@@ -117,7 +121,9 @@ expand.list.txdm-newserial() {
       if [[ -z "$this_serial_is_excluded" ]]; then
         local +x -i ts=$((EPOCHSECONDS + 315360000))
         local +x -a chaptis=() chapcovs=() usable_chaptis=() usable_chapcovs=()
-        if printj $htmlreply | perl -pe 's%\n%%gms;s%  +% %g' | html2data - '.chapter-title' | readarray chaptis && \
+        if printj ${htmlreply/
+##/
+} | pup -p 'p.chapter-title' 'text{}' | awk 'NR%2==0' | readarray chaptis && \
            printj $htmlreply | pup '.chapter-item img.chapter-img' 'attr{src}' | readarray chapcovs && \
            (( ${#chaptis} == ${#chapcovs} && ${#chaptis}>0 )); then
           local +x -i walknumofchaps=1
@@ -178,7 +184,7 @@ expand.list.txdm-noncomm() {
     if (( id==0 )); then
       return 4
     fi
-    retry -w 20 2 pipeok fie "https://m.ac.qq.com/comic/index/id/$id" | rw | uconv -x ':: NFKC; [[:General_Category=Format:][:General_Category=Nonspacing_Mark:][:print=No:][:Cc:]] >;' | readeof htmlreply
+    retry -w 20 2 pipeok fie "https://m.ac.qq.com/comic/index/id/$id" | rw | nfkc | readeof htmlreply
     local +x -i ts=$EPOCHSECONDS
     columns[1]=$ts
     printj $htmlreply | pup -p 'html head meta[property=og:title]' 'attr{content}' | IFS= read -r ti || {

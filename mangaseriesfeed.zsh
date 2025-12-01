@@ -82,7 +82,7 @@ function syncdb::kkmh {
   fi
   integer +x syncdb_startts=$EPOCHSECONDS
   local +x i=; for i in ${(@)^syncdb_regions}:${(@)^syncdb_statuses}; do
-    get:list::${0##*::} -region "${i%%:*}" -status "${i##*:}" -ord new || return
+    get:list::${0##*::} -region "${i%%:*}" -status "${i##*:}" -ord rec -nonstop || return
   done; unset i
   integer +x syncdb_endts=$EPOCHSECONDS
 
@@ -185,21 +185,23 @@ function gen:bgmwiki::b22 {
 |作者= 
 |脚本= 
 |分镜= 
-|作画= 
+|作画= {
+[]
+}
+|助理= 
 |上色= 
-|场景建模= 
+|后期= 
 |监制= 
-|制作= $auts
-|制作协力= 
-|制作协调= 
-|出品= 
-|责任编辑= 
+|制作= {
+[$auts]
+}
+|编辑= 
 |开始= $ts
 |结束= $endts
-|连载杂志= $magti
 |话数= 
-|发售日= 
+|连载平台= $magti
 |出版社= 
+|发售日= 
 |别名={
 }
 }}"
@@ -681,7 +683,7 @@ function _delay_next {
     if (( pn%$((RANDOM%4+1)) == 0 )); then
       integer +x sleepint=$((5+RANDOM%15))
     else
-      integer +x sleepint=$((RANDOM%5))
+      integer +x sleepint=$((RANDOM%9))
     fi
     if ((sleepint>0)); then
       printj " sleep($sleepint)" >&2
