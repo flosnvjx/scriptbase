@@ -800,6 +800,7 @@ function .deps {
   ffprobe -version &>/dev/null
   ffmpeg -version &>/dev/null
   rw --help &>/dev/null
+  cueprint --version &>/dev/null
   fmtstr[tta]='tta ffmpeg -loglevel quiet -xerror -hide_banner -err_detect explode -f tta -i %f -bitexact -f wav -'
   fmtstr[ape]='ape ffmpeg -loglevel quiet -xerror -hide_banner -err_detect explode -f ape -i %f -bitexact -f wav -'
   fmtstr[tak]='tak ffmpeg -loglevel quiet -xerror -hide_banner -err_detect explode -i %f -bitexact -f wav -'
