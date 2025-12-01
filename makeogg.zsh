@@ -558,10 +558,10 @@ ${cuedump[d.REM REPLAYPEAK_ALBUM_PEAK]:+--comment=REPLAYPEAK_ALBUM_PEAK=${cuedum
           ([$'\t'])
             local awktxt2tracktitledump='
             /^(|Edit )Disc [0-9]+(| \[[A-Z0-9][-A-Z0-9]*])$/ {
-              match($0,/^(|Edit )Disc ([0-9]+)(| \[[A-Z0-9][-A-Z0-9]*])$/,ms)
+            match($0,/^(|Edit )Disc ([0-9]+) *(|\[([A-Z0-9][-A-Z0-9]*)])$/,ms)
               dn=ms[2]
-              if (length(ms[3]))
-                catno[dn]=ms[3]
+              if (length(ms[4]))
+                catno[dn]=ms[4]
             }
             /^[0-9](|[0-9])\t[^\t]+\t([0-9]+:)+[0-9][0-9]$/ {
               match($0,/^([0-9]+)\t([^\t]+)/,ms)
@@ -572,21 +572,25 @@ ${cuedump[d.REM REPLAYPEAK_ALBUM_PEAK]:+--comment=REPLAYPEAK_ALBUM_PEAK=${cuedum
             }
             @include "shellquote"
             END{
-              if (0+gdn in ti && length(ti[0+gdn])<=gtc) {
+              if (0+gdn in ti) {
                 for (n in ti[0+gdn]) {
                   print (0+n ".TITLE " shell_quote(ti[0+gdn][n]))
                 }
                 if (0+gdn in catno)
                   print ("d.REM CATALOGNUMBER " shell_quote(catno[0+gdn]))
-              } else if (0 in ti && length(ti[0])<=gtc) {
+              } else if (0 in ti) {
                 for (n in ti[0]) {
                   print (0+n ".TITLE " shell_quote(ti[0][n]))
+                }
+              } else if (1 in ti) {
+                for (n in ti[1]) {
+                  print (0+n ".TITLE " shell_quote(ti[1][n]))
                 }
               } else
                 exit(2)
             }
             '
-            tracktitledump=("${(@Q)${(@z)${(@f)$(zed | gawk -E <(print -rn -- $awktxt2tracktitledump) -)}}}") || continue
+            tracktitledump=(${(@Q)${(@z)${(@f)"$(zed| gawk -v gdn=${discnumbers[$walkcuefiles]:-0} -E <(print -rn -- $awktxt2tracktitledump) -)"}}}) || continue
             local awkcuemput='
             ARGIND==1 {
               if (NR%2==1) {
