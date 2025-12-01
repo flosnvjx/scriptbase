@@ -500,7 +500,7 @@ ${cuedump[d.REM REPLAYPEAK_ALBUM_PEAK]:+--comment=REPLAYPEAK_ALBUM_PEAK=${cuedum
                 ;|
                 (flac|wv)
                   while (( $#seltnums )); do
-                    command ${(s. .)rundec} ${${(M)cuedump[${seltnums[1]}.skip]:#<1->}:+--skip=${cuedump[${seltnums[1]}.skip]}} ${${(M)cuedump[${seltnums[1]}.until]:#<1->}:+--until=${cuedump[${seltnums[1]}.until]}} -- $ifile | rw | eval command ${${${(f)runenc}:#}//\[\$tn./'[${seltnums[1]}.'} -
+                    command ${(s. .)rundec} ${${(M)cuedump[${seltnums[1]}.skip]:#<1->}:+--skip=${cuedump[${seltnums[1]}.skip]}} ${${(M)cuedump[${seltnums[1]}.until]:#<1->}:+--until=${cuedump[${seltnums[1]}.until]}} -- $ifile | rw | eval command ${${${(f)runenc}:#}//\[\$tn./'[${seltnums[1]}.'} ${(s. .q)2} -
                     shift seltnums
                   done
                 ;|
@@ -514,7 +514,7 @@ ${cuedump[d.REM REPLAYPEAK_ALBUM_PEAK]:+--comment=REPLAYPEAK_ALBUM_PEAK=${cuedum
                   command ffmpeg -loglevel warning -xerror -hide_banner -err_detect explode -i $ifile -f s16le - | {
                     for ((tn=1;tn<=cuedump[tc];tn++)); do
                       if (( ${seltnums[(I)$tn]} )); then
-                        dd bs=128K ${${(M)cuedump[$tn.pskip]:#<1->}:+skip=$(( 2 * ${cuedump[$tn.pskip]} ))B} ${${(M)cuedump[$tn.plen]}:+count=$(( 2 * ${cuedump[$tn.plen]} ))B} iflag=fullblock status=none | rw | eval command ${${(f)runenc}:#} -
+                        dd bs=128K ${${(M)cuedump[$tn.pskip]:#<1->}:+skip=$(( 2 * ${cuedump[$tn.pskip]} ))B} ${${(M)cuedump[$tn.plen]}:+count=$(( 2 * ${cuedump[$tn.plen]} ))B} iflag=fullblock status=none | rw | eval command ${${(f)runenc}:#} ${(s. .q)2} -
                       else
                         dd bs=128K ${${(M)cuedump[$tn.pskip]:#<1->}:+skip=$(( 2 * ${cuedump[$tn.pskip]} ))B} ${${(M)cuedump[$tn.plen]}:+count=$(( 2 * ${cuedump[$tn.plen]} ))B} iflag=fullblock status=none of=/dev/null
                       fi
