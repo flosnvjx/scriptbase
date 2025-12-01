@@ -62,10 +62,10 @@ function .main {
       cuebuffers[$walkcuefiles]=$buf
       unset buf
       cuefiledirectives+=( "${${(@)${(@f)cuebuffers[$walkcuefiles]}[1,${(@)${(@f)cuebuffers[$walkcuefiles]}[(i)[ 	 ]#TRACK*]}-1][(R)[ 	 ]#FILE "*" (WAVE|FLAC) #]#*\"}%\"*}" )
-      cuefiletitledirectives+=( "${${(@)${(@f)cuebuffers[$walkcuefiles]}[1,${(@)${(@f)cuebuffers[$walkcuefiles]}[(i)[ 	 ]#TRACK*]}-1][(R)[ 	 ]#TITLE "*" #]#*\"}%\"*}" )
+      cuefiletitledirectives+=( "${${(@)${(@f)cuebuffers[$walkcuefiles]}[1,${(@)${(@f)cuebuffers[$walkcuefiles]}[(i)[ 	 ]#TRACK*]}-1][(R)[ 	 ]#TITLE "*" #]#*\"}%\" #}" )
       cuediscnumberdirectives+=("${${(@)${(@f)cuebuffers[$walkcuefiles]}[1,${(@)${(@f)cuebuffers[$walkcuefiles]}[(i)[ 	 ]#TRACK*]}-1][(R)[ 	 ]#REM DISCNUMBER [1-9][0-9]# #]#[ 	 ]#REM DISCNUMBER }% #}")
       cuetotaldiscsdirectives+=("${${(@)${(@f)cuebuffers[$walkcuefiles]}[1,${(@)${(@f)cuebuffers[$walkcuefiles]}[(i)[ 	 ]#TRACK*]}-1][(R)[ 	 ]#REM TOTALDISCS [1-9][0-9]# #]#[ 	 ]#REM TOTALDISCS }% #}")
-      cuecatnodirectives+=("${${(@)${(@f)cuebuffers[$walkcuefiles]}[1,${(@)${(@f)cuebuffers[$walkcuefiles]}[(i)[ 	 ]#TRACK*]}-1][(R)[ 	 ]#REM CATALOGNUMBER ("[A-Z][-0-9A-Z](#c4,)"|[A-Z][-0-9A-Z](#c4,)) #]#[ 	 ]#REM CATALOGNUMBER (\"|)}%(\"|) #}")
+      cuecatnodirectives+=("${${${(@)${(@f)cuebuffers[$walkcuefiles]}[1,${(@)${(@f)cuebuffers[$walkcuefiles]}[(i)[ 	 ]#TRACK*]}-1][(R)[ 	 ]#REM CATALOGNUMBER ("[A-Z][-0-9A-Z]##"|[A-Z][-0-9A-Z]##) #]#[ 	 ]#REM CATALOGNUMBER }%\" #}#\"}")
     done
     (( $#cuefiledirectives == $#cuefiles )) || .fatal "specified $#cuefiles cue sheet(s), but found $#cuefiledirectives FILE directive(s)"
     (( $#cuefiledirectives == ${(@)#${(@u)cuefiledirectives}} )) || .fatal "multiple cue sheets referenced same FILE"
