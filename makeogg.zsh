@@ -549,16 +549,144 @@ ${cuedump[d.REM REPLAYPEAK_ALBUM_PEAK]:+--comment=REPLAYPEAK_ALBUM_PEAK=${cuedum
               argv=(${(f)mbufs[-1]})
               if (( ${argv[(i)[ 	]#TRACK]} <= $# && ${argv[(i)[ 	]#TRACK]}>1 )); then argv=(${argv[1,$((${argv[(i)[ 	]#TRACK]}-1))]}); fi
               0=${${argv[(R)[ 	]#CATALOG ?(#c12,13)]}#[ 	]#CATALOG }
-              if python ${ZSH_ARGZERO%/*}/external.deps/mbcue/mbcue.py ${0:+-b $0} -n ${discnumbers[$walkcuefiles]} ${(z)${(M)askmbid:#(|https://musicbrainz.org/release/)[0-9a-f](#c8)-[0-9a-f](#c4)-[0-9a-f](#c4)-[0-9a-f](#c4)-[0-9a-f](#c12)(|/*)}:+-r ${${askmbid#https://musicbrainz.org/release/}%%/*}} <(print -rn -- ${mbufs[-1]}) | readeof mbuf && (( $#mbuf )); then
-                if [[ ${mbufs[-1]} != $mbuf ]]; then
-                  mbufs+=($mbuf)
-                  print -rn -- ${mbufs[-1]} | delta --paging=never <(print -rn -- ${mbufs[-2]}) - || :
-                fi
-              else
+              if ! python ${ZSH_ARGZERO%/*}/external.deps/mbcue/mbcue.py ${0:+-b $0} -n ${discnumbers[$walkcuefiles]} ${(z)${(M)askmbid:#(|https://musicbrainz.org/release/)[0-9a-f](#c8)-[0-9a-f](#c4)-[0-9a-f](#c4)-[0-9a-f](#c4)-[0-9a-f](#c12)(|/*)}:+-r ${${askmbid#https://musicbrainz.org/release/}%%/*}} <(print -rn -- ${mbufs[-1]}) | readeof mbuf; then
                 mbuf=${mbufs[-1]}
                 continue
               fi
             }
+          ;|
+          ([\t])
+            local awktxt2tracktitledump='
+            /^(|Edit )Disc [0-9]+(| \[[A-Z0-9][-A-Z0-9]*])$/ {
+              match($0,/^(|Edit )Disc ([0-9]+)(| \[[A-Z0-9][-A-Z0-9]*])$/,ms)
+              dn=ms[2]
+              if (length(ms[3]))
+                catno[dn]=ms[3]
+            }
+            /^[0-9](|[0-9])\t[^\t]+\t([0-9]+:)+[0-9][0-9]$/ {
+              match($0,/^([0-9]+)\t([^\t]+)/,ms)
+              ti[0+dn][0+ms[1]]=ms[2]
+            }
+            /^Submitted by/{
+              nextfile
+            }
+            @include "shellquote"
+            END{
+              if (0+gdn in ti && length(ti[0+gdn])<=gtc) {
+                for (n in ti[0+gdn]) {
+                  print (0+n ".TITLE " shell_quote(ti[0+gdn][n]))
+                }
+                if (0+gdn in catno)
+                  print ("d.REM CATALOGNUMBER " shell_quote(catno[0+gdn]))
+              } else if (0 in ti && length(ti[0])<=gtc) {
+                for (n in ti[0]) {
+                  print (0+n ".TITLE " shell_quote(ti[0][n]))
+                }
+              } else
+                exit(2)
+            }
+            '
+            tracktitledump=("${(@Q)${(@z)${(@f)$(zed | gawk -E <(print -rn -- $awktxt2tracktitledump) -)}}}") || continue
+            local awkcuemput='
+            ARGIND==1 {
+              if (NR%2==1) {
+                match($0,/^([^.]+)\.([^.]+)$/,parsekeyname)
+              } else {
+                if (length(parsekeyname[1])) {
+                  d[parsekeyname[1]][parsekeyname[2]]=$0
+                }
+              }
+            }
+            function joinkey(m,n,  k, l) {
+              n==0&&n=="" ? n="|" : 1
+              for (k in m) {
+                l=(l (l==0&&l=="" ? "" : n) k)
+              }
+              return l
+            }
+            function pd(k,  tr, pad) {
+              if (k in d[tr==""&&tr==0 ? "d" : tr]) {
+                if (length(d[tr==""&&tr==0 ? "d" : tr][k])) {
+                  printf "%s",(pad==""&&pad==0 ? "" : pad)
+                  switch (k) {
+                    case "REM DISCNUMBER" :
+                    case "REM TOTALDISCS" :
+                    case "REM DATE" :
+                      print k " " (tr==""&&tr==0 ? d["d"][k] : d[tr][k]);
+                      break;
+                    default :
+                      print k " \"" (tr==""&&tr==0 ? d["d"][k] : d[tr][k]) "\"" (k=="FILE" ? " WAVE" : "")
+                      break;
+                  }
+                }
+                if (tr==0&&tr=="")
+                  delete d["d"][k]
+                else
+                  delete d[tr][k]
+              }
+            }
+            ARGIND==2&&/^[ \t]*(TRACK|ISRC|FLAGS|INDEX)/ {
+              if (nt && nt in d && length(d[nt])) {
+                for (k in d[nt])
+                  pd(k, nt, matches[1])
+              }
+            }
+            ARGIND==2&&/^[ \t]*(TRACK|FILE)/ {
+              if (!nt && "d" in d && length(d["d"])) {
+                for (k in d["d"]) {
+                  if (/^[ \t]*FILE/ && k=="FILE")
+                    continue;
+                  pd(k)
+                }
+              }
+            }
+            ARGIND==2&&/^[ \t]*TRACK/ {
+              ++nt
+              jtd[nt]=(nt in d && length(d[nt]) ? joinkey(d[nt]) : "")
+              print
+              next
+            }
+            ARGIND==2&&nt&&/[^ \t]/ {
+              if (length(jtd[nt]) && match($0,("^([ \t]*)((" jtd[nt] ")( |$)|)"),matches) && length(matches[3])) {
+                m=matches[3]
+                pd(m, nt, matches[1])
+              } else
+                print;
+            }
+            END {
+              if (!nt || ("d" in d && length(d["d"]))) exit(1)
+              if (nt && nt in d && length(d[nt])) {
+                for (k in d[nt])
+                  pd(k, nt, matches[1])
+              }
+            }
+            BEGINFILE&&ARGIND==2 {
+              jdd=("d" in d && length(d["d"]) ? joinkey(d["d"]) : "")
+            }
+            ARGIND==2&&!nt&&/[^ \t]/ {
+              if (length(jdd) && match($0,("^([ \t]*)((" jdd ")( |$)|)"),matches) && length(matches[3])) {
+                m=matches[3]
+                pd(m)
+              } else
+                print;
+            }
+            '
+            function {
+              argv=(${(k)tracktitledump})
+              while ((#)); do
+                printf '%s\n' $1 ${tracktitledump[$1]}
+                shift
+              done
+            } | gawk -E <(print -r -- $awkcuemput) - <(print -r -- ${mbufs[-1]}) | readeof mbuf
+          ;|
+          ([m\t])
+            if (( $#mbuf )) && [[ "${mbufs[-1]}" != "$mbuf" ]]; then
+              mbufs+=($mbuf)
+              print -rn -- ${mbufs[-1]} | delta --paging=never <(print -rn -- ${mbufs[-2]}) - || :
+              break
+            else
+              mbuf=${mbufs[-1]}
+            fi
           ;|
           (u)
             if (( $#mbufs>1 )); then
@@ -642,6 +770,7 @@ ${cuedump[d.REM REPLAYPEAK_ALBUM_PEAK]:+--comment=REPLAYPEAK_ALBUM_PEAK=${cuedum
 }
 
 declare -A cuedump
+declare -A tracktitledump
 declare -A commontags
 commontags=(
   'albumartist:A' 'PERFORMER'
