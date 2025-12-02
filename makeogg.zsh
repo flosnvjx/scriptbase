@@ -384,6 +384,92 @@ function .main {
         }
       '$awkcueput) <(print -rn -- ${cuebuffers[$walkcuefiles]}) | readeof mbuf
       print -rn -- ${mbuf} | delta --paging never <(print -rn -- ${cuebuffers[$walkcuefiles]}) - || :
+      local awkcuemput='
+      ARGIND==1 {
+        if (NR%2==1) {
+          match($0,/^([^.]+)\.([^.]+)$/,parsekeyname)
+        } else {
+          if (length(parsekeyname[1])) {
+            d[parsekeyname[1]][parsekeyname[2]]=$0
+          }
+        }
+      }
+      function joinkey(m,n,  k, l) {
+        n==0&&n=="" ? n="|" : 1
+        for (k in m) {
+          l=(l (l==0&&l=="" ? "" : n) k)
+        }
+        return l
+      }
+      function pd(k,  tr, pad) {
+        if (k in d[tr==""&&tr==0 ? "d" : tr]) {
+          if (length(d[tr==""&&tr==0 ? "d" : tr][k])) {
+            printf "%s",(pad==""&&pad==0 ? "" : pad)
+            switch (k) {
+              case "REM DISCNUMBER" :
+              case "REM TOTALDISCS" :
+              case "REM CATALOGNUMBER" :
+              case "REM DATE" :
+                print k " " (tr==""&&tr==0 ? d["d"][k] : d[tr][k]);
+                break;
+              default :
+                print k " \"" (tr==""&&tr==0 ? d["d"][k] : d[tr][k]) "\"" (k=="FILE" ? " WAVE" : "")
+                break;
+            }
+          }
+          if (tr==0&&tr=="")
+            delete d["d"][k]
+          else
+            delete d[tr][k]
+        }
+      }
+      ARGIND==2&&/^[ \t]*(TRACK|ISRC|FLAGS|INDEX)/ {
+        if (nt && nt in d && length(d[nt])) {
+          for (k in d[nt])
+            pd(k, nt, matches[1])
+        }
+      }
+      ARGIND==2&&/^[ \t]*(TRACK|FILE)/ {
+        if (!nt && "d" in d && length(d["d"])) {
+          for (k in d["d"]) {
+            if (/^[ \t]*FILE/ && k=="FILE")
+              continue;
+            pd(k)
+          }
+        }
+      }
+      ARGIND==2&&/^[ \t]*TRACK/ {
+        ++nt
+        jtd[nt]=(nt in d && length(d[nt]) ? joinkey(d[nt]) : "")
+        print
+        next
+      }
+      ARGIND==2&&nt&&/[^ \t]/ {
+        if (length(jtd[nt]) && match($0,("^([ \t]*)((" jtd[nt] ")( |$)|)"),matches) && length(matches[3])) {
+          m=matches[3]
+          pd(m, nt, matches[1])
+        } else
+          print;
+      }
+      END {
+        if (!nt || ("d" in d && length(d["d"]))) exit(1)
+        if (nt && nt in d && length(d[nt])) {
+          for (k in d[nt])
+            pd(k, nt, matches[1])
+        }
+      }
+      BEGINFILE {
+        if (ARGIND==2)
+          jdd=("d" in d && length(d["d"]) ? joinkey(d["d"]) : "")
+      }
+      ARGIND==2&&!nt&&/[^ \t]/ {
+        if (length(jdd) && match($0,("^([ \t]*)((" jdd ")( |$)|)"),matches) && length(matches[3])) {
+          m=matches[3]
+          pd(m)
+        } else
+          print;
+      }
+      '
       local REPLY=
       mbufs+=($mbuf)
       while :; do
@@ -589,92 +675,6 @@ ${cuedump[d.REM REPLAYPEAK_ALBUM_PEAK]:+--comment=REPLAYPEAK_ALBUM_PEAK=${cuedum
             }
             '
             tracktitledump=(${(@Q)${(@z)${(@f)"$(zed| gawk -v gdn=${discnumbers[$walkcuefiles]:-0} -E <(print -rn -- $awktxt2tracktitledump) -)"}}}) || continue
-            local awkcuemput='
-            ARGIND==1 {
-              if (NR%2==1) {
-                match($0,/^([^.]+)\.([^.]+)$/,parsekeyname)
-              } else {
-                if (length(parsekeyname[1])) {
-                  d[parsekeyname[1]][parsekeyname[2]]=$0
-                }
-              }
-            }
-            function joinkey(m,n,  k, l) {
-              n==0&&n=="" ? n="|" : 1
-              for (k in m) {
-                l=(l (l==0&&l=="" ? "" : n) k)
-              }
-              return l
-            }
-            function pd(k,  tr, pad) {
-              if (k in d[tr==""&&tr==0 ? "d" : tr]) {
-                if (length(d[tr==""&&tr==0 ? "d" : tr][k])) {
-                  printf "%s",(pad==""&&pad==0 ? "" : pad)
-                  switch (k) {
-                    case "REM DISCNUMBER" :
-                    case "REM TOTALDISCS" :
-                    case "REM CATALOGNUMBER" :
-                    case "REM DATE" :
-                      print k " " (tr==""&&tr==0 ? d["d"][k] : d[tr][k]);
-                      break;
-                    default :
-                      print k " \"" (tr==""&&tr==0 ? d["d"][k] : d[tr][k]) "\"" (k=="FILE" ? " WAVE" : "")
-                      break;
-                  }
-                }
-                if (tr==0&&tr=="")
-                  delete d["d"][k]
-                else
-                  delete d[tr][k]
-              }
-            }
-            ARGIND==2&&/^[ \t]*(TRACK|ISRC|FLAGS|INDEX)/ {
-              if (nt && nt in d && length(d[nt])) {
-                for (k in d[nt])
-                  pd(k, nt, matches[1])
-              }
-            }
-            ARGIND==2&&/^[ \t]*(TRACK|FILE)/ {
-              if (!nt && "d" in d && length(d["d"])) {
-                for (k in d["d"]) {
-                  if (/^[ \t]*FILE/ && k=="FILE")
-                    continue;
-                  pd(k)
-                }
-              }
-            }
-            ARGIND==2&&/^[ \t]*TRACK/ {
-              ++nt
-              jtd[nt]=(nt in d && length(d[nt]) ? joinkey(d[nt]) : "")
-              print
-              next
-            }
-            ARGIND==2&&nt&&/[^ \t]/ {
-              if (length(jtd[nt]) && match($0,("^([ \t]*)((" jtd[nt] ")( |$)|)"),matches) && length(matches[3])) {
-                m=matches[3]
-                pd(m, nt, matches[1])
-              } else
-                print;
-            }
-            END {
-              if (!nt || ("d" in d && length(d["d"]))) exit(1)
-              if (nt && nt in d && length(d[nt])) {
-                for (k in d[nt])
-                  pd(k, nt, matches[1])
-              }
-            }
-            BEGINFILE {
-              if (ARGIND==2)
-                jdd=("d" in d && length(d["d"]) ? joinkey(d["d"]) : "")
-            }
-            ARGIND==2&&!nt&&/[^ \t]/ {
-              if (length(jdd) && match($0,("^([ \t]*)((" jdd ")( |$)|)"),matches) && length(matches[3])) {
-                m=matches[3]
-                pd(m)
-              } else
-                print;
-            }
-            '
             function {
               argv=(${(k)tracktitledump})
               while ((#)); do
