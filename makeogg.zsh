@@ -524,11 +524,11 @@ function .main {
                 runenc+='
 --comment=TRACKNUMBER=${cuedump[$tn.tnum]/#0}
 ${${${cuedump[$tn.TITLE]/#[    ]#}/%[   ]#}:+--comment=TITLE=${${cuedump[$tn.TITLE]/#[    ]#}/%[   ]#}}
-${${${${(s| / |)${(s|, |)${(s|、|)cuedump[$tn.REM COMPOSER]:-${cuedump[$tn.SONGWRITER]:-${cuedump[d.REM COMPOSER]:-${cuedump[d.SONGWRITER]}}}}}}/#[	 ]##}/%[	 ]##}:+--comment=COMPOSER=}${^${${(s| / |)${(s|, |)${(s|、|)cuedump[$tn.REM COMPOSER]:-${cuedump[$tn.SONGWRITER]:-${cuedump[d.REM COMPOSER]:-${cuedump[d.SONGWRITER]}}}}}}/#[	 ]##}/%[	 ]##}
-${${${${(s| / |)${(s|, |)${(s|、|)cuedump[$tn.REM ARRANGER]:-${cuedump[d.REM ARRANGER]}}}}/#[	 ]##}/%[	 ]##}:+--comment=ARRANGER=}${^${${(s| / |)${(s|, |)${(s|、|)cuedump[$tn.REM ARRANGER]:-${cuedump[d.REM ARRANGER]}}}}/#[	 ]##}/%[	 ]##}
-${${${${(s| / |)${(s|, |)${(s|、|)cuedump[$tn.REM LYRICIST]:-${cuedump[$tn.SONGWRITER]:-${cuedump[d.REM LYRICIST]:-${cuedump[d.SONGWRITER]}}}}}}/#[	 ]##}/%[	 ]##}:+--comment=LYRICIST=}${^${${(s| / |)${(s|, |)${(s|、|)cuedump[$tn.REM LYRICIST]:-${cuedump[$tn.SONGWRITER]:-${cuedump[d.REM LYRICIST]:-${cuedump[d.SONGWRITER]}}}}}}/#[	 ]##}/%[	 ]##}
-${${${${(s| / |)${(s|, |)${(s|、|)cuedump[$tn.VOCALIST]:-${cuedump[d.VOCALIST]}}}}/#[	 ]##}/%[	 ]##}:+--comment=VOCALIST=}${^${${(s| / |)${(s|, |)${(s|、|)cuedump[$tn.VOCALIST]:-${cuedump[d.VOCALIST]}}}}/#[	 ]##}/%[	 ]##}
-${${${${(s| / |)${(s|, |)${(s|、|)cuedump[$tn.PERFORMER]:-${cuedump[d.PERFORMER]}}}}/#[	 ]##}/%[	 ]##}:+--comment=ARTIST=}${^${${(s| / |)${(s|, |)${(s|、|)cuedump[$tn.PERFORMER]:-${cuedump[d.PERFORMER]}}}}/#[	 ]##}/%[	 ]##}
+${${${${(s|・|)${(s| / |)${(s|, |)${(s|、|)cuedump[$tn.REM COMPOSER]:-${cuedump[$tn.SONGWRITER]:-${cuedump[d.REM COMPOSER]:-${cuedump[d.SONGWRITER]}}}}}}}/#[	 ]##}/%[	 ]##}:+--comment=COMPOSER=}${^${${(s|・|)${(s| / |)${(s|, |)${(s|、|)cuedump[$tn.REM COMPOSER]:-${cuedump[$tn.SONGWRITER]:-${cuedump[d.REM COMPOSER]:-${cuedump[d.SONGWRITER]}}}}}}}/#[	 ]##}/%[	 ]##}
+${${${${(s|・|)${(s| / |)${(s|, |)${(s|、|)cuedump[$tn.REM ARRANGER]:-${cuedump[d.REM ARRANGER]}}}}}/#[	 ]##}/%[	 ]##}:+--comment=ARRANGER=}${^${${(s|・|)${(s| / |)${(s|, |)${(s|、|)cuedump[$tn.REM ARRANGER]:-${cuedump[d.REM ARRANGER]}}}}}/#[	 ]##}/%[	 ]##}
+${${${${(s|・|)${(s| / |)${(s|, |)${(s|、|)cuedump[$tn.REM LYRICIST]:-${cuedump[$tn.SONGWRITER]:-${cuedump[d.REM LYRICIST]:-${cuedump[d.SONGWRITER]}}}}}}}/#[	 ]##}/%[	 ]##}:+--comment=LYRICIST=}${^${${(s|・|)${(s| / |)${(s|, |)${(s|、|)cuedump[$tn.REM LYRICIST]:-${cuedump[$tn.SONGWRITER]:-${cuedump[d.REM LYRICIST]:-${cuedump[d.SONGWRITER]}}}}}}}/#[	 ]##}/%[	 ]##}
+${${${${(s|・|)${(s| / |)${(s|, |)${(s|、|)cuedump[$tn.VOCALIST]:-${cuedump[d.VOCALIST]}}}}}/#[	 ]##}/%[	 ]##}:+--comment=VOCALIST=}${^${${(s|・|)${(s| / |)${(s|, |)${(s|、|)cuedump[$tn.VOCALIST]:-${cuedump[d.VOCALIST]}}}}}/#[	 ]##}/%[	 ]##}
+${${${${(s|・|)${(s| / |)${(s|, |)${(s|、|)cuedump[$tn.PERFORMER]:-${cuedump[d.PERFORMER]}}}}}/#[	 ]##}/%[	 ]##}:+--comment=ARTIST=}${^${${(s|・|)${(s| / |)${(s|, |)${(s|、|)cuedump[$tn.PERFORMER]:-${cuedump[d.PERFORMER]}}}}}/#[	 ]##}/%[	 ]##}
 ${${${cuedump[d.TITLE]/#[    ]#}/%[   ]#}:+--comment=ALBUM=${${cuedump[d.TITLE]/#[    ]#}/%[   ]#}}
 ${${${${(s| / |)${(s|, |)${(s|、|)cuedump[d.PERFORMER]}}}//#[	 ]##}//%[	 ]##}:+--comment=ALBUMARTIST=}${^${${(s| / |)${(s|, |)${(s|、|)cuedump[d.PERFORMER]}}}/#[	 ]##}/%[	 ]##}
 ${cuedump[d.date]:+--comment=DATE=${cuedump[d.date]}}
