@@ -755,7 +755,7 @@ ${cuedump[d.REM REPLAYPEAK_ALBUM_PEAK]:+--comment=REPLAYPEAK_ALBUM_PEAK=${cuedum
               if eval '[[ "$tagkey" = ['${(@j..)${(@M)${(@k)commontags#*:}:#[A-Za-z]}:l}'] ]]'; then
                 vared -ehp "${${cuefiles[$walkcuefiles]:t}:0:${$(( ${WIDTH:-80}/2 ))%.*}} tag(${(@)${(@k)commontags}[(r)(#i)*:$tagkey]%:?}).value:" tagvalue || continue
               fi
-              gawk -E <(print -r -- 'BEGIN { ' d\[\"${${${(M)tagkey:#[${(@j..)${(@M)${(@k)commontags#*:}:#[A-Z]}:l}]}:+d}:-t${^tagtnums}}\"\]\[\"${(@)commontags[${(@)${(@k)commontags}[(r)(#i)*:$tagkey]}]}\"\]=\"${${tagvalue//\\/\\\\}//\"/\\\"}\"\; ' };'$awkcueput) <(print -rn -- ${mbufs[-1]}) | readeof mbuf
+              gawk -E <(print -r -- 'BEGIN { ' d\[\"${^${${(M)tagkey:#[${(@j..)${(@M)${(@k)commontags#*:}:#[A-Z]}:l}]}:+d}:-t${^tagtnums}}\"\]\[\"${(@)commontags[${(@)${(@k)commontags}[(r)(#i)*:$tagkey]}]}\"\]=\"${${tagvalue//\\/\\\\}//\"/\\\"}\"\; ' };'$awkcueput) <(print -rn -- ${mbufs[-1]}) | readeof mbuf
               if (( $#mbuf )) && [[ "${mbufs[-1]}" != "$mbuf" ]]; then
                 mbufs+=($mbuf)
                 print -rn -- ${mbufs[-1]} | delta --paging=never <(print -rn -- ${mbufs[-2]}) - || :
