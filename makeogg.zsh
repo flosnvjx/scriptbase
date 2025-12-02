@@ -39,16 +39,14 @@ function .main {
       local buf=
       if ! aconv < ${cuefiles[$walkcuefiles]} | cmp -s -- ${cuefiles[$walkcuefiles]} -; then
         aconv < ${cuefiles[$walkcuefiles]} | sed -ne '/"/p'
-        printf '-- %s\n' ${cuefiles[$walkcuefiles]}
         while :; do
-          read -k1 "REPLY?Is that okay? ${cuefilecodepages[-1]:+${cuefilecodepages[-1]} }(y/N)" < ${TTY:-/dev/tty}
+          read -k1 "REPLY?${cuefiles[$walkcuefiles]} -- Is that okay? ${cuefilecodepages[-1]:+${cuefilecodepages[-1]} }(y/N)" < ${TTY:-/dev/tty}
           case "$REPLY" in
             ([^$'\n']) echo ;|
             ([yY]) break ;;
           esac
           cuefilecodepages[-1]="${$(iconv -l | fzf --layout=reverse-list --prompt="Select a codepage> ")// *}"
           iconv -f ${cuefilecodepages[-1]} -t UTF-8 -- ${cuefiles[$walkcuefiles]} | sed -ne '/"/p'
-          printf '-- %s\n' ${cuefiles[$walkcuefiles]}
         done
         if (( ${#cuefilecodepages[-1]} )); then
           ## perform unicode sanitize
@@ -58,6 +56,7 @@ function .main {
         fi
       else
         .uninorm < ${cuefiles[$walkcuefiles]} | readeof buf
+        .msg 'open '${cuefiles[$walkcuefiles]}
       fi
       cuebuffers[$walkcuefiles]=$buf
       unset buf
