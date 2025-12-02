@@ -123,7 +123,7 @@ function .main {
             while :;do
               timeout 0.01 cat > /dev/null||:
               vared -ehp 'pn> ' "catnos[$walkcuefiles]"
-              if [[ "${catnos[$walkcuefiles]}" = ([A-Z]##(-[A-Z0-9])##|) ]]; then
+              if [[ "${catnos[$walkcuefiles]}" = ([A-Z]##(-[A-Z0-9]##)##|) ]]; then
                 break
               fi
             done
@@ -546,8 +546,8 @@ ${cuedump[d.REM REPLAYPEAK_ALBUM_PEAK]:+--comment=REPLAYPEAK_ALBUM_PEAK=${cuedum
             function {
               argv=(${(f)mbufs[-1]})
               if (( ${argv[(i)[ 	]#TRACK]} <= $# && ${argv[(i)[ 	]#TRACK]}>1 )); then argv=(${argv[1,$((${argv[(i)[ 	]#TRACK]}-1))]}); fi
-              0=${${argv[(R)[ 	]#CATALOG ?(#c12,13)]}#[ 	]#CATALOG }
-              if ! python ${ZSH_ARGZERO%/*}/external.deps/mbcue/mbcue.py ${0:+-b $0} -n ${discnumbers[$walkcuefiles]} ${(z)${(M)askmbid:#(|https://musicbrainz.org/release/)[0-9a-f](#c8)-[0-9a-f](#c4)-[0-9a-f](#c4)-[0-9a-f](#c4)-[0-9a-f](#c12)(|/*)}:+-r ${${askmbid#https://musicbrainz.org/release/}%%/*}} <(print -rn -- ${mbufs[-1]}) | readeof mbuf; then
+              local testbarcode=${${argv[(R)[ 	]#CATALOG ?(#c12,13)]}#[ 	]#CATALOG }
+              if ! python ${ZSH_ARGZERO%/*}/external.deps/mbcue/mbcue.py ${testbarcode:+-b $testbarcode} -n ${discnumbers[$walkcuefiles]} ${(z)${(M)askmbid:#(|https://musicbrainz.org/release/)[0-9a-f](#c8)-[0-9a-f](#c4)-[0-9a-f](#c4)-[0-9a-f](#c4)-[0-9a-f](#c12)(|/*)}:+-r ${${askmbid#https://musicbrainz.org/release/}%%/*}} <(print -rn -- ${mbufs[-1]}) | readeof mbuf; then
                 mbuf=${mbufs[-1]}
                 continue
               fi
@@ -735,11 +735,12 @@ ${cuedump[d.REM REPLAYPEAK_ALBUM_PEAK]:+--comment=REPLAYPEAK_ALBUM_PEAK=${cuedum
                     tagtnums=("${(@)${(@)${(@M)tagtnums:#[0-9]##-[0-9]#}/#/<}/%/>}" "${(@M)tagtnums:#[0-9]##}")
                     tagtnums=(${(@M)argv:#${(@)~${(@j.|.)tagtnums}}})
                     argv=(${cuedump[(I)(${(@j.|.)tagtnums}).${(@)commontags[${(@)commontags[(i)*:${tagkey:l}]}]}]})
+                    local joinval=
                     while ((#)); do
-                      0+=${${cuedump[$1]/#[	 ]#}/%[	 ]#}$'\n'
+                      joinval+=${${cuedump[$1]/#[	 ]#}/%[	 ]#}$'\n'
                       shift
                     done
-                    argv=(${(fu)0})
+                    argv=(${(fu)joinval})
                     if (( $#==1 )); then
                       tagvalue=${argv[1]}
                     fi
