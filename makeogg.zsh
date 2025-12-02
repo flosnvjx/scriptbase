@@ -142,7 +142,7 @@ function .main {
           .msg "${cuefiles[$walkcuefiles]} (${cuefiledirectives[$walkcuefiles]})"
           if ! [[ -f "$ifile" ]]; then
             function {
-              argv=({${${(M)cuefiles[$walkcuefiles]:#*/*}:+${cuefiles[$walkcuefiles]%/*}/}${cuefiledirectives[$walkcuefiles]%.*},${cuefiles[$walkcuefiles]:r}}.(#i)(flac|wav|tak|tta|ape)(.N))
+              argv=({${${(M)cuefiles[$walkcuefiles]:#*/*}:+${cuefiles[$walkcuefiles]%/*}/}${cuefiledirectives[$walkcuefiles]:r},${cuefiles[$walkcuefiles]:r}}.(#i)(flac|wav|tak|tta|ape)(.N))
               if ((#)); then
                 ifile=$1
                 albumfiles[$walkcuefiles]=${${${(M)cuefiles[$walkcuefiles]:#*/*}:+${ifile#"${cuefiles[$walkcuefiles]%/*}"/}}:-$ifile}
