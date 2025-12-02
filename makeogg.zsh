@@ -314,7 +314,6 @@ function .main {
                 case "REM DISCNUMBER" :
                 case "REM TOTALDISCS" :
                 case "REM DATE" :
-                case "REM CATALOGNUMBER" :
                   print k " " (tr==""&&tr==0 ? d["d"][k] : d["t" tr][k]);
                   break;
                 default :
@@ -408,7 +407,6 @@ function .main {
             switch (k) {
               case "REM DISCNUMBER" :
               case "REM TOTALDISCS" :
-              case "REM CATALOGNUMBER" :
               case "REM DATE" :
                 print k " " (tr==""&&tr==0 ? d["d"][k] : d[tr][k]);
                 break;
