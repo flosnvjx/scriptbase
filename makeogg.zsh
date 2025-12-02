@@ -115,7 +115,7 @@ function .main {
 
           catnos[$walkcuefiles]=${cuecatnodirectives[$walkcuefiles]}
           match=()
-          : ${(M)${cuefiledirectives[$walkcuefiles]:t:r}:#(#b)([A-Z](#c3,5)-[A-Z](#c0,3)[0-9](#c1,5)[A-Z](#c0,3))}
+          : ${(M)${cuefiledirectives[$walkcuefiles]:t:r}:#(#b)([A-Z](#c3,5)(-[A-Z](#c0,3)[0-9](#c1,5)[A-Z](#c0,3))(#c1,2))}
           if (( !${#catnos[$walkcuefiles]} )); then
             if (( totaldiscs[walkcuefiles] > 1 )); then
               catnos[$walkcuefiles]=${${catnos[${albumtitles[(i)${(q)albumtitles[$walkcuefiles]}]}]}:-${match[1]}}
@@ -123,7 +123,7 @@ function .main {
             while :;do
               timeout 0.01 cat > /dev/null||:
               vared -ehp 'pn> ' "catnos[$walkcuefiles]"
-              if [[ "${catnos[$walkcuefiles]}" = ([-A-Z0-9]#|) ]]; then
+              if [[ "${catnos[$walkcuefiles]}" = ([A-Z]##(-[A-Z0-9])##|) ]]; then
                 break
               fi
             done
@@ -313,6 +313,8 @@ function .main {
               switch (k) {
                 case "REM DISCNUMBER" :
                 case "REM TOTALDISCS" :
+                case "REM DATE" :
+                case "REM CATALOGNUMBER" :
                   print k " " (tr==""&&tr==0 ? d["d"][k] : d["t" tr][k]);
                   break;
                 default :
@@ -611,6 +613,7 @@ ${cuedump[d.REM REPLAYPEAK_ALBUM_PEAK]:+--comment=REPLAYPEAK_ALBUM_PEAK=${cuedum
                   switch (k) {
                     case "REM DISCNUMBER" :
                     case "REM TOTALDISCS" :
+                    case "REM CATALOGNUMBER" :
                     case "REM DATE" :
                       print k " " (tr==""&&tr==0 ? d["d"][k] : d[tr][k]);
                       break;
@@ -738,7 +741,7 @@ ${cuedump[d.REM REPLAYPEAK_ALBUM_PEAK]:+--comment=REPLAYPEAK_ALBUM_PEAK=${cuedum
                     done
                     argv=(${(fu)0})
                     if (( $#==1 )); then
-                      tagvalue=${argv}
+                      tagvalue=${argv[1]}
                     fi
                   }
                 else continue
