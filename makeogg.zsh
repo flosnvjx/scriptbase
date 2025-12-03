@@ -5,7 +5,7 @@
 
 setopt extendedglob pipefail errreturn xtrace
 function .main {
-  local ofmt
+  local ofmt= mmode=
   function {
     if (( $#1 && ${(@)${(@k)ostr}[(I)(#i)${(q)1}]} )); then
       ofmt=$1
@@ -18,20 +18,25 @@ function .main {
           shift
         done
       } aotuv flac
-    elif [[ "$1" != cue ]]; then
+    elif [[ "$1" == (cue|tidy) ]]; then
+      mmode=$1
+    else
       .fatal "unsupported output fmt: $1"
     fi
   } "$1"
 
-  local -a cuefiles=(**/?*.(#i)cue(.N))
-  case $#cuefiles in
+  local -a acuefiles=(**/?*.(#i)cue(.N)) cuefiles=()
+  case $#acuefiles in
     0) return 44 ;;
-    1) : ;;
-    *) cuefiles=("${(@f)$(printf %s\\n $cuefiles | fzf -m --layout=reverse-list --prompt="Select cuesheets for later operations> ")}") || cuefiles=(**/?*.(#i)cue(.N))
+    1) cuefiles=($acuefiles) ;;
+    *) cuefiles=("${(@f)$(printf %s\\n $acuefiles | fzf -m --layout=reverse-list --prompt="Select cuesheets for later operations> ")}") || cuefiles=($acuefiles)
        ;;
   esac
   local -a cuefilecodepages cuebuffers cue{file,discnumber,totaldiscs,filetitle,catno}directives
   local -a albumtitles albumfiles discnumbers totaldiscs catnos
+  if [[ "$mmode" = tidy ]]; then
+    local -a surls vgmdbids bgmids cue{performer,label}directives
+  fi
   function {
     local walkcuefiles REPLY
     for ((walkcuefiles=1;walkcuefiles<=$#cuefiles;walkcuefiles++)); do
@@ -65,6 +70,8 @@ function .main {
       cuediscnumberdirectives+=("${${(@)${(@f)cuebuffers[$walkcuefiles]}[1,${(@)${(@f)cuebuffers[$walkcuefiles]}[(i)[ 	 ]#TRACK*]}-1][(R)[ 	 ]#REM DISCNUMBER [1-9][0-9]# #]#[ 	 ]#REM DISCNUMBER }% #}")
       cuetotaldiscsdirectives+=("${${(@)${(@f)cuebuffers[$walkcuefiles]}[1,${(@)${(@f)cuebuffers[$walkcuefiles]}[(i)[ 	 ]#TRACK*]}-1][(R)[ 	 ]#REM TOTALDISCS [1-9][0-9]# #]#[ 	 ]#REM TOTALDISCS }% #}")
       cuecatnodirectives+=("${${${(@)${(@f)cuebuffers[$walkcuefiles]}[1,${(@)${(@f)cuebuffers[$walkcuefiles]}[(i)[ 	 ]#TRACK*]}-1][(R)[ 	 ]#REM CATALOGNUMBER ("[A-Z][-0-9A-Z]##"|[A-Z][-0-9A-Z]##) #]#[ 	 ]#REM CATALOGNUMBER }%\" #}#\"}")
+      cuelabeldirectives+=("${${(@)${(@f)cuebuffers[$walkcuefiles]}[1,${(@)${(@f)cuebuffers[$walkcuefiles]}[(i)[ 	 ]#TRACK*]}-1][(R)[ 	 ]#REM LABEL "*" #]#*\"}%\" #}")
+      cueperformerdirectives+=("${${(@)${(@f)cuebuffers[$walkcuefiles]}[1,${(@)${(@f)cuebuffers[$walkcuefiles]}[(i)[ 	 ]#TRACK*]}-1][(R)[ 	 ]#PERFORMER "*" #]#*\"}%\" #}")
     done
     (( $#cuefiledirectives == $#cuefiles )) || .fatal "specified $#cuefiles cue sheet(s), but found $#cuefiledirectives FILE directive(s)"
     (( $#cuefiledirectives == ${(@)#${(@u)cuefiledirectives}} )) || .fatal "multiple cue sheets referenced same FILE"
