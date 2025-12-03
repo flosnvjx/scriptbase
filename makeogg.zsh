@@ -92,7 +92,7 @@ function .main {
             albumtitles[$walkcuefiles]=${(@)albumtitles[(i)${(q)albumtitles[$walkcuefiles]}]}
           else
             if (( ! ${#albumtitles[$walkcuefiles]} )); then
-              albumtitles[$walkcuefiles]=${${${cuefiles[$walkcuefiles]%(#i).cue}%/[0-9A-Z]##[-0-9A-Z]##}##*/}
+              albumtitles[$walkcuefiles]=${${${cuefiles[$walkcuefiles]}%/[0-9A-Z]##[-0-9A-Z]##}:t:r}
             fi
             while timeout 0.01 cat >/dev/null || :; do vared -ehp 'album> ' "albumtitles[$walkcuefiles]"
               if (( ${#albumtitles[$walkcuefiles]} )); then break; fi
