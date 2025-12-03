@@ -173,215 +173,8 @@ function .main {
           ifmtstr=${fmtstr[$ifmt]}
           ;;
       esac
-      local awkcuedump='
-      BEGIN{
-        CONVFMT="%.3f"
-      }
-      @include "shellquote"
-      function Map(re, arr) {
-        if (match($0,re,arr)) {
-          print (shell_quote((nt==""&&nt==0 ? "d" : nt ) "." arr[1]) " " shell_quote(arr[2]));
-          d[nt==""&&nt==0 ? "d" : nt][arr[1]]=arr[2]
-          return mkbool(1)
-        } else
-          return mkbool(0)
-      }
-      /^[\t ]*TRACK [0-9][0-9] (AUDIO) *$/{
-        match($0,/^[\t ]*TRACK ([0-9][0-9]) ([^ "]+) *$/,rr)
-        ++nt
-        d[nt]["tnum"]=rr[1]
-        tnum2nthtr[rr[1]][length(tnum2thtr[rr[1]])+1]=nt
-        d[nt]["mode"]=rr[2]
-        d[nt]["tnumoffset"]=0+d[nt]["tnum"]-nt
-        if (d[nt]["tnumoffset"] != 0) {
-          print ("WARN: non-compliance: nonsequential tracknum found, " nt "th TRACK has a tnum of " d[nt]["tnum"] "(offset " sprintf("%+d",d[nt]["tnumoffset"]) ")") > "/dev/stderr"
-        }
-        next
-      }
-      nt==""&&nt==0&&/[^\t ]/{
-        if ((Map("^[\t ]*(REM [A-Z_]+) \"(.*)\" *$",m) || \
-         Map("^[\t ]*(REM [A-Z_]+) ([^ \"\t]*) *$",m) || \
-         Map("^[\t ]*(CATALOG|CDTEXTFILE|PERFORMER|TITLE|SONGWRITER) \"(.*)\" *$",m) || \
-         Map("^[\t ]*(CATALOG) ([^ \"\t]*) *$",m) || \
-         Map("^[\t ]*(FILE) \"(.*)\" *(WAVE|FLAC) *$",m)))
-          next;
-        else {
-          print ("FATAL: unrecognized cuesheet command specification found: " shell_quote($0)) > "/dev/stderr"
-          exit(1);
-        }
-      }
-      nt>=0&&nt!=""&&/[^\t ]/{
-        if ((Map("^[\t ]*(REM [A-Z_]+) \"(.*)\" *$",m) || \
-         Map("^[\t ]*(REM [A-Z_]+) ([^ \"\t]*) *$",m) || \
-         Map("^[\t ]*(PERFORMER|TITLE|SONGWRITER) \"(.*)\" *$",m) || \
-         Map("^[\t ]*(ISRC) ([^ \"\t]*) *$",m) || \
-         Map("^[\t ]*(INDEX [0-9][0-9]|POSTGAP|PREGAP) ([0-9][0-9]:[0-9][0-9]:[0-9][0-9]) *$",m) || \
-         Map("^[\t ]*(FLAGS) ((DCP|PRE|4CH|SCMS|DATA)( (DCP|PRE|4CH|SCMS|DATA))*) *$",m))) {
-          next
-        } else {
-          print ("FATAL: unrecognized cuesheet command specification found on TRACK " d[nt]["tnum"] (0+d[nt]["tnum"]!=nt ? " (i.e. " nt "th TRACK)" : "") ": " shell_quote($0)) > "/dev/stderr"
-          exit(1);
-        }
-      }
-      function msfts(msf,  l) {
-        if (match(msf,/^([0-9][0-9]):([0-9][0-9]):([0-9][0-9])$/,msfmatches)) {
-          return ((msfmatches[1]*60) + msfmatches[2])*44100+msfmatches[3]*588
-        } else
-          return mkbool(0);
-      }
-      END {
-        if (nt==0) {
-          print "FATAL: no TRACK ever specified" > "/dev/stderr"
-          exit(1);
-        }
-        for (walknt=1;walknt<=nt;walknt++) {
-          if ("INDEX 01" in d[walknt]) {
-            if ("INDEX 00" in d[walknt]) {
-              if (msfts(d[walknt]["INDEX 00"]) > msfts(d[walknt]["INDEX 01"])) {
-                print ("ERROR: INDEX 00 > INDEX 01 on TRACK " d[walknt]["tnum"] (0+d[walknt]["tnum"]!=walknt ? " (i.e. " nt "th TRACK)" : "")) > "/dev/stderr"
-                exit(2)
-              }
-
-              if (walknt>1) {
-                if (msfts(d[walknt]["INDEX 00"]) <= msfts(d[walknt-1]["INDEX 01"])) {
-                  print ("ERROR: bogus INDEX 00 position specified on TRACK " d[walknt]["tnum"] (0+d[walknt]["tnum"]!=walknt ? " (i.e. " walknt "th TRACK)" : "")) > "/dev/stderr"
-                  exit(2)
-                }
-                print (walknt-1 ".until " sprintf("%d",auntil[walknt-1]=msfts(d[walknt]["INDEX 00"])))
-                if ((rskip[walknt]=msfts(d[walknt]["INDEX 01"]) - msfts(d[walknt]["INDEX 00"]))>44100*3)
-                  print ("NOTE: found " rskip[walknt]/44100 " secs pregap on TRACK " d[walknt]["tnum"] (0+d[walknt]["tnum"]!=walknt ? " (i.e. " walknt "th TRACK)" : "")) > "/dev/stderr"
-              } else if ((hinthtoa=msfts(d[walknt]["INDEX 01"])) > 44100) {
-                print ("NOTE: [HTOA] found " hinthtoa/44100 " secs pregap") > "/dev/stderr"
-              }
-            } else if (walknt>1) {
-              if (msfts(d[walknt]["INDEX 01"]) <= msfts(d[walknt-1]["INDEX 01"])) {
-                print ("ERROR: bogus INDEX 01 position specified on TRACK " d[walknt]["tnum"] (0+d[walknt]["tnum"]!=walknt ? " (i.e. " walknt "th TRACK)" : "")) > "/dev/stderr"
-                exit(3)
-              }
-              print (walknt-1 ".until " sprintf("%d",auntil[walknt-1]=msfts(d[walknt]["INDEX 01"])))
-            } else if (walknt==1 && askip[walknt]) {
-              print ("WARN: missing INDEX 00 on first TRACK") > "/dev/stderr"
-            }
-            print (walknt ".skip " sprintf("%d",askip[walknt]=msfts(d[walknt]["INDEX 01"])))
-          } else {
-            print ("ERROR: missing INDEX 01 on TRACK " d[walknt]["tnum"] (0+d[walknt]["tnum"]!=walknt ? " (i.e. " walknt "th TRACK)" : "")) > "/dev/stderr"
-            exit(4)
-          }
-        }
-        for (k in tnum2nthtr) {
-          ll=""
-          if (length(tnum2nthtr[k])>1) {
-            print ("WARN: there are " length(tnum2nthtr[k]) " TRACKs have a tnum of " k) > "/dev/stderr"
-          }
-          for (l in tnum2nthtr[k]) {
-            ll=(ll (length(ll) ? "|" : "") tnum2nthtr[k][l])
-          }
-          print ("mat." k " " ll)
-        }
-        for (walknt=1;walknt<=nt;walknt++) {
-          if (!(sprintf("%02d",walknt) in tnum2nthtr)) {
-            print ("WARN: missing TRACK " sprintf("%02d",walknt)) > "/dev/stderr"
-          }
-          print (walknt ".tnum " d[walknt]["tnum"])
-          if (walknt<nt)
-            print (walknt ".plen " (0+auntil[walknt]-askip[walknt]))
-          if (rskip[walknt])
-            print (walknt ".pskip " (0+rskip[walknt]))
-        }
-        if ("REM DATE" in d["d"] && strtonum(normdatestr(d["d"]["REM DATE"])))
-          print ("date " normdatestr(d["d"]["REM DATE"]))
-        print ("tc " nt)
-      }
-      function normdatestr(l,  ll) {
-        if (match(l,/^([0-9][0-9][0-9][0-9])($|[/.-])/,normdatestrmatches)) {
-          ll=normdatestrmatches[1]
-          if (length(normdatestrmatches[2]) && match(l,/^.....([0-9]+)($|[/.-])/,normdatestrmatches) && length(normdatestrmatches[1])<=2) {
-            ll=(ll "-" normdatestrmatches[1])
-            if (length(normdatestrmatches[2]) && match(l,/^.....[0-9]+[/.-]([0-9]+)$/,normdatestrmatches) && length(normdatestrmatches[1])<=2)
-              ll=(ll "-" normdatestrmatches[1])
-          }
-          return ll
-        } else
-          return mkbool(0)
-      }
-      '
       local mbufs=()
       local mbuf= \
-      awkcueput='
-        function joinkey(m,n,  k, l) {
-          n==0&&n=="" ? n="|" : 1
-          for (k in m) {
-            l=(l (l==0&&l=="" ? "" : n) k)
-          }
-          return l
-        }
-        function pd(k,  tr, pad) {
-          if (k in d[tr==""&&tr==0 ? "d" : "t" tr]) {
-            if (length(d[tr==""&&tr==0 ? "d" : "t" tr][k])) {
-              printf "%s",(pad==""&&pad==0 ? "" : pad)
-              switch (k) {
-                case "REM DISCNUMBER" :
-                case "REM TOTALDISCS" :
-                case "REM DATE" :
-                  print k " " (tr==""&&tr==0 ? d["d"][k] : d["t" tr][k]);
-                  break;
-                default :
-                  print k " \"" (tr==""&&tr==0 ? d["d"][k] : d["t" tr][k]) "\"" (k=="FILE" ? " WAVE" : "")
-                  break;
-              }
-            }
-            if (tr==0&&tr=="")
-              delete d["d"][k]
-            else
-              delete d["t" tr][k]
-          }
-        }
-        /^[ \t]*(TRACK|ISRC|FLAGS|INDEX)/ {
-          if (nt && ("t" nt) in d && length(d["t" nt])) {
-            for (k in d["t" nt])
-              pd(k, nt, matches[1])
-          }
-        }
-        /^[ \t]*(TRACK|FILE)/ {
-          if (!nt && "d" in d && length(d["d"])) {
-            for (k in d["d"]) {
-              if (/^[ \t]*FILE/ && k=="FILE")
-                continue;
-              pd(k)
-            }
-          }
-        }
-        /^[ \t]*TRACK/ {
-          ++nt
-          jtd[nt]=(("t" nt) in d && length(d["t" nt]) ? joinkey(d["t" nt]) : "")
-          print
-          next
-        }
-        nt&&/[^ \t]/ {
-          if (length(jtd[nt]) && match($0,("^([ \t]*)((" jtd[nt] ")( |$)|)"),matches) && length(matches[3])) {
-            m=matches[3]
-            pd(m, nt, matches[1])
-          } else
-            print;
-        }
-        END {
-          if (!nt || ("d" in d && length(d["d"]))) exit(1)
-          if (nt && ("t" nt) in d && length(d["t" nt])) {
-            for (k in d["t" nt])
-              pd(k, nt, matches[1])
-          }
-        }
-        BEGIN {
-          jdd=("d" in d && length(d["d"]) ? joinkey(d["d"]) : "")
-        }
-        !nt&&/[^ \t]/ {
-          if (length(jdd) && match($0,("^([ \t]*)((" jdd ")( |$)|)"),matches) && length(matches[3])) {
-            m=matches[3]
-            pd(m)
-          } else
-            print;
-        }
-      '
       gawk -E <(print -r -- '
         BEGIN {
           d["d"]["FILE"]="'${${albumfiles[$walkcuefiles]//\\/\\\\}//\"/\\\"}'";
@@ -781,6 +574,214 @@ ${cuedump[d.REM REPLAYPEAK_ALBUM_PEAK]:+--comment=REPLAYPEAK_ALBUM_PEAK=${cuedum
   } "${(@)argv}"
 }
 
+
+declare awkcuedump='
+BEGIN{
+  CONVFMT="%.3f"
+}
+@include "shellquote"
+function Map(re, arr) {
+  if (match($0,re,arr)) {
+    print (shell_quote((nt==""&&nt==0 ? "d" : nt ) "." arr[1]) " " shell_quote(arr[2]));
+    d[nt==""&&nt==0 ? "d" : nt][arr[1]]=arr[2]
+    return mkbool(1)
+  } else
+    return mkbool(0)
+}
+/^[\t ]*TRACK [0-9][0-9] (AUDIO) *$/{
+  match($0,/^[\t ]*TRACK ([0-9][0-9]) ([^ "]+) *$/,rr)
+  ++nt
+  d[nt]["tnum"]=rr[1]
+  tnum2nthtr[rr[1]][length(tnum2thtr[rr[1]])+1]=nt
+  d[nt]["mode"]=rr[2]
+  d[nt]["tnumoffset"]=0+d[nt]["tnum"]-nt
+  if (d[nt]["tnumoffset"] != 0) {
+    print ("WARN: non-compliance: nonsequential tracknum found, " nt "th TRACK has a tnum of " d[nt]["tnum"] "(offset " sprintf("%+d",d[nt]["tnumoffset"]) ")") > "/dev/stderr"
+  }
+  next
+}
+nt==""&&nt==0&&/[^\t ]/{
+  if ((Map("^[\t ]*(REM [A-Z_]+) \"(.*)\" *$",m) || \
+   Map("^[\t ]*(REM [A-Z_]+) ([^ \"\t]*) *$",m) || \
+   Map("^[\t ]*(CATALOG|CDTEXTFILE|PERFORMER|TITLE|SONGWRITER) \"(.*)\" *$",m) || \
+   Map("^[\t ]*(CATALOG) ([^ \"\t]*) *$",m) || \
+   Map("^[\t ]*(FILE) \"(.*)\" *(WAVE|FLAC) *$",m)))
+    next;
+  else {
+    print ("FATAL: unrecognized cuesheet command specification found: " shell_quote($0)) > "/dev/stderr"
+    exit(1);
+  }
+}
+nt>=0&&nt!=""&&/[^\t ]/{
+  if ((Map("^[\t ]*(REM [A-Z_]+) \"(.*)\" *$",m) || \
+   Map("^[\t ]*(REM [A-Z_]+) ([^ \"\t]*) *$",m) || \
+   Map("^[\t ]*(PERFORMER|TITLE|SONGWRITER) \"(.*)\" *$",m) || \
+   Map("^[\t ]*(ISRC) ([^ \"\t]*) *$",m) || \
+   Map("^[\t ]*(INDEX [0-9][0-9]|POSTGAP|PREGAP) ([0-9][0-9]:[0-9][0-9]:[0-9][0-9]) *$",m) || \
+   Map("^[\t ]*(FLAGS) ((DCP|PRE|4CH|SCMS|DATA)( (DCP|PRE|4CH|SCMS|DATA))*) *$",m))) {
+    next
+  } else {
+    print ("FATAL: unrecognized cuesheet command specification found on TRACK " d[nt]["tnum"] (0+d[nt]["tnum"]!=nt ? " (i.e. " nt "th TRACK)" : "") ": " shell_quote($0)) > "/dev/stderr"
+    exit(1);
+  }
+}
+function msfts(msf,  l) {
+  if (match(msf,/^([0-9][0-9]):([0-9][0-9]):([0-9][0-9])$/,msfmatches)) {
+    return ((msfmatches[1]*60) + msfmatches[2])*44100+msfmatches[3]*588
+  } else
+    return mkbool(0);
+}
+END {
+  if (nt==0) {
+    print "FATAL: no TRACK ever specified" > "/dev/stderr"
+    exit(1);
+  }
+  for (walknt=1;walknt<=nt;walknt++) {
+    if ("INDEX 01" in d[walknt]) {
+      if ("INDEX 00" in d[walknt]) {
+        if (msfts(d[walknt]["INDEX 00"]) > msfts(d[walknt]["INDEX 01"])) {
+          print ("ERROR: INDEX 00 > INDEX 01 on TRACK " d[walknt]["tnum"] (0+d[walknt]["tnum"]!=walknt ? " (i.e. " nt "th TRACK)" : "")) > "/dev/stderr"
+          exit(2)
+        }
+
+        if (walknt>1) {
+          if (msfts(d[walknt]["INDEX 00"]) <= msfts(d[walknt-1]["INDEX 01"])) {
+            print ("ERROR: bogus INDEX 00 position specified on TRACK " d[walknt]["tnum"] (0+d[walknt]["tnum"]!=walknt ? " (i.e. " walknt "th TRACK)" : "")) > "/dev/stderr"
+            exit(2)
+          }
+          print (walknt-1 ".until " sprintf("%d",auntil[walknt-1]=msfts(d[walknt]["INDEX 00"])))
+          if ((rskip[walknt]=msfts(d[walknt]["INDEX 01"]) - msfts(d[walknt]["INDEX 00"]))>44100*3)
+            print ("NOTE: found " rskip[walknt]/44100 " secs pregap on TRACK " d[walknt]["tnum"] (0+d[walknt]["tnum"]!=walknt ? " (i.e. " walknt "th TRACK)" : "")) > "/dev/stderr"
+        } else if ((hinthtoa=msfts(d[walknt]["INDEX 01"])) > 44100) {
+          print ("NOTE: [HTOA] found " hinthtoa/44100 " secs pregap") > "/dev/stderr"
+        }
+      } else if (walknt>1) {
+        if (msfts(d[walknt]["INDEX 01"]) <= msfts(d[walknt-1]["INDEX 01"])) {
+          print ("ERROR: bogus INDEX 01 position specified on TRACK " d[walknt]["tnum"] (0+d[walknt]["tnum"]!=walknt ? " (i.e. " walknt "th TRACK)" : "")) > "/dev/stderr"
+          exit(3)
+        }
+        print (walknt-1 ".until " sprintf("%d",auntil[walknt-1]=msfts(d[walknt]["INDEX 01"])))
+      } else if (walknt==1 && askip[walknt]) {
+        print ("WARN: missing INDEX 00 on first TRACK") > "/dev/stderr"
+      }
+      print (walknt ".skip " sprintf("%d",askip[walknt]=msfts(d[walknt]["INDEX 01"])))
+    } else {
+      print ("ERROR: missing INDEX 01 on TRACK " d[walknt]["tnum"] (0+d[walknt]["tnum"]!=walknt ? " (i.e. " walknt "th TRACK)" : "")) > "/dev/stderr"
+      exit(4)
+    }
+  }
+  for (k in tnum2nthtr) {
+    ll=""
+    if (length(tnum2nthtr[k])>1) {
+      print ("WARN: there are " length(tnum2nthtr[k]) " TRACKs have a tnum of " k) > "/dev/stderr"
+    }
+    for (l in tnum2nthtr[k]) {
+      ll=(ll (length(ll) ? "|" : "") tnum2nthtr[k][l])
+    }
+    print ("mat." k " " ll)
+  }
+  for (walknt=1;walknt<=nt;walknt++) {
+    if (!(sprintf("%02d",walknt) in tnum2nthtr)) {
+      print ("WARN: missing TRACK " sprintf("%02d",walknt)) > "/dev/stderr"
+    }
+    print (walknt ".tnum " d[walknt]["tnum"])
+    if (walknt<nt)
+      print (walknt ".plen " (0+auntil[walknt]-askip[walknt]))
+    if (rskip[walknt])
+      print (walknt ".pskip " (0+rskip[walknt]))
+  }
+  if ("REM DATE" in d["d"] && strtonum(normdatestr(d["d"]["REM DATE"])))
+    print ("date " normdatestr(d["d"]["REM DATE"]))
+  print ("tc " nt)
+}
+function normdatestr(l,  ll) {
+  if (match(l,/^([0-9][0-9][0-9][0-9])($|[/.-])/,normdatestrmatches)) {
+    ll=normdatestrmatches[1]
+    if (length(normdatestrmatches[2]) && match(l,/^.....([0-9]+)($|[/.-])/,normdatestrmatches) && length(normdatestrmatches[1])<=2) {
+      ll=(ll "-" normdatestrmatches[1])
+      if (length(normdatestrmatches[2]) && match(l,/^.....[0-9]+[/.-]([0-9]+)$/,normdatestrmatches) && length(normdatestrmatches[1])<=2)
+        ll=(ll "-" normdatestrmatches[1])
+    }
+    return ll
+  } else
+    return mkbool(0)
+}
+'
+declare awkcueput='
+function joinkey(m,n,  k, l) {
+  n==0&&n=="" ? n="|" : 1
+  for (k in m) {
+    l=(l (l==0&&l=="" ? "" : n) k)
+  }
+  return l
+}
+function pd(k,  tr, pad) {
+  if (k in d[tr==""&&tr==0 ? "d" : "t" tr]) {
+    if (length(d[tr==""&&tr==0 ? "d" : "t" tr][k])) {
+      printf "%s",(pad==""&&pad==0 ? "" : pad)
+      switch (k) {
+        case "REM DISCNUMBER" :
+        case "REM TOTALDISCS" :
+        case "REM DATE" :
+          print k " " (tr==""&&tr==0 ? d["d"][k] : d["t" tr][k]);
+          break;
+        default :
+          print k " \"" (tr==""&&tr==0 ? d["d"][k] : d["t" tr][k]) "\"" (k=="FILE" ? " WAVE" : "")
+          break;
+      }
+    }
+    if (tr==0&&tr=="")
+      delete d["d"][k]
+    else
+      delete d["t" tr][k]
+  }
+}
+/^[ \t]*(TRACK|ISRC|FLAGS|INDEX)/ {
+  if (nt && ("t" nt) in d && length(d["t" nt])) {
+    for (k in d["t" nt])
+      pd(k, nt, matches[1])
+  }
+}
+/^[ \t]*(TRACK|FILE)/ {
+  if (!nt && "d" in d && length(d["d"])) {
+    for (k in d["d"]) {
+      if (/^[ \t]*FILE/ && k=="FILE")
+        continue;
+      pd(k)
+    }
+  }
+}
+/^[ \t]*TRACK/ {
+  ++nt
+  jtd[nt]=(("t" nt) in d && length(d["t" nt]) ? joinkey(d["t" nt]) : "")
+  print
+  next
+}
+nt&&/[^ \t]/ {
+  if (length(jtd[nt]) && match($0,("^([ \t]*)((" jtd[nt] ")( |$)|)"),matches) && length(matches[3])) {
+    m=matches[3]
+    pd(m, nt, matches[1])
+  } else
+    print;
+}
+END {
+  if (!nt || ("d" in d && length(d["d"]))) exit(1)
+  if (nt && ("t" nt) in d && length(d["t" nt])) {
+    for (k in d["t" nt])
+      pd(k, nt, matches[1])
+  }
+}
+BEGIN {
+  jdd=("d" in d && length(d["d"]) ? joinkey(d["d"]) : "")
+}
+!nt&&/[^ \t]/ {
+  if (length(jdd) && match($0,("^([ \t]*)((" jdd ")( |$)|)"),matches) && length(matches[3])) {
+    m=matches[3]
+    pd(m)
+  } else
+    print;
+}
+'
 declare -A cuedump
 declare -A tracktitledump
 declare -A commontags
