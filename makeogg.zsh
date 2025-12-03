@@ -35,7 +35,7 @@ function .main {
   local -a cuefilecodepages cuebuffers cue{file,discnumber,totaldiscs,filetitle,catno}directives
   local -a albumtitles albumfiles discnumbers totaldiscs catnos
   if [[ "$mmode" = tidy ]]; then
-    local -a surls vgmdbids bgmids cue{performer,label}directives
+    local -a albumtidyfiles surls vgmdbids bgmids cue{performer,label,date}directives
   fi
   function {
     local walkcuefiles REPLY
@@ -70,8 +70,11 @@ function .main {
       cuediscnumberdirectives+=("${${(@)${(@f)cuebuffers[$walkcuefiles]}[1,${(@)${(@f)cuebuffers[$walkcuefiles]}[(i)[ 	 ]#TRACK*]}-1][(R)[ 	 ]#REM DISCNUMBER [1-9][0-9]# #]#[ 	 ]#REM DISCNUMBER }% #}")
       cuetotaldiscsdirectives+=("${${(@)${(@f)cuebuffers[$walkcuefiles]}[1,${(@)${(@f)cuebuffers[$walkcuefiles]}[(i)[ 	 ]#TRACK*]}-1][(R)[ 	 ]#REM TOTALDISCS [1-9][0-9]# #]#[ 	 ]#REM TOTALDISCS }% #}")
       cuecatnodirectives+=("${${${(@)${(@f)cuebuffers[$walkcuefiles]}[1,${(@)${(@f)cuebuffers[$walkcuefiles]}[(i)[ 	 ]#TRACK*]}-1][(R)[ 	 ]#REM CATALOGNUMBER ("[A-Z][-0-9A-Z]##"|[A-Z][-0-9A-Z]##) #]#[ 	 ]#REM CATALOGNUMBER }%\" #}#\"}")
+    if [[ "$mmode" = tidy ]]; then
       cuelabeldirectives+=("${${(@)${(@f)cuebuffers[$walkcuefiles]}[1,${(@)${(@f)cuebuffers[$walkcuefiles]}[(i)[ 	 ]#TRACK*]}-1][(R)[ 	 ]#REM LABEL "*" #]#*\"}%\" #}")
       cueperformerdirectives+=("${${(@)${(@f)cuebuffers[$walkcuefiles]}[1,${(@)${(@f)cuebuffers[$walkcuefiles]}[(i)[ 	 ]#TRACK*]}-1][(R)[ 	 ]#PERFORMER "*" #]#*\"}%\" #}")
+      cuedatedirectives+=("${${${(@)${(@f)cuebuffers[$walkcuefiles]}[1,${(@)${(@f)cuebuffers[$walkcuefiles]}[(i)[ 	 ]#TRACK*]}-1][(R)[ 	 ]#REM DATE ("[0-9](#c4)(|/<1-12>(|/<1-31>))"|[0-9](#c4)(|/<1-12>(|/<1-31>))) #]#[ 	 ]#REM DATE }%\" #}#\"}")
+    fi
     done
     (( $#cuefiledirectives == $#cuefiles )) || .fatal "specified $#cuefiles cue sheet(s), but found $#cuefiledirectives FILE directive(s)"
     (( $#cuefiledirectives == ${(@)#${(@u)cuefiledirectives}} )) || .fatal "multiple cue sheets referenced same FILE"
