@@ -345,6 +345,7 @@ ${cuedump[$tn.REM REPLAYGAIN_TRACK_GAIN]:+--comment=REPLAYGAIN_TRACK_GAIN=${cued
 ${cuedump[$tn.REM REPLAYPEAK_TRACK_PEAK]:+--comment=REPLAYPEAK_TRACK_PEAK=${cuedump[$tn.REM REPLAYPEAK_TRACK_PEAK]}}
 ${cuedump[d.REM REPLAYGAIN_ALBUM_GAIN]:+--comment=REPLAYGAIN_ALBUM_GAIN=${cuedump[d.REM REPLAYGAIN_ALBUM_GAIN]}}
 ${cuedump[d.REM REPLAYPEAK_ALBUM_PEAK]:+--comment=REPLAYPEAK_ALBUM_PEAK=${cuedump[d.REM REPLAYPEAK_ALBUM_PEAK]}}
+${${cuedump[$tn.REM BPM]:-${(M)testbpm:#<1->}}:+--comment=BPM=${cuedump[$tn.BPM]:-$testbpm}}
 '
                 runenc+='-o
 /sdcard/Music/albums/${${${${cuedump[d.TITLE]:- }/#./．}//\//／}:0:85}/${${:-${cuedump[d.REM DISCNUMBER]:+${cuedump[d.REM DISCNUMBER]}#}${cuedump[$tn.tnum]}${cuedump[$tn.TITLE]:+.${cuedump[$tn.TITLE]//\//／}}}:0:80}'
@@ -384,6 +385,10 @@ ${cuedump[d.REM REPLAYPEAK_ALBUM_PEAK]:+--comment=REPLAYPEAK_ALBUM_PEAK=${cuedum
                 ;|
                 (flac|wv)
                   while (( $#seltnums )); do
+                    local -i testbpm=0
+                    if ! (( ${#cuedump[${seltnums[1]}.REM BPM]} )); then
+                      testbpm="$(command ${(s. .)rundec} ${${(M)cuedump[${seltnums[1]}.skip]:#<1->}:+--skip=${cuedump[${seltnums[1]}.skip]}} ${${(M)cuedump[${seltnums[1]}.until]:#<1->}:+--until=${cuedump[${seltnums[1]}.until]}} -- $ifile | aubiotrack -i /dev/fd/1 | aubiotrack2bpm)" || :
+                    fi
                     command ${(s. .)rundec} ${${(M)cuedump[${seltnums[1]}.skip]:#<1->}:+--skip=${cuedump[${seltnums[1]}.skip]}} ${${(M)cuedump[${seltnums[1]}.until]:#<1->}:+--until=${cuedump[${seltnums[1]}.until]}} -- $ifile | rw | eval command ${${${(f)runenc}:#}//\[\$tn./'[${seltnums[1]}.'} ${(s. .q)2} -
                     shift seltnums
                   done
@@ -782,6 +787,33 @@ BEGIN {
     print;
 }
 '
+
+function aubiotrack2bpm {
+  awk 'NR > 1 {
+            interval = $1 - prev
+            if (interval > 0) {
+                print interval
+            }
+        }
+        { prev = $1 }' | sort -n | awk '
+        { intervals[NR] = $1; count = NR }
+        END {
+            if (count > 0) {
+                # Calculate median from sorted intervals
+                if (count % 2 == 1) {
+                    median_interval = intervals[int((count + 1) / 2)]
+                } else {
+                    median_interval = (intervals[count / 2] + intervals[count / 2 + 1]) / 2
+                }
+
+                bpm = 60 / median_interval
+                printf "%.0f\n", bpm
+            } else {
+                print "0"
+            }
+        }'
+}
+
 declare -A cuedump
 declare -A tracktitledump
 declare -A commontags
