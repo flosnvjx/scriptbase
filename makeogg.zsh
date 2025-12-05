@@ -182,7 +182,7 @@ function .main {
           ;;
       esac
       local mbufs=()
-      local mbuf= \
+      local mbuf=
       gawk -E <(print -r -- '
         BEGIN {
           d["d"]["FILE"]="'${${albumfiles[$walkcuefiles]//\\/\\\\}//\"/\\\"}'";
