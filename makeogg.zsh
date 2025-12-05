@@ -341,8 +341,8 @@ ${cuedump[d.REM TOTALDISCS]:+--comment=DISCTOTAL=${cuedump[d.REM TOTALDISCS]}}
 --comment=TRACKTOTAL=${cuedump[tc]}
 ${cuedump[d.REM MUSICBRAINZ_ALBUMID]:+--comment=MUSICBRAINZ_ALBUMID=${cuedump[d.REM MUSICBRAINZ_ALBUMID]}}
 ${cuedump[$tn.REM MUSICBRAINZ_RELEASETRACKID]:+--comment=MUSICBRAINZ_RELEASETRACKID=${cuedump[$tn.REM MUSICBRAINZ_RELEASETRACKID]}}
-${cuedump[$tn.REM REPLAYGAIN_TRACK_GAIN]:+--comment=REPLAYGAIN_TRACK_GAIN=${cuedump[$tn.REM REPLAYGAIN_TRACK_GAIN]}}
-${cuedump[$tn.REM REPLAYPEAK_TRACK_PEAK]:+--comment=REPLAYPEAK_TRACK_PEAK=${cuedump[$tn.REM REPLAYPEAK_TRACK_PEAK]}}
+${${cuedump[$tn.REM REPLAYGAIN_TRACK_GAIN]:-$REPLAYGAIN_TRACK_GAIN}:+--comment=REPLAYGAIN_TRACK_GAIN=${cuedump[$tn.REM REPLAYGAIN_TRACK_GAIN]:-$REPLAYGAIN_TRACK_GAIN}}
+${${cuedump[$tn.REM REPLAYPEAK_TRACK_PEAK]:-$REPLAYGAIN_TRACK_PEAK}:+--comment=REPLAYPEAK_TRACK_PEAK=${cuedump[$tn.REM REPLAYPEAK_TRACK_PEAK]:-$REPLAYPEAK_TRACK_PEAK}}
 ${cuedump[d.REM REPLAYGAIN_ALBUM_GAIN]:+--comment=REPLAYGAIN_ALBUM_GAIN=${cuedump[d.REM REPLAYGAIN_ALBUM_GAIN]}}
 ${cuedump[d.REM REPLAYPEAK_ALBUM_PEAK]:+--comment=REPLAYPEAK_ALBUM_PEAK=${cuedump[d.REM REPLAYPEAK_ALBUM_PEAK]}}
 ${${cuedump[$tn.REM BPM]:-${(M)testbpm:#<1->}}:+--comment=BPM=${cuedump[$tn.BPM]:-$testbpm}}
@@ -388,10 +388,14 @@ ${testmusicalkey:+--comment=KEY=$testmusicalkey}
                   while (( $#seltnums )); do
                     local -i testbpm=0
                     local testmusicalkey=
+                    local REPLAYGAIN_TRACK_GAIN= REPLAYGAIN_TRACK_PEAK=
                     if ! (( ${#cuedump[${seltnums[1]}.REM BPM]} )); then
                       testbpm="$(command ${(s. .)rundec} ${${(M)cuedump[${seltnums[1]}.skip]:#<1->}:+--skip=${cuedump[${seltnums[1]}.skip]}} ${${(M)cuedump[${seltnums[1]}.until]:#<1->}:+--until=${cuedump[${seltnums[1]}.until]}} -- $ifile | aubiotrack -i /dev/stdin | aubiotrack2bpm)" || :
                     fi
                     testmusicalkey="$(command ${(s. .)rundec} ${${(M)cuedump[${seltnums[1]}.skip]:#<1->}:+--skip=${cuedump[${seltnums[1]}.skip]}} ${${(M)cuedump[${seltnums[1]}.until]:#<1->}:+--until=${cuedump[${seltnums[1]}.until]}} -- $ifile | keyfinder-cli -n openkey /dev/stdin|awk $openkey2harmony)" || :
+                    if ! (( ${#cuedump[${seltnums[1]}.REM REPLAYGAIN_TRACK_GAIN]} && ${#cuedump[${seltnums[1]}.REM REPLAYGAIN_TRACK_PEAK]} )); then
+                      command ${(s. .)rundec} ${${(M)cuedump[${seltnums[1]}.skip]:#<1->}:+--skip=${cuedump[${seltnums[1]}.skip]}} ${${(M)cuedump[${seltnums[1]}.until]:#<1->}:+--until=${cuedump[${seltnums[1]}.until]}} -- $ifile | gainstdin
+                    fi
                     command ${(s. .)rundec} ${${(M)cuedump[${seltnums[1]}.skip]:#<1->}:+--skip=${cuedump[${seltnums[1]}.skip]}} ${${(M)cuedump[${seltnums[1]}.until]:#<1->}:+--until=${cuedump[${seltnums[1]}.until]}} -- $ifile | rw | eval command ${${${(f)runenc}:#}//\[\$tn./'[${seltnums[1]}.'} ${(s. .q)2} -
                     shift seltnums
                   done
@@ -843,6 +847,21 @@ function aubiotrack2bpm {
                 print "0"
             }
         }'
+}
+
+function gainstdin {
+  local ffmpeg=
+  ffmpeg -xerror -err_detect explode -hide_banner -nostats ${1:+-f} $1 -i - -af "ebur128=peak=true:framelog=quiet" -f null - |& readeof ffmpeg
+  local ffmpegs=(${(f)ffmpeg})
+  local peak=${${${(M)ffmpegs[${ffmpegs[(i)[	 ]##True peak:]}+1]:#[   ]##Peak:[   ]##[-+0-9.]## dBFS}#*:}% *}
+  local i=${${${(M)ffmpegs[${ffmpegs[(i)[	 ]##Integrated loudness:]}+1]:#[   ]##I:[   ]##[-+0-9.]## LUFS}#*:}% *}
+  if (( ${#i} && ${#peak} )); then
+  REPLAYGAIN_TRACK_GAIN="$(echo "scale=2; -18-(${i}/1)" | bc -l) dB"
+  REPLAYGAIN_TRACK_PEAK="${$(echo "scale=6; e(l(10)*${peak}/20)" | bc -l)/#./0.}"
+  else
+    REPLAYGAIN_TRACK_GAIN=
+    REPLAYPEAK_TRACK_PEAK=
+  fi
 }
 
 declare -A cuedump
