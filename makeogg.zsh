@@ -413,7 +413,8 @@ ${testmusicalkeys[$tn]:+--comment=KEY=${testmusicalkeys[$tn]}}
                   command ffmpeg -loglevel warning -xerror -hide_banner -err_detect explode -i $ifile -f s16le - | {
                     for ((tn=1;tn<=cuedump[tc];tn++)); do
                       if (( ${seltnums[(I)$tn]} )); then
-                        dd bs=128K ${${(M)cuedump[$tn.pskip]:#<1->}:+skip=$(( 2 * ${cuedump[$tn.pskip]} ))B} ${${(M)cuedump[$tn.plen]}:+count=$(( 2 * ${cuedump[$tn.plen]} ))B} iflag=fullblock status=none | rw | eval command ${${(f)runenc}:#} ${(s. .q)2} -
+                        testbpms[$tn]="$(dd bs=128K ${${(M)cuedump[$tn.pskip]:#<1->}:+skip=$(( 2 * ${cuedump[$tn.pskip]} ))B} ${${(M)cuedump[$tn.plen]}:+count=$(( 2 * ${cuedump[$tn.plen]} ))B} iflag=fullblock status=none | \
+                        aubiotrack -i /dev/stdin | aubiotrack2bpm)"
                       else
                         dd bs=128K ${${(M)cuedump[$tn.pskip]:#<1->}:+skip=$(( 2 * ${cuedump[$tn.pskip]} ))B} ${${(M)cuedump[$tn.plen]}:+count=$(( 2 * ${cuedump[$tn.plen]} ))B} iflag=fullblock status=none of=/dev/null
                       fi
@@ -422,7 +423,8 @@ ${testmusicalkeys[$tn]:+--comment=KEY=${testmusicalkeys[$tn]}}
                   command ffmpeg -loglevel warning -xerror -hide_banner -err_detect explode -i $ifile -f s16le - | {
                     for ((tn=1;tn<=cuedump[tc];tn++)); do
                       if (( ${seltnums[(I)$tn]} )); then
-                        dd bs=128K ${${(M)cuedump[$tn.pskip]:#<1->}:+skip=$(( 2 * ${cuedump[$tn.pskip]} ))B} ${${(M)cuedump[$tn.plen]}:+count=$(( 2 * ${cuedump[$tn.plen]} ))B} iflag=fullblock status=none | rw | eval command ${${(f)runenc}:#} ${(s. .q)2} -
+                        testmusicalkeys[$tn]="$(dd bs=128K ${${(M)cuedump[$tn.pskip]:#<1->}:+skip=$(( 2 * ${cuedump[$tn.pskip]} ))B} ${${(M)cuedump[$tn.plen]}:+count=$(( 2 * ${cuedump[$tn.plen]} ))B} iflag=fullblock status=none | \
+                        keyfinder-cli -n openkey /dev/stdin|awk $openkey2harmony)"
                       else
                         dd bs=128K ${${(M)cuedump[$tn.pskip]:#<1->}:+skip=$(( 2 * ${cuedump[$tn.pskip]} ))B} ${${(M)cuedump[$tn.plen]}:+count=$(( 2 * ${cuedump[$tn.plen]} ))B} iflag=fullblock status=none of=/dev/null
                       fi
@@ -431,7 +433,10 @@ ${testmusicalkeys[$tn]:+--comment=KEY=${testmusicalkeys[$tn]}}
                   command ffmpeg -loglevel warning -xerror -hide_banner -err_detect explode -i $ifile -f s16le - | {
                     for ((tn=1;tn<=cuedump[tc];tn++)); do
                       if (( ${seltnums[(I)$tn]} )); then
-                        dd bs=128K ${${(M)cuedump[$tn.pskip]:#<1->}:+skip=$(( 2 * ${cuedump[$tn.pskip]} ))B} ${${(M)cuedump[$tn.plen]}:+count=$(( 2 * ${cuedump[$tn.plen]} ))B} iflag=fullblock status=none | rw | eval command ${${(f)runenc}:#} ${(s. .q)2} -
+                        local REPLAYGAIN_TRACK_GAIN= REPLAYGAIN_TRACK_PEAK=
+                        dd bs=128K ${${(M)cuedump[$tn.pskip]:#<1->}:+skip=$(( 2 * ${cuedump[$tn.pskip]} ))B} ${${(M)cuedump[$tn.plen]}:+count=$(( 2 * ${cuedump[$tn.plen]} ))B} iflag=fullblock status=none | gainstdin
+                        REPLAYGAIN_TRACK_GAINs[$tn]=$REPLAYGAIN_TRACK_GAIN
+                        REPLAYGAIN_TRACK_PEAKs[$tn]=$REPLAYGAIN_TRACK_PEAK
                       else
                         dd bs=128K ${${(M)cuedump[$tn.pskip]:#<1->}:+skip=$(( 2 * ${cuedump[$tn.pskip]} ))B} ${${(M)cuedump[$tn.plen]}:+count=$(( 2 * ${cuedump[$tn.plen]} ))B} iflag=fullblock status=none of=/dev/null
                       fi
