@@ -346,6 +346,7 @@ ${cuedump[$tn.REM REPLAYPEAK_TRACK_PEAK]:+--comment=REPLAYPEAK_TRACK_PEAK=${cued
 ${cuedump[d.REM REPLAYGAIN_ALBUM_GAIN]:+--comment=REPLAYGAIN_ALBUM_GAIN=${cuedump[d.REM REPLAYGAIN_ALBUM_GAIN]}}
 ${cuedump[d.REM REPLAYPEAK_ALBUM_PEAK]:+--comment=REPLAYPEAK_ALBUM_PEAK=${cuedump[d.REM REPLAYPEAK_ALBUM_PEAK]}}
 ${${cuedump[$tn.REM BPM]:-${(M)testbpm:#<1->}}:+--comment=BPM=${cuedump[$tn.BPM]:-$testbpm}}
+${testmusicalkey:+--comment=KEY=$testmusicalkey}
 '
                 runenc+='-o
 /sdcard/Music/albums/${${${${cuedump[d.TITLE]:- }/#./．}//\//／}:0:85}/${${:-${cuedump[d.REM DISCNUMBER]:+${cuedump[d.REM DISCNUMBER]}#}${cuedump[$tn.tnum]}${cuedump[$tn.TITLE]:+.${cuedump[$tn.TITLE]//\//／}}}:0:80}'
@@ -386,9 +387,11 @@ ${${cuedump[$tn.REM BPM]:-${(M)testbpm:#<1->}}:+--comment=BPM=${cuedump[$tn.BPM]
                 (flac|wv)
                   while (( $#seltnums )); do
                     local -i testbpm=0
+                    local testmusicalkey=
                     if ! (( ${#cuedump[${seltnums[1]}.REM BPM]} )); then
-                      testbpm="$(command ${(s. .)rundec} ${${(M)cuedump[${seltnums[1]}.skip]:#<1->}:+--skip=${cuedump[${seltnums[1]}.skip]}} ${${(M)cuedump[${seltnums[1]}.until]:#<1->}:+--until=${cuedump[${seltnums[1]}.until]}} -- $ifile | aubiotrack -i /dev/fd/1 | aubiotrack2bpm)" || :
+                      testbpm="$(command ${(s. .)rundec} ${${(M)cuedump[${seltnums[1]}.skip]:#<1->}:+--skip=${cuedump[${seltnums[1]}.skip]}} ${${(M)cuedump[${seltnums[1]}.until]:#<1->}:+--until=${cuedump[${seltnums[1]}.until]}} -- $ifile | aubiotrack -i /dev/stdin | aubiotrack2bpm)" || :
                     fi
+                    testmusicalkey="$(command ${(s. .)rundec} ${${(M)cuedump[${seltnums[1]}.skip]:#<1->}:+--skip=${cuedump[${seltnums[1]}.skip]}} ${${(M)cuedump[${seltnums[1]}.until]:#<1->}:+--until=${cuedump[${seltnums[1]}.until]}} -- $ifile | keyfinder-cli -n openkey /dev/stdin|awk $openkey2harmony)" || :
                     command ${(s. .)rundec} ${${(M)cuedump[${seltnums[1]}.skip]:#<1->}:+--skip=${cuedump[${seltnums[1]}.skip]}} ${${(M)cuedump[${seltnums[1]}.until]:#<1->}:+--until=${cuedump[${seltnums[1]}.until]}} -- $ifile | rw | eval command ${${${(f)runenc}:#}//\[\$tn./'[${seltnums[1]}.'} ${(s. .q)2} -
                     shift seltnums
                   done
@@ -786,6 +789,34 @@ BEGIN {
   } else
     print;
 }
+'
+
+declare openkey2harmony='
+BEGIN{
+o2h["6m"]="Abm";
+o2h["7m"]="Ebm";
+o2h["8m"]="Bbm";
+o2h["9m"]="Fm";
+o2h["10m"]="Cm";
+o2h["11m"]="Gm";                                                                        o2h["12m"]="Dm";                                                                        o2h["1m"]="Am";
+o2h["2m"]="Em";
+o2h["3m"]="Bm";
+o2h["4m"]="F#m";
+o2h["5m"]="Dbm";
+o2h["6d"]="B";
+o2h["7d"]="F#";
+o2h["8d"]="D#";
+o2h["9d"]="Ab";
+o2h["10d"]="Eb";
+o2h["11d"]="Bb";
+o2h["12d"]="F";
+o2h["1d"]="C";
+o2h["2d"]="G";
+o2h["3d"]="D";
+o2h["4d"]="A";
+o2h["5d"]="E";
+}
+$0 in o2h {print o2h[$0];}
 '
 
 function aubiotrack2bpm {
