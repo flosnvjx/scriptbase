@@ -341,12 +341,12 @@ ${cuedump[d.REM TOTALDISCS]:+--comment=DISCTOTAL=${cuedump[d.REM TOTALDISCS]}}
 --comment=TRACKTOTAL=${cuedump[tc]}
 ${cuedump[d.REM MUSICBRAINZ_ALBUMID]:+--comment=MUSICBRAINZ_ALBUMID=${cuedump[d.REM MUSICBRAINZ_ALBUMID]}}
 ${cuedump[$tn.REM MUSICBRAINZ_RELEASETRACKID]:+--comment=MUSICBRAINZ_RELEASETRACKID=${cuedump[$tn.REM MUSICBRAINZ_RELEASETRACKID]}}
-${${cuedump[$tn.REM REPLAYGAIN_TRACK_GAIN]:-$REPLAYGAIN_TRACK_GAIN}:+--comment=REPLAYGAIN_TRACK_GAIN=${cuedump[$tn.REM REPLAYGAIN_TRACK_GAIN]:-$REPLAYGAIN_TRACK_GAIN}}
-${${cuedump[$tn.REM REPLAYPEAK_TRACK_PEAK]:-$REPLAYGAIN_TRACK_PEAK}:+--comment=REPLAYPEAK_TRACK_PEAK=${cuedump[$tn.REM REPLAYPEAK_TRACK_PEAK]:-$REPLAYPEAK_TRACK_PEAK}}
+${${cuedump[$tn.REM REPLAYGAIN_TRACK_GAIN]:-${REPLAYGAIN_TRACK_GAINs[$tn]}}:+--comment=REPLAYGAIN_TRACK_GAIN=${cuedump[$tn.REM REPLAYGAIN_TRACK_GAIN]:-${REPLAYGAIN_TRACK_GAINs[$tn]}}}
+${${cuedump[$tn.REM REPLAYPEAK_TRACK_PEAK]:-${REPLAYGAIN_TRACK_PEAKs[$tn]}}:+--comment=REPLAYPEAK_TRACK_PEAK=${cuedump[$tn.REM REPLAYPEAK_TRACK_PEAK]:-${REPLAYGAIN_TRACK_PEAKs[$tn]}}}
 ${cuedump[d.REM REPLAYGAIN_ALBUM_GAIN]:+--comment=REPLAYGAIN_ALBUM_GAIN=${cuedump[d.REM REPLAYGAIN_ALBUM_GAIN]}}
 ${cuedump[d.REM REPLAYPEAK_ALBUM_PEAK]:+--comment=REPLAYPEAK_ALBUM_PEAK=${cuedump[d.REM REPLAYPEAK_ALBUM_PEAK]}}
-${${cuedump[$tn.REM BPM]:-${(M)testbpm:#<1->}}:+--comment=BPM=${cuedump[$tn.BPM]:-$testbpm}}
-${testmusicalkey:+--comment=KEY=$testmusicalkey}
+${${cuedump[$tn.REM BPM]:-${(M)testbpms[$tn]:#<1->}}:+--comment=BPM=${cuedump[$tn.BPM]:-${testbpms[$tn]}}}
+${testmusicalkeys[$tn]:+--comment=KEY=${testmusicalkeys[$tn]}}
 '
                 runenc+='-o
 /sdcard/Music/albums/${${${${cuedump[d.TITLE]:- }/#./．}//\//／}:0:85}/${${:-${cuedump[d.REM DISCNUMBER]:+${cuedump[d.REM DISCNUMBER]}#}${cuedump[$tn.tnum]}${cuedump[$tn.TITLE]:+.${cuedump[$tn.TITLE]//\//／}}}:0:80}'
@@ -377,6 +377,9 @@ ${testmusicalkey:+--comment=KEY=$testmusicalkey}
                 }
                 (( $#seltnums )) || continue
               }
+              local -a testbpms=()
+              local -a testmusicalkeys=()
+              local -a REPLAYGAIN_TRACK_GAINs=() REPLAYGAIN_TRACK_PEAKs=()
               case "${ffprobe[format.format_name]}" in
                 (wv) wvunpack -qmvz0 -- $ifile
                 rundec='wvunpack -q -z0 -o -'
@@ -386,17 +389,17 @@ ${testmusicalkey:+--comment=KEY=$testmusicalkey}
                 ;|
                 (flac|wv)
                   while (( $#seltnums )); do
-                    local -i testbpm=0
-                    local testmusicalkey=
-                    local REPLAYGAIN_TRACK_GAIN= REPLAYGAIN_TRACK_PEAK=
                     if ! (( ${#cuedump[${seltnums[1]}.REM BPM]} )); then
-                      testbpm="$(command ${(s. .)rundec} ${${(M)cuedump[${seltnums[1]}.skip]:#<1->}:+--skip=${cuedump[${seltnums[1]}.skip]}} ${${(M)cuedump[${seltnums[1]}.until]:#<1->}:+--until=${cuedump[${seltnums[1]}.until]}} -- $ifile | aubiotrack -i /dev/stdin | aubiotrack2bpm)" || :
+                      testbpms[${seltnums[1]}]="$(command ${(s. .)rundec} ${${(M)cuedump[${seltnums[1]}.skip]:#<1->}:+--skip=${cuedump[${seltnums[1]}.skip]}} ${${(M)cuedump[${seltnums[1]}.until]:#<1->}:+--until=${cuedump[${seltnums[1]}.until]}} -- $ifile | aubiotrack -i /dev/stdin | aubiotrack2bpm)" || :
                     fi
-                    testmusicalkey="$(command ${(s. .)rundec} ${${(M)cuedump[${seltnums[1]}.skip]:#<1->}:+--skip=${cuedump[${seltnums[1]}.skip]}} ${${(M)cuedump[${seltnums[1]}.until]:#<1->}:+--until=${cuedump[${seltnums[1]}.until]}} -- $ifile | keyfinder-cli -n openkey /dev/stdin|awk $openkey2harmony)" || :
+                    testmusicalkeys[${seltnums[1]}]="$(command ${(s. .)rundec} ${${(M)cuedump[${seltnums[1]}.skip]:#<1->}:+--skip=${cuedump[${seltnums[1]}.skip]}} ${${(M)cuedump[${seltnums[1]}.until]:#<1->}:+--until=${cuedump[${seltnums[1]}.until]}} -- $ifile | keyfinder-cli -n openkey /dev/stdin|awk $openkey2harmony)" || :
                     if ! (( ${#cuedump[${seltnums[1]}.REM REPLAYGAIN_TRACK_GAIN]} && ${#cuedump[${seltnums[1]}.REM REPLAYGAIN_TRACK_PEAK]} )); then
+                      local REPLAYGAIN_TRACK_GAIN= REPLAYGAIN_TRACK_PEAK=
                       command ${(s. .)rundec} ${${(M)cuedump[${seltnums[1]}.skip]:#<1->}:+--skip=${cuedump[${seltnums[1]}.skip]}} ${${(M)cuedump[${seltnums[1]}.until]:#<1->}:+--until=${cuedump[${seltnums[1]}.until]}} -- $ifile | gainstdin
+                      REPLAYGAIN_TRACK_GAINs[${seltnums[1]}]=$REPLAYGAIN_TRACK_GAIN
+                      REPLAYGAIN_TRACK_PEAKs[${seltnums[1]}]=$REPLAYGAIN_TRACK_PEAK
                     fi
-                    command ${(s. .)rundec} ${${(M)cuedump[${seltnums[1]}.skip]:#<1->}:+--skip=${cuedump[${seltnums[1]}.skip]}} ${${(M)cuedump[${seltnums[1]}.until]:#<1->}:+--until=${cuedump[${seltnums[1]}.until]}} -- $ifile | rw | eval command ${${${(f)runenc}:#}//\[\$tn./'[${seltnums[1]}.'} ${(s. .q)2} -
+                    command ${(s. .)rundec} ${${(M)cuedump[${seltnums[1]}.skip]:#<1->}:+--skip=${cuedump[${seltnums[1]}.skip]}} ${${(M)cuedump[${seltnums[1]}.until]:#<1->}:+--until=${cuedump[${seltnums[1]}.until]}} -- $ifile | rw | eval command ${${${${(f)runenc}:#}//\[\$tn./'[${seltnums[1]}.'}//\[\$tn\]/'[${seltnums[1]}]'} ${(s. .q)2} -
                     shift seltnums
                   done
                 ;|
