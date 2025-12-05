@@ -83,16 +83,16 @@ function .main {
       local -a match=()
       case ${(@)#${(@u)cuefiletitledirectives}} in
         (0)
-          albumtitles+=("${${${cuefiles[$walkcuefiles]%(#i).cue}%/[0-9A-Z]##[-0-9A-Z]##}##*/}")
+          albumtitles+=("${${${cuefiles[$walkcuefiles]:r}%/[0-9A-Z]##[-0-9A-Z]##}:t}")
             until (( ${#albumtitles[$walkcuefiles]} )); do timeout 0.01 cat >/dev/null || :; vared -ehp 'album> ' "albumtitles[$walkcuefiles]"; done
           ;|
         (<1->)
           albumtitles[$walkcuefiles]=${cuefiletitledirectives[$walkcuefiles]/%( #[\[\(（<]|  #)(#i)Disc #(#b)(<1->)(#B)(#I)([\]\)）>]|)}
           if (( ${#albumtitles[$walkcuefiles]} && ${(@)#${(@M)albumtitles:#${(q)albumtitles[$walkcuefiles]}}} > 1 )); then
-            albumtitles[$walkcuefiles]=${(@)albumtitles[(i)${(q)albumtitles[$walkcuefiles]}]}
+            :
           else
             if (( ! ${#albumtitles[$walkcuefiles]} )); then
-              albumtitles[$walkcuefiles]=${${${cuefiles[$walkcuefiles]}%/[0-9A-Z]##[-0-9A-Z]##}:t:r}
+              albumtitles[$walkcuefiles]=${${${cuefiles[$walkcuefiles]:r}%/[0-9A-Z]##[-0-9A-Z]##}:t}
             fi
             while timeout 0.01 cat >/dev/null || :; do vared -ehp 'album> ' "albumtitles[$walkcuefiles]"
               if (( ${#albumtitles[$walkcuefiles]} )); then break; fi
