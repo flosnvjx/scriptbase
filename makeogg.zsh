@@ -129,6 +129,14 @@ function .main {
             if (( totaldiscs[walkcuefiles] > 1 )); then
               catnos[$walkcuefiles]=${${catnos[${albumtitles[(i)${(q)albumtitles[$walkcuefiles]}]}]}:-${match[1]}}
             fi
+            if (( !${#catnos[$walkcuefiles]} )) && (( $#acuefiles == totaldiscs[walkcuefiles] )) && (( 1 == ${(@)#${(@u)albumtitles}} )); then
+              if [[ ${cuefiles[$walkcuefiles]} == ?*/?* ]]; then
+                : ${(M)${cuefiles[$walkcuefiles]:h:t}:#*\[(#b)([A-Z](#c3,5)(-[A-Z](#c0,3)[0-9](#c1,5)[A-Z](#c0,3))(#c1,3))\]*}
+              else
+                : ${(M)${PWD:t}:#*\[(#b)([A-Z](#c3,5)(-[A-Z](#c0,3)[0-9](#c1,5)[A-Z](#c0,3))(#c1,3))\]*}
+              fi
+              catnos[$walkcuefiles]=${match[1]}
+            fi
             while :;do
               timeout 0.01 cat > /dev/null||:
               vared -ehp 'pn> ' "catnos[$walkcuefiles]"
