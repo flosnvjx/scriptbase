@@ -349,12 +349,11 @@ ${cuedump[d.REM TOTALDISCS]:+--comment=DISCTOTAL=${cuedump[d.REM TOTALDISCS]}}
 ${cuedump[$tn.ISRC]:+--comment=ISRC=${cuedump[$tn.ISRC]}}
 ${cuedump[d.REM MUSICBRAINZ_ALBUMID]:+--comment=MUSICBRAINZ_ALBUMID=${cuedump[d.REM MUSICBRAINZ_ALBUMID]}}
 ${cuedump[$tn.REM MUSICBRAINZ_RELEASETRACKID]:+--comment=MUSICBRAINZ_RELEASETRACKID=${cuedump[$tn.REM MUSICBRAINZ_RELEASETRACKID]}}
+${cuedump[$tn.REM BPM]+--comment=BPM=${cuedump[$tn.REM BPM]}}
 ${${cuedump[$tn.REM REPLAYGAIN_TRACK_GAIN]:-${REPLAYGAIN_TRACK_GAINs[$tn]}}:+--comment=REPLAYGAIN_TRACK_GAIN=${cuedump[$tn.REM REPLAYGAIN_TRACK_GAIN]:-${REPLAYGAIN_TRACK_GAINs[$tn]}}}
 ${${cuedump[$tn.REM REPLAYPEAK_TRACK_PEAK]:-${REPLAYGAIN_TRACK_PEAKs[$tn]}}:+--comment=REPLAYPEAK_TRACK_PEAK=${cuedump[$tn.REM REPLAYPEAK_TRACK_PEAK]:-${REPLAYGAIN_TRACK_PEAKs[$tn]}}}
 ${cuedump[d.REM REPLAYGAIN_ALBUM_GAIN]:+--comment=REPLAYGAIN_ALBUM_GAIN=${cuedump[d.REM REPLAYGAIN_ALBUM_GAIN]}}
 ${cuedump[d.REM REPLAYPEAK_ALBUM_PEAK]:+--comment=REPLAYPEAK_ALBUM_PEAK=${cuedump[d.REM REPLAYPEAK_ALBUM_PEAK]}}
-${${cuedump[$tn.REM BPM]:-${(M)testbpms[$tn]:#<1->}}:+--comment=BPM=${cuedump[$tn.BPM]:-${testbpms[$tn]}}}
-${testmusicalkeys[$tn]:+--comment=KEY=${testmusicalkeys[$tn]}}
 '
                 runenc+='-o
 /sdcard/Music/albums/${${${${cuedump[d.TITLE]:- }/#./．}//\//／}:0:85}/"${${:-${cuedump[d.REM DISCNUMBER]:+${cuedump[d.REM DISCNUMBER]}#}${cuedump[$tn.tnum]}${cuedump[$tn.TITLE]:+.${cuedump[$tn.TITLE]//\//／}}}:0:80}"'
@@ -397,10 +396,6 @@ ${testmusicalkeys[$tn]:+--comment=KEY=${testmusicalkeys[$tn]}}
                 ;|
                 (flac|wv)
                   while (( $#seltnums )); do
-                    if ! (( ${#cuedump[${seltnums[1]}.REM BPM]} )); then
-                      testbpms[${seltnums[1]}]="$(command ${(s. .)rundec} ${${(M)cuedump[${seltnums[1]}.skip]:#<1->}:+--skip=${cuedump[${seltnums[1]}.skip]}} ${${(M)cuedump[${seltnums[1]}.until]:#<1->}:+--until=${cuedump[${seltnums[1]}.until]}} -- $ifile | aubiotrack -B 2048 -H 1024 -i /dev/stdin | aubiotrack2bpm)" || :
-                    fi
-                    testmusicalkeys[${seltnums[1]}]="$(command ${(s. .)rundec} ${${(M)cuedump[${seltnums[1]}.skip]:#<1->}:+--skip=${cuedump[${seltnums[1]}.skip]}} ${${(M)cuedump[${seltnums[1]}.until]:#<1->}:+--until=${cuedump[${seltnums[1]}.until]}} -- $ifile | keyfinder-cli -n openkey /dev/stdin|awk $openkey2harmony)" || :
                     if ! (( ${#cuedump[${seltnums[1]}.REM REPLAYGAIN_TRACK_GAIN]} && ${#cuedump[${seltnums[1]}.REM REPLAYGAIN_TRACK_PEAK]} )); then
                       local REPLAYGAIN_TRACK_GAIN= REPLAYGAIN_TRACK_PEAK=
                       command ${(s. .)rundec} ${${(M)cuedump[${seltnums[1]}.skip]:#<1->}:+--skip=${cuedump[${seltnums[1]}.skip]}} ${${(M)cuedump[${seltnums[1]}.until]:#<1->}:+--until=${cuedump[${seltnums[1]}.until]}} -- $ifile | gainstdin
@@ -421,32 +416,12 @@ ${testmusicalkeys[$tn]:+--comment=KEY=${testmusicalkeys[$tn]}}
                   command ffmpeg -loglevel warning -xerror -hide_banner -err_detect explode -i $ifile -f s16le - | {
                     for ((tn=1;tn<=cuedump[tc];tn++)); do
                       if (( ${seltnums[(I)$tn]} )); then
-                        testbpms[$tn]="$(dd bs=128K ${${(M)cuedump[$tn.pskip]:#<1->}:+skip=$(( 4 * ${cuedump[$tn.pskip]} ))B} ${${(M)cuedump[$tn.plen]}:+count=$(( 4 * ${cuedump[$tn.plen]} ))B} iflag=fullblock status=none | \
-                        ffmpeg -loglevel warning -xerror -hide_banner -err_detect explode -f s16le -i - -f wav - | aubiotrack -B 2048 -H 1024 -i /dev/stdin | aubiotrack2bpm)"
-                      else
-                        dd bs=128K ${${(M)cuedump[$tn.pskip]:#<1->}:+skip=$(( 4 * ${cuedump[$tn.pskip]} ))B} ${${(M)cuedump[$tn.plen]}:+count=$(( 4 * ${cuedump[$tn.plen]} ))B} iflag=fullblock status=none of=/dev/null
-                      fi
-                    done
-                  }
-                  command ffmpeg -loglevel warning -xerror -hide_banner -err_detect explode -i $ifile -f s16le - | {
-                    for ((tn=1;tn<=cuedump[tc];tn++)); do
-                      if (( ${seltnums[(I)$tn]} )); then
-                        testmusicalkeys[$tn]="$(dd bs=128K ${${(M)cuedump[$tn.pskip]:#<1->}:+skip=$(( 4 * ${cuedump[$tn.pskip]} ))B} ${${(M)cuedump[$tn.plen]}:+count=$(( 4 * ${cuedump[$tn.plen]} ))B} iflag=fullblock status=none | \
-                        ffmpeg -loglevel warning -xerror -hide_banner -err_detect explode -f s16le -i - -f wav - | keyfinder-cli -n openkey /dev/stdin|awk $openkey2harmony)"
-                      else
-                        dd bs=128K ${${(M)cuedump[$tn.pskip]:#<1->}:+skip=$(( 4 * ${cuedump[$tn.pskip]} ))B} ${${(M)cuedump[$tn.plen]}:+count=$(( 4 * ${cuedump[$tn.plen]} ))B} iflag=fullblock status=none of=/dev/null
-                      fi
-                    done
-                  }
-                  command ffmpeg -loglevel warning -xerror -hide_banner -err_detect explode -i $ifile -f s16le - | {
-                    for ((tn=1;tn<=cuedump[tc];tn++)); do
-                      if (( ${seltnums[(I)$tn]} )); then
                         local REPLAYGAIN_TRACK_GAIN= REPLAYGAIN_TRACK_PEAK=
                         dd bs=128K ${${(M)cuedump[$tn.pskip]:#<1->}:+skip=$(( 4 * ${cuedump[$tn.pskip]} ))B} ${${(M)cuedump[$tn.plen]}:+count=$(( 4 * ${cuedump[$tn.plen]} ))B} iflag=fullblock status=none | gainstdin s16le
                         REPLAYGAIN_TRACK_GAINs[$tn]=$REPLAYGAIN_TRACK_GAIN
                         REPLAYGAIN_TRACK_PEAKs[$tn]=$REPLAYGAIN_TRACK_PEAK
                       else
-                        dd bs=128K ${${(M)cuedump[$tn.pskip]:#<1->}:+skip=$(( 4 * ${cuedump[$tn.pskip]} ))B} ${${(M)cuedump[$tn.plen]}:+count=$(( 4 * ${cuedump[$tn.plen]} ))B} iflag=fullblock status=none of=/dev/null
+                        pv -qX${cuedump[$tn.plen]:+Ss$((4*cuedump[$tn.plen]+4*cuedump[$tn.pskip]))}
                       fi
                     done
                   }
