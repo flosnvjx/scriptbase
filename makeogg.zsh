@@ -339,14 +339,14 @@ ${${${${(s|・|)${(s| / |)${(s|, |)${(s|、|)cuedump[$tn.VOCALIST]:-${cuedump[d.
 ${${${${(s|・|)${(s| / |)${(s|, |)${(s|、|)cuedump[$tn.PERFORMER]:-${cuedump[d.PERFORMER]}}}}}/#[	 ]##}/%[	 ]##}:+--comment=ARTIST=}${^${${(s|・|)${(s| / |)${(s|, |)${(s|、|)cuedump[$tn.PERFORMER]:-${cuedump[d.PERFORMER]}}}}}/#[	 ]##}/%[	 ]##}
 ${${${cuedump[d.TITLE]/#[    ]#}/%[   ]#}:+--comment=ALBUM=${${cuedump[d.TITLE]/#[    ]#}/%[   ]#}}
 ${${${${(s| / |)${(s|, |)${(s|、|)cuedump[d.PERFORMER]}}}//#[	 ]##}//%[	 ]##}:+--comment=ALBUMARTIST=}${^${${(s| / |)${(s|, |)${(s|、|)cuedump[d.PERFORMER]}}}/#[	 ]##}/%[	 ]##}
+${cuedump[d.REM DISCNUMBER]:+--comment=DISCNUMBER=${cuedump[d.REM DISCNUMBER]}}
 ${cuedump[d.date]:+--comment=DATE=${cuedump[d.date]}}
 ${${${${(s| / |)${(s|×|)${(s|、|)cuedump[d.REM LABEL]}}}//#[	 ]##}//%[	 ]##}:+--comment=LABEL=}${^${${(s| / |)${(s|×|)${(s|、|)cuedump[d.REM LABEL]}}}/#[	 ]##}/%[	 ]##}
 ${${${${cuedump[$th.REM COMMENT]:-${cuedump[d.REM COMMENT]}}//#[	 ]#}//%[	 ]#}:+--comment=COMMENT=${${${cuedump[$th.REM COMMENT]:-${cuedump[d.REM COMMENT]}}/#[	 ]#}/%[	 ]#}}
 ${cuedump[d.REM CATALOGNUMBER]:+--comment=CATALOGNUMBER=${cuedump[d.REM CATALOGNUMBER]}}
-${cuedump[$tn.ISRC]:+--comment=ISRC=${cuedump[$tn.ISRC]}}
-${cuedump[d.REM DISCNUMBER]:+--comment=DISCNUMBER=${cuedump[d.REM DISCNUMBER]}}
 ${cuedump[d.REM TOTALDISCS]:+--comment=DISCTOTAL=${cuedump[d.REM TOTALDISCS]}}
 --comment=TRACKTOTAL=${cuedump[tc]}
+${cuedump[$tn.ISRC]:+--comment=ISRC=${cuedump[$tn.ISRC]}}
 ${cuedump[d.REM MUSICBRAINZ_ALBUMID]:+--comment=MUSICBRAINZ_ALBUMID=${cuedump[d.REM MUSICBRAINZ_ALBUMID]}}
 ${cuedump[$tn.REM MUSICBRAINZ_RELEASETRACKID]:+--comment=MUSICBRAINZ_RELEASETRACKID=${cuedump[$tn.REM MUSICBRAINZ_RELEASETRACKID]}}
 ${${cuedump[$tn.REM REPLAYGAIN_TRACK_GAIN]:-${REPLAYGAIN_TRACK_GAINs[$tn]}}:+--comment=REPLAYGAIN_TRACK_GAIN=${cuedump[$tn.REM REPLAYGAIN_TRACK_GAIN]:-${REPLAYGAIN_TRACK_GAINs[$tn]}}}
