@@ -35,7 +35,7 @@ function .main {
   local -a cuefilecodepages cuebuffers cue{file,discnumber,totaldiscs,filetitle,catno}directives
   local -a albumtitles albumfiles discnumbers totaldiscs catnos
   if [[ "$mmode" = tidy ]]; then
-    local -a albumtidyfiles surls vgmdbids bgmids cue{performer,label,date}directives
+    local -a albumtidyfiles surls vgmdbids bgmids cue{performer,label,date}directives dates labels aarts
   fi
   function {
     local walkcuefiles REPLY
@@ -123,27 +123,55 @@ function .main {
           fi
 
           catnos[$walkcuefiles]=${cuecatnodirectives[$walkcuefiles]}
-          match=()
-          : ${(M)${cuefiledirectives[$walkcuefiles]:t:r}:#(#b)([A-Z](#c3,5)(-[A-Z](#c0,3)[0-9](#c1,5)[A-Z](#c0,3))(#c1,2))}
           if (( !${#catnos[$walkcuefiles]} )); then
+            match=()
+            : ${(M)${cuefiledirectives[$walkcuefiles]:t:r}:#(#b)([A-Z][A-Z0-9](#c1,4)(-[A-Z](#c0,3)[0-9](#c1,5)[A-Z](#c0,3))(#c1,2))}
             if (( totaldiscs[walkcuefiles] > 1 )); then
               catnos[$walkcuefiles]=${${catnos[${albumtitles[(i)${(q)albumtitles[$walkcuefiles]}]}]}:-${match[1]}}
             fi
             if (( !${#catnos[$walkcuefiles]} )) && (( $#acuefiles == totaldiscs[walkcuefiles] )) && (( 1 == ${(@)#${(@u)albumtitles}} )); then
               if [[ ${cuefiles[$walkcuefiles]} == ?*/?* ]]; then
-                : ${(M)${cuefiles[$walkcuefiles]:h:t}:#*\[(#b)([A-Z](#c3,5)(-[A-Z](#c0,3)[0-9](#c1,5)[A-Z](#c0,3))(#c1,3))\]*}
+                : ${(M)${cuefiles[$walkcuefiles]:h:t}:#*\[(#b)([A-Z][A-Z0-9](#c1,4)(-[A-Z](#c0,3)[0-9](#c1,5)[A-Z](#c0,3))(#c1,2))\]*}
               else
-                : ${(M)${PWD:t}:#*\[(#b)([A-Z](#c3,5)(-[A-Z](#c0,3)[0-9](#c1,5)[A-Z](#c0,3))(#c1,3))\]*}
+                : ${(M)${PWD:t}:#*\[(#b)([A-Z][A-Z0-9](#c1,4)(-[A-Z](#c0,3)[0-9](#c1,5)[A-Z](#c0,3))(#c1,2))\]*}
               fi
               catnos[$walkcuefiles]=${match[1]}
             fi
             while :;do
               timeout 0.01 cat > /dev/null||:
               vared -ehp 'pn> ' "catnos[$walkcuefiles]"
-              if [[ "${catnos[$walkcuefiles]}" = ([A-Z]##(-[A-Z0-9]##)##|) ]]; then
+              if [[ "${catnos[$walkcuefiles]}" = ([A-Z][A-Z0-9]##(-[A-Z0-9]##)#|) ]]; then
                 break
               fi
             done
+          fi
+
+          if [[ "$mmode" = tidy ]]; then
+            match=()
+            dates[$walkcuefiles]=${cuedatedirectives[$walkcuefiles]}
+            if [[ "${dates[$walkcuefiles]}" != (<1980-2099>)([/-](<1-12>)([/-](<1-31>)|)|) ]] || (( !${#match[5]} )); then
+              if (( totaldiscs[walkcuefiles] > 1 )); then
+                dates[$walkcuefiles]=${dates[${albumtitles[(i)${(q)albumtitles[$walkcuefiles]}]}]}
+              fi
+              match=()
+              if (( !${#dates[$walkcuefiles]} )) && (( $#acuefiles == totaldiscs[walkcuefiles] )) && (( 1 == ${(@)#${(@u)albumtitles}} )); then
+                if [[ ${cuefiles[$walkcuefiles]} == ?*/?* ]]; then
+                  : ${(M)${cuefiles[$walkcuefiles]:h:t}:#*\[(#b)([0-9](#c2))([0-9x](#c2))([0-9x](#c2))\]*}
+                else
+                  : ${(M)${PWD:t}:#*\[(#b)([0-9](#c2))([0-9x](#c2))([0-9x](#c2))\]*}
+                fi
+                dates[$walkcuefiles]=${match[3]:+$(( match[1]>=80 ? 1900+match[1] : 2000+match[1] ))${${(M)match[2]:#*x*|00|<13->}:-/$(( match[2] ))${${(M)match[3]:#*x*|00|<32->}:-/$(( match[3] ))}}}
+              fi
+              while :;do
+                timeout 0.01 cat > /dev/null||:
+                vared -ehp 'date> ' "dates[$walkcuefiles]"
+                if [[ "${dates[$walkcuefiles]}" = ((19|20)[0-9][0-9])(/([1-9]|1[0-2])(/([1-9]|[12][0-9]|3[01])|)|) ]]; then
+                  break
+                fi
+              done
+            else
+              dates[$walkcuefiles]=${match[1]}${match[2]:+/$(( match[3] ))${match[4]:+/$(( match[5] ))}}
+            fi
           fi
           ;|
       esac
