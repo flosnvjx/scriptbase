@@ -172,6 +172,36 @@ function .main {
             else
               dates[$walkcuefiles]=${match[1]}${match[2]:+/$(( match[3] ))${match[4]:+/$(( match[5] ))}}
             fi
+
+            labels[$walkcuefiles]=${cuelabeldirectives[$walkcuefiles]}
+            if (( !${#labels[$walkcuefiles]} )); then
+              if (( totaldiscs[walkcuefiles] > 1 )); then
+                labels[$walkcuefiles]=${labels[${albumtitles[(i)${(q)albumtitles[$walkcuefiles]}]}]}
+              fi
+            fi
+            while :;do
+              timeout 0.01 cat > /dev/null||:
+              vared -ehp 'la> ' "labels[$walkcuefiles]"
+              if [[ "${labels[$walkcuefiles]}" = ([^[:space:]]*[^[:space:]]|) ]]; then
+                break
+              fi
+            done
+
+            if [[ -n "${cueperformerdirectives[$walkcuefiles]}" && "${cueperformerdirectives[$walkcuefiles]}" != "${labels[$walkcuefiles]}" && "${cueperformerdirectives[$walkcuefiles]}" != (Various Artist(s|)) ]]; then
+              aarts[$walkcuefiles]=${cueperformerdirectives[$walkcuefiles]}
+            fi
+            if (( !${#aarts[$walkcuefiles]} )); then
+              if (( totaldiscs[walkcuefiles] > 1 )); then
+                aarts[$walkcuefiles]=${aarts[${albumtitles[(i)${(q)albumtitles[$walkcuefiles]}]}]}
+              fi
+            fi
+            while :;do
+              timeout 0.01 cat > /dev/null||:
+              vared -ehp 'la> ' "aarts[$walkcuefiles]"
+              if [[ "${aarts[$walkcuefiles]}" = ([^[:space:]]*[^[:space:]]|) ]]; then
+                break
+              fi
+            done
           fi
           ;|
       esac
