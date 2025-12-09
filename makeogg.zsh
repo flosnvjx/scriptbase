@@ -165,7 +165,7 @@ function .main {
               while :;do
                 timeout 0.01 cat > /dev/null||:
                 vared -ehp 'date> ' "dates[$walkcuefiles]"
-                if [[ "${dates[$walkcuefiles]}" = ((19|20)[0-9][0-9])(/([1-9]|1[0-2])(/([1-9]|[12][0-9]|3[01])|)|) ]]; then
+                if [[ "${dates[$walkcuefiles]}" = ((19|20)[0-9][0-9])([/- ]##([1-9]|1[0-2])([/- ]##([1-9]|[12][0-9]|3[01])|)|) ]]; then
                   break
                 fi
               done
