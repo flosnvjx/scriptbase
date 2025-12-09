@@ -248,6 +248,10 @@ function .main {
           d["d"]["REM DISCNUMBER"]="'${${totaldiscs[$walkcuefiles]:#1}:+$(( discnumbers[$walkcuefiles] ))}'";
           d["d"]["REM TOTALDISCS"]="'$(( totaldiscs[$walkcuefiles] ))'";
           d["d"]["REM CATALOGNUMBER"]="'${catnos[$walkcuefiles]}'";
+
+          '"${${(M)mmode:#tidy}:+d[\"d\"][\"REM LABEL\"]=\"${${labels[$walkcuefiles]//\"/＂}//\\/\\\\}\"}"'
+          '"${${(M)mmode:#tidy}:+d[\"d\"][\"REM DATE\"]=\"${${dates[$walkcuefiles]//\"/＂}//\\/\\\\}\"}"'
+          '"${${(M)mmode:#tidy}:+d[\"d\"][\"PERFORMER\"]=\"${${aarts[$walkcuefiles]//\"/＂}//\\/\\\\}\"}"'
         }
       '$awkcueput) <(print -rn -- ${cuebuffers[$walkcuefiles]}) | readeof mbuf
       print -rn -- ${mbuf} | delta --paging never <(print -rn -- ${cuebuffers[$walkcuefiles]}) - || :
