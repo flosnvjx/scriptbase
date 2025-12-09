@@ -35,7 +35,7 @@ function .main {
   local -a cuefilecodepages cuebuffers cue{file,discnumber,totaldiscs,filetitle,catno}directives
   local -a albumtitles albumfiles discnumbers totaldiscs catnos
   if [[ "$mmode" = tidy ]]; then
-    local -a albumtidyfiles surls vgmdbids bgmids cue{performer,label,date}directives dates labels aarts
+    local -a albumtidyfiles surls vgmdbids cue{performer,label,date}directives dates labels aarts ssdlwids
   fi
   function {
     local walkcuefiles REPLY
@@ -192,6 +192,17 @@ function .main {
               timeout 0.01 cat > /dev/null||:
               vared -ehp 'aart> ' "aarts[$walkcuefiles]"
             fi
+
+            if (( totaldiscs[walkcuefiles] > 1 )); then
+              ssdlwids[$walkcuefiles]=${ssdlwids[${albumtitles[(i)${(q)albumtitles[$walkcuefiles]}]}]}
+            fi
+            if (( !${#ssdlwids[$walkcuefiles]} )) && (( $#acuefiles == totaldiscs[walkcuefiles] )) && (( 1 == ${(@)#${(@u)albumtitles}} )); then
+              match=()
+              if [[ ${cuefiles[$walkcuefiles]} == ?*/?* ]]; then
+                : ${(M)${PWD:t}:#{(#b)M-([0-9](#c7))}*}
+              fi
+              ssdlwids[$walkcuefiles]=${match[1]}
+            fi
           fi
           ;|
       esac
@@ -270,6 +281,7 @@ function .main {
               case "REM DISCNUMBER" :
               case "REM TOTALDISCS" :
               case "REM DATE" :
+              case "REM CATALOGNUMBER" :
                 print k " " (tr==""&&tr==0 ? d["d"][k] : d[tr][k]);
                 break;
               default :
