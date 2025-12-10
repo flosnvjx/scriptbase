@@ -149,23 +149,26 @@ function .main {
           if [[ "$mmode" = tidy ]]; then
             match=()
             dates[$walkcuefiles]=${cuedatedirectives[$walkcuefiles]}
-            if [[ "${dates[$walkcuefiles]}" != (<1980-2099>)([/-](<1-12>)([/-](<1-31>)|)|) ]] || (( !${#match[5]} )); then
+            if [[ "${dates[$walkcuefiles]}" != (#b)(<1980-2099>)([/-](<1-12>)([/-](<1-31>)|)|) ]] || (( !${#match[5]} )); then
               if (( totaldiscs[walkcuefiles] > 1 )); then
                 dates[$walkcuefiles]=${dates[${albumtitles[(i)${(q)albumtitles[$walkcuefiles]}]}]}
               fi
               match=()
-              if (( !${#dates[$walkcuefiles]} )) && (( $#acuefiles == totaldiscs[walkcuefiles] )) && (( 1 == ${(@)#${(@u)albumtitles}} )); then
-                if [[ ${cuefiles[$walkcuefiles]} == ?*/?* ]]; then
+              if (( !${#dates[$walkcuefiles]} || !${#match[5]} )) && (( $#acuefiles == totaldiscs[walkcuefiles] )) && (( 1 == ${(@)#${(@u)albumtitles}} )); then
+                if [[ ${cuefiles[$walkcuefiles]} == ?*/?* && ${cuefiles[$walkcuefiles]:r} != (#i)Disc[0-9]##/[^/]## ]]; then
                   : ${(M)${cuefiles[$walkcuefiles]:h:t}:#*\[(#b)([0-9](#c2))([0-9x](#c2))([0-9x](#c2))\]*}
                 else
                   : ${(M)${PWD:t}:#*\[(#b)([0-9](#c2))([0-9x](#c2))([0-9x](#c2))\]*}
                 fi
-                dates[$walkcuefiles]=${match[3]:+$(( match[1]>=80 ? 1900+match[1] : 2000+match[1] ))${${(M)match[2]:#*x*|00|<13->}:-/$(( match[2] ))${${(M)match[3]:#*x*|00|<32->}:-/$(( match[3] ))}}}
+                if (( ${#match[3]} )); then
+                  dates[$walkcuefiles]=${match[3]:+$(( match[1]>=80 ? 1900+match[1] : 2000+match[1] ))${${(M)match[2]:#*x*|00|<13->}:-/$(( match[2] ))${${(M)match[3]:#*x*|00|<32->}:-/$(( match[3] ))}}}
+                fi
               fi
               while :;do
                 timeout 0.01 cat > /dev/null||:
                 vared -ehp 'date> ' "dates[$walkcuefiles]"
-                if [[ "${dates[$walkcuefiles]}" = ((19|20)[0-9][0-9])([/- ]##([1-9]|1[0-2])([/- ]##([1-9]|[12][0-9]|3[01])|)|) ]]; then
+                if [[ "${dates[$walkcuefiles]}" = (#b)(<1980-2099>)([ /-](<1-12>)([ /-](<1-31>)|)|) ]]; then
+                  dates[$walkcuefiles]=$(( match[1] ))${match[3]:+/$(( match[3] ))${match[5]:+/$(( match[5] ))}}
                   break
                 fi
               done
@@ -198,10 +201,11 @@ function .main {
             fi
             if (( !${#ssdlwids[$walkcuefiles]} )) && (( $#acuefiles == totaldiscs[walkcuefiles] )) && (( 1 == ${(@)#${(@u)albumtitles}} )); then
               match=()
-              if [[ ${cuefiles[$walkcuefiles]} == ?*/?* ]]; then
-                : ${(M)${PWD:t}:#{(#b)M-([0-9](#c7))}*}
-              fi
+              : ${(M)${PWD:t}:#{(#b)(M-[0-9](#c7))}*}
               ssdlwids[$walkcuefiles]=${match[1]}
+            fi
+            if (( !${#ssdlwids[$walkcuefiles]} )) && (( $#ssdlwtxt )); then
+              ssdlwids[$walkcuefiles]="$(fzf --wrap < $ssdlwtxt | sed -Ee 's%^\{M-([0-9]{7})}.*%M.\1%')" || :
             fi
           fi
           ;|
