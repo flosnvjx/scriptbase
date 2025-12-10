@@ -87,7 +87,7 @@ function .main {
             until (( ${#albumtitles[$walkcuefiles]} )); do timeout 0.01 cat >/dev/null || :; vared -ehp 'album> ' "albumtitles[$walkcuefiles]"; done
           ;|
         (<1->)
-          albumtitles[$walkcuefiles]=${cuefiletitledirectives[$walkcuefiles]%[ 　]#([\[\(（<]|)(#i)Disc[＊*#＃. ]#(#b)(<1->)(#B)(#I)([\]\)）>]|)}
+          albumtitles[$walkcuefiles]=${cuefiletitledirectives[$walkcuefiles]%[ 　]#([\[\(（<]|)(#i)Disc([＊*#＃. ]|)(#b)(<1->)(#B)(#I)([\]\)）>]|)}
           if (( ${#albumtitles[$walkcuefiles]} && ${(@)#${(@M)albumtitles:#${albumtitles[$walkcuefiles]}}} > 1 )); then
             :
           else
@@ -111,7 +111,16 @@ function .main {
             until vared -ep 'dc> ' "totaldiscs[$walkcuefiles]" && [[ "${totaldiscs[walkcuefiles]}" == [0-9]## ]] && (( totaldiscs[walkcuefiles] > 0 )); do timeout 0.01 cat >/dev/null || :; done
           fi
 
-          discnumbers[$walkcuefiles]=${cuediscnumberdirectives[$walkcuefiles]:-${match[1]}}
+          discnumbers[$walkcuefiles]=${cuediscnumberdirectives[$walkcuefiles]:-$(( match[1] ))}
+          match=()
+          if (( !${#discnumbers[$walkcuefiles]} )); then
+            if [[ "${cuefiles[$walkcuefiles]:t:r}" = (*[^a-zA-Z]##|)(#i)disc([＊*#＃. ]|)(#b)([1-9][1-90]#) ]] || [[ "${cuefiles[$walkcuefiles]:r}" != (#i)Disc(#b)([1-9][1-90]#)/[^/]## ]]; then
+              discnumbers[$walkcuefiles]=$(( match[1] ))
+            fi
+            if (( discnumbers[walkcuefiles] > totaldiscs[walkcuefiles] )); then
+              .warn "totaldiscs < discnumbers"
+            fi
+          fi
           if (( !${#discnumbers[$walkcuefiles]} )); then
             if (( totaldiscs[walkcuefiles] > 1 )); then
               discnumbers[$walkcuefiles]=${(@)#${(@M)albumtitles:#${albumtitles[$walkcuefiles]}}}
@@ -129,7 +138,7 @@ function .main {
               catnos[$walkcuefiles]=${${catnos[${albumtitles[(i)${(q)albumtitles[$walkcuefiles]}]}]}:-${match[1]}}
             fi
             if (( !${#catnos[$walkcuefiles]} )) && (( $#acuefiles == totaldiscs[walkcuefiles] )) && (( 1 == ${(@)#${(@u)albumtitles}} )); then
-              if [[ ${cuefiles[$walkcuefiles]} == ?*/?* ]]; then
+              if [[ ${cuefiles[$walkcuefiles]} == ?*/?* && ${cuefiles[$walkcuefiles]:r} != (#i)Disc[0-9]##/[^/]## ]]; then
                 : ${(M)${cuefiles[$walkcuefiles]:h:t}:#*\[(#b)([A-Z][A-Z0-9](#c1,4)(-[A-Z](#c0,3)[0-9](#c1,5)[A-Z](#c0,3))(#c1,2))\]*}
               else
                 : ${(M)${PWD:t}:#*\[(#b)([A-Z][A-Z0-9](#c1,4)(-[A-Z](#c0,3)[0-9](#c1,5)[A-Z](#c0,3))(#c1,2))\]*}
