@@ -156,7 +156,7 @@ function .main {
             dates[$walkcuefiles]=${cuedatedirectives[$walkcuefiles]}
             if [[ "${dates[$walkcuefiles]}" != (#b)(<1980-2099>)([/-](<1-12>)([/-](<1-31>)|)|) ]] || (( !${#match[5]} )); then
               if (( totaldiscs[walkcuefiles] > 1 )); then
-                dates[$walkcuefiles]=${dates[${albumtitles[(i)${(q)albumtitles[$walkcuefiles]}]}]}
+                dates[$walkcuefiles]=${dates[${albumtitles[(ie)${albumtitles[$walkcuefiles]}]}]}
               fi
               match=()
               if (( !${#dates[$walkcuefiles]} || !${#match[5]} )) && (( $#acuefiles == totaldiscs[walkcuefiles] )) && (( 1 == ${(@)#${(@u)albumtitles}} )); then
