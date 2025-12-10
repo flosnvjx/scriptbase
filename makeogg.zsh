@@ -102,13 +102,10 @@ function .main {
         (<0->)
           totaldiscs[$walkcuefiles]=${cuetotaldiscsdirectives[$walkcuefiles]}
           if (( ${(@)#${(@M)albumtitles:#${albumtitles[$walkcuefiles]}}} > 1)); then
-            if (( totaldiscs[walkcuefiles] < ${(@)#${(@M)albumtitles:#${albumtitles[$walkcuefiles]}}} )); then
-              until [[ "${totaldiscs[walkcuefiles]}" == [0-9]## ]] && (( totaldiscs[${(@)albumtitles[(i)${(q)albumtitles[$walkcuefiles]}]}] >= ${(@)#${(@M)albumtitles:#${albumtitles[$walkcuefiles]}}} )); do timeout 0.01 cat >/dev/null || :; vared -ep 'dc!> ' "totaldiscs[${(@)albumtitles[(i)${(q)albumtitles[$walkcuefiles]}]}]"; done
-            fi
-            totaldiscs[$walkcuefiles]=${(@)albumtitles[(i)${(q)albumtitles[$walkcuefiles]}]}
+            totaldiscs[$walkcuefiles]=${(@)totaldiscs[(i)${(q)albumtitles[$walkcuefiles]}]}
           elif (( ! totaldiscs[walkcuefiles] )); then
             totaldiscs[$walkcuefiles]=$(( ${(@)#${(@M)cuefiletitledirectives:#${albumtitles[$walkcuefiles]}*}} ? ${(@)#${(@M)cuefiletitledirectives:#${albumtitles[$walkcuefiles]}*}} : $#cuefiles ))
-            until vared -ep 'dc> ' "totaldiscs[$walkcuefiles]" && [[ "${totaldiscs[walkcuefiles]}" == [0-9]## ]] && (( totaldiscs[walkcuefiles] > 0 )); do timeout 0.01 cat >/dev/null || :; done
+            until vared -ep 'dc> ' "totaldiscs[$walkcuefiles]" && [[ "${totaldiscs[walkcuefiles]}" == [1-9][0-9]# ]] && (( totaldiscs[walkcuefiles] > 0 )); do timeout 0.01 cat >/dev/null || :; done
           fi
 
           discnumbers[$walkcuefiles]=${cuediscnumberdirectives[$walkcuefiles]:-$(( match[1] ))}
