@@ -102,7 +102,7 @@ function .main {
         (<0->)
           totaldiscs[$walkcuefiles]=${cuetotaldiscsdirectives[$walkcuefiles]}
           if (( ${(@)#${(@M)albumtitles:#${albumtitles[$walkcuefiles]}}} > 1)); then
-            totaldiscs[$walkcuefiles]=${totaldiscs[${(@)albumtitles[(i)${(q)albumtitles[$walkcuefiles]}]}]}
+            totaldiscs[$walkcuefiles]=${totaldiscs[${(@)albumtitles[(ie)${albumtitles[$walkcuefiles]}]}]}
           elif (( ! totaldiscs[walkcuefiles] )); then
             totaldiscs[$walkcuefiles]=$(( ${(@)#${(@M)cuefiletitledirectives:#${albumtitles[$walkcuefiles]}*}} ? ${(@)#${(@M)cuefiletitledirectives:#${albumtitles[$walkcuefiles]}*}} : $#cuefiles ))
             until vared -ep 'dc> ' "totaldiscs[$walkcuefiles]" && [[ "${totaldiscs[walkcuefiles]}" == [1-9][0-9]# ]] && (( totaldiscs[walkcuefiles] > 0 )); do timeout 0.01 cat >/dev/null || :; done
@@ -132,7 +132,7 @@ function .main {
             match=()
             : ${(M)${cuefiledirectives[$walkcuefiles]:t:r}:#(#b)([A-Z][A-Z0-9](#c1,4)(-[A-Z](#c0,3)[0-9](#c1,5)[A-Z](#c0,3))(#c1,2))}
             if (( totaldiscs[walkcuefiles] > 1 )); then
-              catnos[$walkcuefiles]=${${catnos[${albumtitles[(i)${(q)albumtitles[$walkcuefiles]}]}]}:-${match[1]}}
+              catnos[$walkcuefiles]=${${catnos[${(@)albumtitles[(ie)${albumtitles[$walkcuefiles]}]}]}:-${match[1]}}
             fi
             if (( !${#catnos[$walkcuefiles]} )) && (( $#acuefiles == totaldiscs[walkcuefiles] )) && (( 1 == ${(@)#${(@u)albumtitles}} )); then
               if [[ ${cuefiles[$walkcuefiles]} == ?*/?* && ${cuefiles[$walkcuefiles]:r} != (#i)Disc[0-9]##/[^/]## ]]; then
@@ -156,7 +156,7 @@ function .main {
             dates[$walkcuefiles]=${cuedatedirectives[$walkcuefiles]}
             if [[ "${dates[$walkcuefiles]}" != (#b)(<1980-2099>)([/-](<1-12>)([/-](<1-31>)|)|) ]] || (( !${#match[5]} )); then
               if (( totaldiscs[walkcuefiles] > 1 )); then
-                dates[$walkcuefiles]=${dates[${albumtitles[(ie)${albumtitles[$walkcuefiles]}]}]}
+                dates[$walkcuefiles]=${dates[${(@)albumtitles[(ie)${albumtitles[$walkcuefiles]}]}]}
               fi
               match=()
               if (( !${#dates[$walkcuefiles]} || !${#match[5]} )) && (( $#acuefiles == totaldiscs[walkcuefiles] )) && (( 1 == ${(@)#${(@u)albumtitles}} )); then
@@ -184,7 +184,7 @@ function .main {
             labels[$walkcuefiles]=${cuelabeldirectives[$walkcuefiles]}
             if (( !${#labels[$walkcuefiles]} )); then
               if (( totaldiscs[walkcuefiles] > 1 )); then
-                labels[$walkcuefiles]=${labels[${albumtitles[(i)${(q)albumtitles[$walkcuefiles]}]}]}
+                labels[$walkcuefiles]=${labels[${(@)albumtitles[(ie)${albumtitles[$walkcuefiles]}]}]}
               fi
               timeout 0.01 cat > /dev/null||:
               vared -ehp 'la> ' "labels[$walkcuefiles]"
@@ -195,14 +195,14 @@ function .main {
             fi
             if (( !${#aarts[$walkcuefiles]} )); then
               if (( totaldiscs[walkcuefiles] > 1 )); then
-                aarts[$walkcuefiles]=${aarts[${albumtitles[(i)${(q)albumtitles[$walkcuefiles]}]}]}
+                aarts[$walkcuefiles]=${aarts[${(@)albumtitles[(ie)${albumtitles[$walkcuefiles]}]}]}
               fi
               timeout 0.01 cat > /dev/null||:
               vared -ehp 'aart> ' "aarts[$walkcuefiles]"
             fi
 
             if (( totaldiscs[walkcuefiles] > 1 )); then
-              ssdlwids[$walkcuefiles]=${ssdlwids[${albumtitles[(i)${(q)albumtitles[$walkcuefiles]}]}]}
+              ssdlwids[$walkcuefiles]=${ssdlwids[${(@)albumtitles[(ie)${albumtitles[$walkcuefiles]}]}]}
             fi
             if (( !${#ssdlwids[$walkcuefiles]} )) && (( $#acuefiles == totaldiscs[walkcuefiles] )) && (( 1 == ${(@)#${(@u)albumtitles}} )); then
               match=()
