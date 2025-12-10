@@ -35,7 +35,7 @@ function .main {
   local -a cuefilecodepages cuebuffers cue{file,discnumber,totaldiscs,filetitle,catno}directives
   local -a albumtitles albumfiles discnumbers totaldiscs catnos
   if [[ "$mmode" = tidy ]]; then
-    local -a albumtidyfiles surls vgmdbids cue{performer,label,date}directives dates labels aarts ssdlwids
+    local -a albumtidyfiles suris vgmdbids cue{performer,label,date}directives dates labels aarts ssdlwids
   fi
   function {
     local walkcuefiles REPLY
@@ -211,6 +211,59 @@ function .main {
             fi
             if (( !${#ssdlwids[$walkcuefiles]} )) && (( $#ssdlwtxt )); then
               ssdlwids[$walkcuefiles]="$(fzf --wrap < $ssdlwtxt | sed -Ee 's%^\{M-([0-9]{7})}.*%M.\1%')" || :
+            fi
+
+            if (( totaldiscs[walkcuefiles] > 1 )) && (( ${(@)#${(M@)albumtitles:#${albumtitles[$walkcuefiles]}}} > 1 )); then
+              suris[$walkcuefiles]=${suris[${(@)albumtitles[(ie)${albumtitles[$walkcuefiles]}]}]}
+              vgmdbids[$walkcuefiles]=${vgmdbids[${(@)albumtitles[(ie)${albumtitles[$walkcuefiles]}]}]}
+            else
+              if (( !${#suris[$walkcuefiles]} )) && (( $#acuefiles == totaldiscs[walkcuefiles] )) && (( 1 == ${(@)#${(@u)albumtitles}} )); then
+                match=()
+                if [[ ${cuefiles[$walkcuefiles]} == ?*/?* && ${cuefiles[$walkcuefiles]:r} != (#i)Disc[0-9]##/[^/]## ]]; then
+                  eval : '${(M)${cuefiles[$walkcuefiles]:h:t}:#*\[(#b)((@('${(@j.|.)suriscms}'))##)\]*}'
+                else
+                  eval : '${(M)${PWD:t}:#*\[(#b)((@('${(@j.|.)suriscms}'))##)\]*}'
+                fi
+                suris[$walkcuefiles]=${match[1]}
+              fi
+              if (( !${#suris[$walkcuefiles]} )) && (( ${#ssdlwids[$walkcuefiles]} )); then
+                while :; do
+                  local suri=
+                  vared -ehp 'suri+> ' suri
+                  if [[ "$suri" = https://m.miaola.work/read/(#b)([1-9][0-9]#)/sf/([0-9a-f](#c3))(#B)(|/keyword*) ]]; then
+                      suris[$walkcuefiles]+="@kf.${match[1]}.sf${match[2]}"
+                  elif [[ "$suri" = http(s|)://(bgm|bangumi).tv/subject/topic/(#b)([1-9][0-9]#)(#B)(|\#*) ]]; then
+                      suris[$walkcuefiles]+="@bgm.subj.t${match[1]}"
+                  elif [[ "$suri" = http(s|)://tieba[.]baidu[.]com/p/(#b)([1-9][0-9]#)(#B)(|\?*)(|\#*) ]]; then
+                      suris[$walkcuefiles]+="@tb.p${match[1]}"
+                  fi
+                  if (( ${#suris[$walkcuefiles]} )); then
+                    suris[$walkcuefiles]="@"${(j.@.)${(s.@.u)suris[$walkcuefiles]}}
+                  fi
+                  if (( !$#suri )); then break; fi
+                done
+              fi
+              if (( !${#vgmdbids[$walkcuefiles]} )) && (( $#acuefiles == totaldiscs[walkcuefiles] )) && (( 1 == ${(@)#${(@u)albumtitles}} )); then
+                match=()
+                if [[ ${cuefiles[$walkcuefiles]} == ?*/?* && ${cuefiles[$walkcuefiles]:r} != (#i)Disc[0-9]##/[^/]## ]]; then
+                  : ${(M)${cuefiles[$walkcuefiles]:h:t}:#*\[VGMdb.(#b)(<1->)\]*}
+                else
+                  : ${(M)${PWD:t}:#*\[VGMdb.(#b)(<1->)\]*}
+                fi
+                vgmdbids[$walkcuefiles]=${match[1]}
+              fi
+              if (( !${#vgmdbids[$walkcuefiles]} )); then
+                while :; do
+                  vared -ep 'vgmdburi> ' "vgmdbids[$walkcuefiles]"
+                  match=()
+                  case "${vgmdbids[$walkcuefiles]}" in
+                    (https://vgmdb.net/album/<1->|<1->)
+                      vgmdbids[$walkcuefiles]=${vgmdbids[$walkcuefiles]##*/}
+                      break
+                    ;;
+                  esac
+                done
+              fi
             fi
           fi
           ;|
@@ -957,6 +1010,14 @@ function gainstdin {
 
 declare -A cuedump
 declare -A tracktitledump
+
+declare -A suriscms
+suriscms=(
+  'kf' 'kf.<1->.sf[0-9a-f](#c3)'
+  'bangumi.subj.t' 'bgm.subj.t<1->'
+  'tieba.p' 'tb.p<1->'
+)
+
 declare -A commontags
 commontags=(
   'albumartist:A' 'PERFORMER'
