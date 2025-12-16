@@ -1,0 +1,28 @@
+#!/usr/bin/env -S shorthandzsh
+setopt extendedglob pipefail ${DEBUG:+xtrace}
+local w32bindir="$HOME/.local/x64-win32-prefix/bin"
+local -a exes=()
+local exe=
+if [[ "$0" != (*/|)winecmd ]]; then
+  exe=${0##*/}
+else
+  exe=$1
+fi
+case "${exe}" in
+  ([^/]##)
+    exes=($w32bindir/(#i)${exe}(|.exe)(.N) ${w32bindir:h}/opt/?*/(#i)${exe}(|.exe)(.N))
+  ;;
+  (/?*)
+    exes=((#i)${exe}(|.exe)(.N))
+  ;;
+  ([^/]##/?*)
+    exec=($PWD/(#i)${exe}(|.exe)(.N))
+  ;;
+esac
+
+if (( $#exes )); then
+  if [[ "$0" == (*/|)winecmd ]]; then
+    shift
+  fi
+  exec hangover-wine "${exes[1]}" "${(@)argv}"
+fi
