@@ -17,7 +17,7 @@ function .main {
           fi
           shift
         done
-      } aotuv flac
+      } aotuv fdkaac flac
     elif [[ "$1" == (cue|tidy) ]]; then
       mmode=$1
     else
@@ -453,7 +453,8 @@ function .main {
               case "$ofmt" in
                 (aotuv) runenc=$'oggenc\n-Qq5\n-s\n....\n' ;|
                 (flac) runenc=$'flac\n-V8cs\n' ;|
-                ## (fdkaac) runenc=$'fdkaac\n-m\n5\n-w\n20000\n-G\n2\n-S\n--no-timestamp\n' ;|
+                (fdkaac) runenc=${ostr[fdk]// ##/
+} ;|
                 (aotuv|flac)
                 runenc+='
 --comment=TRACKNUMBER=${cuedump[$tn.tnum]/#0}
@@ -1048,10 +1049,14 @@ function .deps {
   fmtstr[tak]='tak ffmpeg -loglevel quiet -xerror -hide_banner -err_detect explode -i %f -bitexact -f wav -'
 
   flac --version &>/dev/null
-  ostr[flac]='flac flac -sV8co %f'
+  ostr[flac]='flac -scV8 '
 
   if oggenc --help | grep -se "aoTuV"; then
-    ostr[aotuv]='cust ext=ogg oggenc -Q -q 5 -s .... -o %f'
+    ostr[aotuv]='oggenc -Qq5 -s .... '
+  fi
+
+  if fdkaac --help &>/dev/null; then
+    ostr[fdkaac]='fdkaac -m3 -G1 -S --no-timestamp '
   fi
 }
 function .uninorm {
