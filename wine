@@ -3,7 +3,7 @@ setopt extendedglob pipefail ${DEBUG:+xtrace}
 local w32bindir="$HOME/.local/x64-win32-prefix/bin"
 local -a exes=()
 local exe=
-if [[ "$0" != (*/|)winecmd ]]; then
+if [[ "$0" != (*/|)wine(|cmd) ]]; then
   exe=${0##*/}
 else
   exe=$1
