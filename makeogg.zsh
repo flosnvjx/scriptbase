@@ -110,7 +110,7 @@ function .main {
 
           discnumbers[$walkcuefiles]=${cuediscnumberdirectives[$walkcuefiles]:-$(( match[1] ))}
           match=()
-          if (( !${#discnumbers[$walkcuefiles]} )); then
+          if (( !${discnumbers[$walkcuefiles]} )); then
             if [[ "${cuefiles[$walkcuefiles]:t:r}" = (*[^a-zA-Z]##|)(#i)disc([＊*#＃. ]|)(#b)([1-9][1-90]#) ]] || [[ "${cuefiles[$walkcuefiles]:r}" != (#i)Disc(#b)([1-9][1-90]#)/[^/]## ]]; then
               discnumbers[$walkcuefiles]=$(( match[1] ))
             fi
@@ -118,7 +118,7 @@ function .main {
               .warn "totaldiscs < discnumbers"
             fi
           fi
-          if (( !${#discnumbers[$walkcuefiles]} )); then
+          if (( !${discnumbers[$walkcuefiles]} )); then
             if (( totaldiscs[walkcuefiles] > 1 )); then
               discnumbers[$walkcuefiles]=${(@)#${(@M)albumtitles:#${albumtitles[$walkcuefiles]}}}
               until vared -ep 'dn> ' "discnumbers[$walkcuefiles]" && (( discnumbers[walkcuefiles] > 0 && discnumbers[walkcuefiles] <= totaldiscs[walkcuefiles] )); do timeout 0.01 cat >/dev/null || :; done
@@ -441,9 +441,9 @@ function .main {
                   elif (( ffprobe[streams.stream.0.duration_ts] < cuedump[${cuedump[tc]}.pskip]+588 )); then
                     .fatal 'cuesheet specified a timestamp beyond the duration of FILE (mismatched FILE?)'
                   fi
-                  if [[ ! -d "/sdcard/Music/albums/${${${${cuedump[d.TITLE]:-
+                  if [[ ! -d "${outdir:-/sdcard/Music/albums}/${${${${cuedump[d.TITLE]:-
 }/#./．}//\//／}:0:85}" ]]; then
-                    mkdir -vp -- "/sdcard/Music/albums/${${${${cuedump[d.TITLE]:- }/#./．}//\//／}:0:85}"
+                    mkdir -vp -- "${outdir:-/sdcard/Music/albums}/${${${${cuedump[d.TITLE]:- }/#./．}//\//／}:0:85}"
                   fi
                 ;;
                 (*)
@@ -514,7 +514,7 @@ ${cuedump[d.REM REPLAYGAIN_ALBUM_GAIN]:+--comment=REPLAYGAIN_ALBUM_GAIN=${cuedum
 ${cuedump[d.REM REPLAYPEAK_ALBUM_PEAK]:+--comment=REPLAYPEAK_ALBUM_PEAK=${cuedump[d.REM REPLAYPEAK_ALBUM_PEAK]}}
 '
                 runenc+='-o
-/sdcard/Music/albums/${${${${cuedump[d.TITLE]:- }/#./．}//\//／}:0:85}/"${${:-${cuedump[d.REM DISCNUMBER]:+${cuedump[d.REM DISCNUMBER]}#}${cuedump[$tn.tnum]}${cuedump[$tn.TITLE]:+.${cuedump[$tn.TITLE]//\//／}}}:0:80}"'
+${outdir:-/sdcard/Music/albums}/${${${${cuedump[d.TITLE]:- }/#./．}//\//／}:0:85}/"${${:-${cuedump[d.REM DISCNUMBER]:+${cuedump[d.REM DISCNUMBER]}#}${cuedump[$tn.tnum]}${cuedump[$tn.TITLE]:+.${cuedump[$tn.TITLE]//\//／}}}:0:80}"'
                 ;|
                 (aotuv) runenc+=.ogg ;|
                 (flac) runenc+=.flac ;|
@@ -1113,7 +1113,7 @@ function .deps {
   flac --version &>/dev/null
   ostr[flac]='flac -scV8 '
 
-  if oggenc --help | grep -se "aoTuV"; then
+  if oggenc --help | grep -qse "aoTuV"; then
     ostr[aotuv]='oggenc -Qq5 -s .... '
   fi
 
