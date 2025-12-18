@@ -453,11 +453,15 @@ function .main {
               case "$ofmt" in
                 (aotuv) runenc=$'oggenc\n-Qq5\n-s\n....\n' ;|
                 (flac) runenc=$'flac\n-V8cs\n' ;|
-                (fdkaac) runenc=${ostr[fdk]// ##/
+                (fdkaac|qaac) runenc=${ostr[$ofmt]// ##/
 } ;|
                 (aotuv|flac)
                 runenc+='
 --comment=TRACKNUMBER=${cuedump[$tn.tnum]/#0}
+'
+                ;|
+                (aotuv|flac|fdkaac|qaac)
+                runenc+='
 ${${${cuedump[$tn.TITLE]/#[    ]#}/%[   ]#}:+--comment=TITLE=${${cuedump[$tn.TITLE]/#[    ]#}/%[   ]#}}
 ${${${${(s|・|)${(s| / |)${(s|, |)${(s|、|)cuedump[$tn.REM COMPOSER]:-${cuedump[$tn.SONGWRITER]:-${cuedump[d.REM COMPOSER]:-${cuedump[d.SONGWRITER]}}}}}}}/#[	 ]##}/%[	 ]##}:+--comment=COMPOSER=}${^${${(s|・|)${(s| / |)${(s|, |)${(s|、|)cuedump[$tn.REM COMPOSER]:-${cuedump[$tn.SONGWRITER]:-${cuedump[d.REM COMPOSER]:-${cuedump[d.SONGWRITER]}}}}}}}/#[	 ]##}/%[	 ]##}
 ${${${${(s|・|)${(s| / |)${(s|, |)${(s|、|)cuedump[$tn.REM ARRANGER]:-${cuedump[d.REM ARRANGER]}}}}}/#[	 ]##}/%[	 ]##}:+--comment=ARRANGER=}${^${${(s|・|)${(s| / |)${(s|, |)${(s|、|)cuedump[$tn.REM ARRANGER]:-${cuedump[d.REM ARRANGER]}}}}}/#[	 ]##}/%[	 ]##}
@@ -466,13 +470,40 @@ ${${${${(s|・|)${(s| / |)${(s|, |)${(s|、|)cuedump[$tn.VOCALIST]:-${cuedump[d.
 ${${${${(s|・|)${(s| / |)${(s|, |)${(s|、|)cuedump[$tn.PERFORMER]:-${cuedump[d.PERFORMER]}}}}}/#[	 ]##}/%[	 ]##}:+--comment=ARTIST=}${^${${(s|・|)${(s| / |)${(s|, |)${(s|、|)cuedump[$tn.PERFORMER]:-${cuedump[d.PERFORMER]}}}}}/#[	 ]##}/%[	 ]##}
 ${${${cuedump[d.TITLE]/#[    ]#}/%[   ]#}:+--comment=ALBUM=${${cuedump[d.TITLE]/#[    ]#}/%[   ]#}}
 ${${${${(s| / |)${(s|, |)${(s|、|)cuedump[d.PERFORMER]}}}//#[	 ]##}//%[	 ]##}:+--comment=ALBUMARTIST=}${^${${(s| / |)${(s|, |)${(s|、|)cuedump[d.PERFORMER]}}}/#[	 ]##}/%[	 ]##}
+'
+                ;|
+                (aotuv|flac)
+                runenc+='
 ${cuedump[d.REM DISCNUMBER]:+--comment=DISCNUMBER=${cuedump[d.REM DISCNUMBER]}}
 ${cuedump[date]:+--comment=DATE=${cuedump[date]}}
+'
+                ;|
+                (fdkaac|qaac)
+                runenc+='
+${${${(M)${#cuedump[date]}:#10}:+--date=${cuedump[date]}T00:00:00Z}:-${cuedump[date]:+--date=${cuedump[date]}}}
+'
+                ;|
+                (aotuv|flac|fdkaac|qaac)
+                runenc+='
 ${${${${(s| / |)${(s|×|)${(s|、|)cuedump[d.REM LABEL]}}}//#[	 ]##}//%[	 ]##}:+--comment=LABEL=}${^${${(s| / |)${(s|×|)${(s|、|)cuedump[d.REM LABEL]}}}/#[	 ]##}/%[	 ]##}
 ${${${${cuedump[$th.REM COMMENT]:-${cuedump[d.REM COMMENT]}}//#[	 ]#}//%[	 ]#}:+--comment=COMMENT=${${${cuedump[$th.REM COMMENT]:-${cuedump[d.REM COMMENT]}}/#[	 ]#}/%[	 ]#}}
 ${cuedump[d.REM CATALOGNUMBER]:+--comment=CATALOGNUMBER=${cuedump[d.REM CATALOGNUMBER]}}
+'
+                ;|
+                (aotuv|flac)
+                runenc+='
 ${cuedump[d.REM TOTALDISCS]:+--comment=DISCTOTAL=${cuedump[d.REM TOTALDISCS]}}
 --comment=TRACKTOTAL=${cuedump[tc]}
+'
+                ;|
+                (fdkaac|qaac)
+                runenc+='
+${${${(M)cuedump[d.REM TOTALDISCS]:#1}:+--disk=1/1}:-${cuedump[d.REM DISCNUMBER]:+--disk=${cuedump[d.REM DISCNUMBER]}${cuedump[d.REM DISCTOTAL]:+/${cuedump[d.REM TOTALDISCS]}}}}
+--track=${cuedump[$tn.tnum]/#0}/${cuedump[tc]}
+'
+                ;|
+                (aotuv|flac|fdkaac|qaac)
+                runenc+='
 ${cuedump[$tn.ISRC]:+--comment=ISRC=${cuedump[$tn.ISRC]}}
 ${cuedump[d.REM MUSICBRAINZ_ALBUMID]:+--comment=MUSICBRAINZ_ALBUMID=${cuedump[d.REM MUSICBRAINZ_ALBUMID]}}
 ${cuedump[$tn.REM MUSICBRAINZ_RELEASETRACKID]:+--comment=MUSICBRAINZ_RELEASETRACKID=${cuedump[$tn.REM MUSICBRAINZ_RELEASETRACKID]}}
@@ -487,6 +518,24 @@ ${cuedump[d.REM REPLAYPEAK_ALBUM_PEAK]:+--comment=REPLAYPEAK_ALBUM_PEAK=${cuedum
                 ;|
                 (aotuv) runenc+=.ogg ;|
                 (flac) runenc+=.flac ;|
+                (fdkaac|qaac) runenc+=.m4a ;|
+                (fdkaac|qaac)
+                function {
+                  while ((#)); do
+                    if (( ${#vorbiscmt2itunes[$1]} <= 4 )); then
+                      runenc="${(@pj.\n.)${(@f)runenc}//--comment=$1=/--tag=${vorbiscmt2itunes[$1]}:}"
+                    else
+                      runenc="${(@pj.\n.)${(@f)runenc}//--comment=$1=/--long-tag=${vorbiscmt2itunes[$1]}:}"
+                    fi
+                    shift
+                  done
+                  local match=()
+                  if (( ${(M)#runenc:#*--comment=*} )); then
+                    setopt localoptions histsubstpattern
+                    runenc=${runenc:gs/--comment=(#b)([^=]##)(#B)=/--long-tag='${match[1]}:'/}
+                  fi
+                } ${(k)vorbiscmt2itunes}
+                ;|
                 (flac) runenc=${runenc//--comment=/--tag=} ;|
               esac
               local -a seltnums=()
@@ -537,7 +586,7 @@ ${cuedump[d.REM REPLAYPEAK_ALBUM_PEAK]:+--comment=REPLAYPEAK_ALBUM_PEAK=${cuedum
                   case "$ofmt" in
                     (flac) runenc+=$'\n--force-raw-format\n--sign=signed\n--endian=little\n--channels=2\n--bps=16\n--sample-rate=44100\n'
                     ;;
-                    (aotuv) runenc+=$'\n--raw\n'
+                    (aotuv|fdkaac) runenc+=$'\n--raw\n'
                     ;;
                   esac
                   command ffmpeg -loglevel warning -xerror -hide_banner -err_detect explode -i $ifile -f s16le - | {
@@ -1018,6 +1067,19 @@ suriscms=(
   'bangumi.subj.t' 'bgm.subj.t<1->'
   'tieba.p' 'tb.p<1->'
 )
+## https://picard-docs.musicbrainz.org/downloads/MusicBrainz_Picard_Tag_Map.html
+declare -A vorbiscmt2itunes
+vorbiscmt2itunes=(
+  TITLE nam
+  COMPOSER wrt
+  ARTIST ART
+  ALBUM alb
+  ALBUMARTIST aART
+  COMMENT cmt
+  MUSICBRAINZ_ALBUMARTISTID 'MusicBrainz Album Id'
+  MUSICBRAINZ_RELEASETRACKID 'MusicBrainz Release Track Id'
+  BPM tmpo
+)
 
 declare -A commontags
 commontags=(
@@ -1055,8 +1117,12 @@ function .deps {
     ostr[aotuv]='oggenc -Qq5 -s .... '
   fi
 
-  if fdkaac --help &>/dev/null; then
-    ostr[fdkaac]='fdkaac -m3 -G1 -S --no-timestamp '
+  if [[ -v commands[fdkaac] ]]; then
+    ostr[fdkaac]='fdkaac -m3 -G2 -S --no-timestamp '
+  fi
+
+  if [[ -v commands[qaac64] ]] && qaac64 --check 2>&1 | grep -qsEe 'CoreAudioToolbox [0-9.]+'; then
+    ostr[qaac]='ffmpeg -loglevel warning -xerror -hide_banner -err_detect explode -f s16le -i - -f wav - | qaac64 -V64 --gapless-mode 2 '
   fi
 }
 function .uninorm {
