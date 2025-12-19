@@ -25,6 +25,9 @@ function .main {
     fi
   } "$1"
 
+  shift
+  local ofmtargs=("${(@)argv}")
+
   local -a acuefiles=(**/?*.(#i)cue(.N)) cuefiles=()
   case $#acuefiles in
     0) return 44 ;;
@@ -578,7 +581,7 @@ ${outdir:-/sdcard/Music/albums}/${${${${cuedump[d.TITLE]:- }/#./．}//\//／}:0:
                       REPLAYGAIN_TRACK_GAINs[${seltnums[1]}]=$REPLAYGAIN_TRACK_GAIN
                       REPLAYGAIN_TRACK_PEAKs[${seltnums[1]}]=$REPLAYGAIN_TRACK_PEAK
                     fi
-                    command ${(s. .)rundec} ${${(M)cuedump[${seltnums[1]}.skip]:#<1->}:+--skip=${cuedump[${seltnums[1]}.skip]}} ${${(M)cuedump[${seltnums[1]}.until]:#<1->}:+--until=${cuedump[${seltnums[1]}.until]}} -- $ifile | rw | eval command ${${${${(f)runenc}:#}//\[\$tn./'[${seltnums[1]}.'}//\[\$tn\]/'[${seltnums[1]}]'} -
+                    command ${(s. .)rundec} ${${(M)cuedump[${seltnums[1]}.skip]:#<1->}:+--skip=${cuedump[${seltnums[1]}.skip]}} ${${(M)cuedump[${seltnums[1]}.until]:#<1->}:+--until=${cuedump[${seltnums[1]}.until]}} -- $ifile | rw | eval command ${${${${(f)runenc}:#}//\[\$tn./'[${seltnums[1]}.'}//\[\$tn\]/'[${seltnums[1]}]'} "${(@q)ofmtargs}" -
                     shift seltnums
                   done
                 ;|
@@ -604,7 +607,7 @@ ${outdir:-/sdcard/Music/albums}/${${${${cuedump[d.TITLE]:- }/#./．}//\//／}:0:
                   command ffmpeg -loglevel warning -xerror -hide_banner -err_detect explode -i $ifile -f s16le - | {
                     for ((tn=1;tn<=cuedump[tc];tn++)); do
                       if (( ${seltnums[(I)$tn]} )); then
-                        dd bs=128K ${${(M)cuedump[$tn.pskip]:#<1->}:+skip=$(( 4 * ${cuedump[$tn.pskip]} ))B} ${${(M)cuedump[$tn.plen]}:+count=$(( 4 * ${cuedump[$tn.plen]} ))B} iflag=fullblock status=none | rw | eval command ${${(f)runenc}:#} -
+                        dd bs=128K ${${(M)cuedump[$tn.pskip]:#<1->}:+skip=$(( 4 * ${cuedump[$tn.pskip]} ))B} ${${(M)cuedump[$tn.plen]}:+count=$(( 4 * ${cuedump[$tn.plen]} ))B} iflag=fullblock status=none | rw | eval command ${${(f)runenc}:#} "${(@q)ofmtargs}" -
                       else
                         pv -qX${cuedump[$tn.plen]:+Ss$((4*cuedump[$tn.plen]+4*cuedump[$tn.pskip]))}
                       fi
@@ -1122,7 +1125,7 @@ function .deps {
   fi
 
   if [[ -v commands[qaac64] ]] && qaac64 --check 2>&1 | grep -qsEe 'CoreAudioToolbox [0-9.]+'; then
-    ostr[qaac]='ffmpeg -loglevel warning -xerror -hide_banner -err_detect explode -f s16le -i - -f wav - | qaac64 -V64 --gapless-mode 2 '
+    ostr[qaac]='ffmpeg -loglevel warning -xerror -hide_banner -err_detect explode -f s16le -i - -f wav - | qaac64 -sV64 --gapless-mode 2 '
   fi
 }
 function .uninorm {
