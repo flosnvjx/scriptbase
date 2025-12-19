@@ -501,7 +501,7 @@ ${cuedump[d.REM TOTALDISCS]:+--comment=DISCTOTAL=${cuedump[d.REM TOTALDISCS]}}
                 ;|
                 (fdkaac|qaac)
                 runenc+='
-${${${(M)cuedump[d.REM TOTALDISCS]:#1}:+--disk=1/1}:-${cuedump[d.REM DISCNUMBER]:+--disk=${cuedump[d.REM DISCNUMBER]}${cuedump[d.REM DISCTOTAL]:+/${cuedump[d.REM TOTALDISCS]}}}}
+${${${(M)cuedump[d.REM TOTALDISCS]:#1}:+--disk=1/1}:-${cuedump[d.REM DISCNUMBER]:+--disk=${cuedump[d.REM DISCNUMBER]}${cuedump[d.REM TOTALDISCS]:+/${cuedump[d.REM TOTALDISCS]}}}}
 --track=${cuedump[$tn.tnum]/#0}/${cuedump[tc]}
 '
                 ;|
@@ -534,6 +534,7 @@ ${outdir:-/sdcard/Music/albums}/${${${${cuedump[d.TITLE]:- }/#./．}//\//／}:0:
                   done
                   local match=()
                   if (( ${(M)#runenc:#*--comment=*} )); then
+                    runenc=${runenc//\(s\|[^|]##\|\)}
                     setopt localoptions histsubstpattern
                     runenc=${runenc:gs/--comment=(#b)([^=]##)(#B)=/--long-tag='${match[1]}:'/}
                   fi
@@ -907,9 +908,9 @@ function normdatestr(l,  ll) {
   if (match(l,/^([0-9][0-9][0-9][0-9])($|[/.-])/,normdatestrmatches)) {
     ll=normdatestrmatches[1]
     if (length(normdatestrmatches[2]) && match(l,/^.....([0-9]+)($|[/.-])/,normdatestrmatches) && length(normdatestrmatches[1])<=2) {
-      ll=(ll "-" normdatestrmatches[1])
+      ll=(ll "-" sprintf("%02d",normdatestrmatches[1]))
       if (length(normdatestrmatches[2]) && match(l,/^.....[0-9]+[/.-]([0-9]+)$/,normdatestrmatches) && length(normdatestrmatches[1])<=2)
-        ll=(ll "-" normdatestrmatches[1])
+        ll=(ll "-" sprintf("%02d",normdatestrmatches[1]))
     }
     return ll
   } else
@@ -1125,7 +1126,7 @@ function .deps {
   fi
 
   if [[ -v commands[qaac64] ]] && qaac64 --check 2>&1 | grep -qsEe 'CoreAudioToolbox [0-9.]+'; then
-    ostr[qaac]='ffmpeg -loglevel warning -xerror -hide_banner -err_detect explode -f s16le -i - -f wav - | qaac64 -sV64 --gapless-mode 2 '
+    ostr[qaac]='sox -Dtraw -Lc2 -r44100 -b16 -e signed-integer - -twav - | qaac64 -sV64 --gapless-mode 2 '
   fi
 }
 function .uninorm {
