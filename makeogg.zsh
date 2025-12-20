@@ -6,30 +6,28 @@
 setopt extendedglob pipefail errreturn xtrace
 function .main {
   local ofmt= mmode= fifo=
-  function {
-    local match=()
-    if [[ "$1" = ((#b)(cue|tidy|fifo[.:=](/?*))(#B)) ]]; then
-      mmode=${match[1]}
-      case "$mmode" in; (fifo*) mmode=fifo; fifo=${match[2]} ;; esac
-      shift
-    fi
-    if (( $#1 && ${(@)${(@k)ostr}[(I)(#i)${(q)1}]} )); then
-      ofmt=$1
-    elif (( !$#1 )); then
-      function {
-        while ((#)); do if [[ -v ostr[$1] ]]; then
-          ofmt=$1
-          break
-          fi
-          shift
-        done
-      } aotuv fdkaac flac
-    else
-      .fatal "unsupported output fmt: $1"
-    fi
-  } "${(@)argv}"
+  local match=()
+  if [[ "$1" = ((#b)(cue|tidy|fifo[.:=](/?*))(#B)) ]]; then
+    mmode=${match[1]}
+    case "$mmode" in; (fifo*) mmode=fifo; fifo=${match[2]} ;; esac
+    shift
+  fi
+  if (( $#1 && ${(@)${(@k)ostr}[(I)(#i)${(q)1}]} )); then
+    ofmt=$1
+    shift
+  elif (( !$#1 )); then
+    function {
+      while ((#)); do if [[ -v ostr[$1] ]]; then
+        ofmt=$1
+        break
+        fi
+        shift
+      done
+    } aotuv fdkaac flac
+  else
+    .fatal "unsupported output fmt: $1"
+  fi
 
-  shift
   local ofmtargs=("${(@)argv}")
 
   local -a acuefiles=(**/?*.(#i)cue(.N)) cuefiles=()
