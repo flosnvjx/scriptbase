@@ -5,8 +5,14 @@
 
 setopt extendedglob pipefail errreturn xtrace
 function .main {
-  local ofmt= mmode=
+  local ofmt= mmode= fifo=
   function {
+    local match=()
+    if [[ "$1" = ((#b)(cue|tidy|fifo[.:=](/?*))(#B)) ]]; then
+      mmode=${match[1]}
+      case "$mmode" in; (fifo*) mmode=fifo; fifo=${match[2]} ;; esac
+      shift
+    fi
     if (( $#1 && ${(@)${(@k)ostr}[(I)(#i)${(q)1}]} )); then
       ofmt=$1
     elif (( !$#1 )); then
@@ -18,23 +24,29 @@ function .main {
           shift
         done
       } aotuv fdkaac flac
-    elif [[ "$1" == (cue|tidy) ]]; then
-      mmode=$1
     else
       .fatal "unsupported output fmt: $1"
     fi
-  } "$1"
+  } "${(@)argv}"
 
   shift
   local ofmtargs=("${(@)argv}")
 
   local -a acuefiles=(**/?*.(#i)cue(.N)) cuefiles=()
-  case $#acuefiles in
-    0) return 44 ;;
-    1) cuefiles=($acuefiles) ;;
-    *) cuefiles=("${(@f)$(printf %s\\n $acuefiles | fzf -m --layout=reverse-list --prompt="Select cuesheets for later operations> ")}") || cuefiles=($acuefiles)
-       ;;
-  esac
+  if [[ "$mmode" = fifo ]]; then
+    case $#acuefiles in
+      0) return 44 ;;
+      1) cuefiles=($acuefiles) ;;
+      *) cuefiles=("${(@f)$(printf %s\\n $acuefiles | fzf --layout=reverse-list --prompt="Select a cuesheet for later operations> ")}") ;;
+    esac
+  else
+    case $#acuefiles in
+      0) return 44 ;;
+      1) cuefiles=($acuefiles) ;;
+      *) cuefiles=("${(@f)$(printf %s\\n $acuefiles | fzf -m --layout=reverse-list --prompt="Select cuesheets for later operations> ")}") || cuefiles=($acuefiles)
+         ;;
+    esac
+  fi
   local -a cuefilecodepages cuebuffers cue{file,discnumber,totaldiscs,filetitle,catno}directives
   local -a albumtitles albumfiles discnumbers totaldiscs catnos
   if [[ "$mmode" = tidy ]]; then
@@ -277,6 +289,7 @@ function .main {
       .msg "${cuefiles[$walkcuefiles]} (\"${cuefiledirectives[$walkcuefiles]}\")"
       : ${cuefiledirectives[$walkcuefiles]/%.(#b)([0-9a-zA-Z]##)}
       local ifmtstr= ifile=
+      if [[ "$mmode" != fifo ]]; then
       case "${match[1]}" in
         ((#i)(flac|wav|tak|tta|ape))
           ifile=${${(M)cuefiles[$walkcuefiles]:#*/*}:+${cuefiles[$walkcuefiles]%/*}/}${cuefiledirectives[$walkcuefiles]}
@@ -305,11 +318,14 @@ function .main {
           ifmtstr=${fmtstr[$ifmt]}
           ;;
       esac
+      fi ## if [[ "$mmode" != fifo ]]; then
       local mbufs=()
       local mbuf=
-      gawk -E <(print -r -- '
+      gawk -E <(print -r -- ${${(M)mmode:#fifo}:-'
         BEGIN {
           d["d"]["FILE"]="'"${${albumfiles[$walkcuefiles]//\\/\\\\}//\"/\\\"}"'";
+        }'}'
+        BEGIN {
           d["d"]["TITLE"]="'"${${albumtitles[$walkcuefiles]//\"/＂}//\\/\\\\}"'";
           d["d"]["REM DISCNUMBER"]="'${${totaldiscs[$walkcuefiles]:#1}:+$(( discnumbers[$walkcuefiles] ))}'";
           d["d"]["REM TOTALDISCS"]="'$(( totaldiscs[$walkcuefiles] ))'";
@@ -430,6 +446,9 @@ function .main {
             if (( $#ofmt )); then
               cuedump=("${(@Q)${(@z)${(@f)$(gawk -E <(print -rn -- $awkcuedump) - <<< ${mbufs[-1]})}}}") || continue
               local -A ffprobe
+              if [[ "$mmode" == fifo ]]; then
+              ffprobe=()
+              else
               ffprobe=("${(@Q)${(@z)${(@f)"$(ffprobe -err_detect explode -show_entries streams:format -of flat -hide_banner -loglevel warning -select_streams a -i $ifile)"}/=/ }}")
               case "${ffprobe[format.format_name]}" in
                 (flac)
@@ -452,6 +471,7 @@ function .main {
                 (*)
                 .fatal 'unsupported fmt: '${format.format_name}
               esac
+              fi ## if [[ "$mmode" != fifo ]]; then
               local runenc rundec tn
               case "$ofmt" in
                 (aotuv) runenc=$'oggenc\n-Qq5\n-s\n....\n' ;|
@@ -586,13 +606,15 @@ ${outdir:-/sdcard/Music/albums}/${${${${cuedump[d.TITLE]:- }/#./．}//\//／}:0:
                     shift seltnums
                   done
                 ;|
-                (wav|tak|tta|ape)
+                (wav|tak|tta|ape|)
+                  ## match empty fmt in case of fifo mmode
                   case "$ofmt" in
                     (flac) runenc+=$'\n--force-raw-format\n--sign=signed\n--endian=little\n--channels=2\n--bps=16\n--sample-rate=44100\n'
                     ;;
                     (aotuv|fdkaac) runenc+=$'\n--raw\n'
                     ;;
                   esac
+                  if [[ "$mmode" != fifo ]]; then
                   command ffmpeg -loglevel warning -xerror -hide_banner -err_detect explode -i $ifile -f s16le - | {
                     for ((tn=1;tn<=cuedump[tc];tn++)); do
                       if (( ${seltnums[(I)$tn]} )); then
@@ -605,6 +627,9 @@ ${outdir:-/sdcard/Music/albums}/${${${${cuedump[d.TITLE]:- }/#./．}//\//／}:0:
                       fi
                     done
                   }
+                  else
+                    ifile=$fifo
+                  fi
                   command ffmpeg -loglevel warning -xerror -hide_banner -err_detect explode -i $ifile -f s16le - | {
                     for ((tn=1;tn<=cuedump[tc];tn++)); do
                       if (( ${seltnums[(I)$tn]} )); then
