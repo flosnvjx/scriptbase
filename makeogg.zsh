@@ -1158,6 +1158,7 @@ commontags=(
   'comment:x' 'REM COMMENT'
   'songwriter:w' 'SONGWRITER'
   'vocalist:v' 'REM VOCALIST'
+  'genre:g' 'REM GENRE'
 )
 declare -a exts=(wav flac tta ape tak wv)
 declare -A fmtstr
