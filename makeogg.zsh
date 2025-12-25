@@ -474,14 +474,26 @@ function .main {
               case "$ofmt" in
                 (aotuv) runenc=$'oggenc\n-Qq5\n-s\n....\n' ;|
                 (flac) runenc=$'flac\n-V8cs\n' ;|
-                (fdkaac|qaac) runenc=${ostr[$ofmt]// ##/
+                (fdkaac|qaac|exhale) runenc=${ostr[$ofmt]// ##/
 } ;|
+                (exhale)
+                if [[ "${#ofmtargs}" -ge 1 ]]; then
+                  runenc+=$'\n'"${(@pj.\n.)ofmtargs}"$'\n'
+                  ofmtargs=()
+                else
+                  runenc+=$'\n3\n'
+                fi
+                runenc+='${outdir:-/sdcard/Music/albums}/${${${${cuedump[d.TITLE]:- }/#./．}//\//／}:0:85}/"${${:-${cuedump[d.REM DISCNUMBER]:+${cuedump[d.REM DISCNUMBER]}#}${cuedump[$tn.tnum]}${cuedump[$tn.TITLE]:+.${cuedump[$tn.TITLE]//\//／}}}:0:80}".m4a'
+                runenc+=';mp4tagcli
+--
+${outdir:-/sdcard/Music/albums}/${${${${cuedump[d.TITLE]:- }/#./．}//\//／}:0:85}/"${${:-${cuedump[d.REM DISCNUMBER]:+${cuedump[d.REM DISCNUMBER]}#}${cuedump[$tn.tnum]}${cuedump[$tn.TITLE]:+.${cuedump[$tn.TITLE]//\//／}}}:0:80}".m4a'
+                ;|
                 (aotuv|flac)
                 runenc+='
 --comment=TRACKNUMBER=${cuedump[$tn.tnum]/#0}
 '
                 ;|
-                (aotuv|flac|fdkaac|qaac)
+                (aotuv|flac|fdkaac|qaac|exhale)
                 runenc+='
 ${${${cuedump[$tn.TITLE]/#[    ]#}/%[   ]#}:+--comment=TITLE=${${cuedump[$tn.TITLE]/#[    ]#}/%[   ]#}}
 ${${${${(s|・|)${(s| / |)${(s|, |)${(s|、|)cuedump[$tn.REM COMPOSER]:-${cuedump[$tn.SONGWRITER]:-${cuedump[d.REM COMPOSER]:-${cuedump[d.SONGWRITER]}}}}}}}/#[	 ]##}/%[	 ]##}:+--comment=COMPOSER=}${^${${(s|・|)${(s| / |)${(s|, |)${(s|、|)cuedump[$tn.REM COMPOSER]:-${cuedump[$tn.SONGWRITER]:-${cuedump[d.REM COMPOSER]:-${cuedump[d.SONGWRITER]}}}}}}}/#[	 ]##}/%[	 ]##}
@@ -499,12 +511,12 @@ ${cuedump[d.REM DISCNUMBER]:+--comment=DISCNUMBER=${cuedump[d.REM DISCNUMBER]}}
 ${cuedump[date]:+--comment=DATE=${cuedump[date]}}
 '
                 ;|
-                (fdkaac|qaac)
+                (fdkaac|qaac|exhale)
                 runenc+='
 ${${${(M)${#cuedump[date]}:#10}:+--tag=day:${cuedump[date]}T00:00:00Z}:-${cuedump[date]:+--tag=day:${cuedump[date]}}}
 '
                 ;|
-                (aotuv|flac|fdkaac|qaac)
+                (aotuv|flac|fdkaac|qaac|exhale)
                 runenc+='
 ${${${${(s| / |)${(s|×|)${(s|、|)cuedump[d.REM LABEL]}}}//#[	 ]##}//%[	 ]##}:+--comment=LABEL=}${^${${(s| / |)${(s|×|)${(s|、|)cuedump[d.REM LABEL]}}}/#[	 ]##}/%[	 ]##}
 ${${${${cuedump[$th.REM COMMENT]:-${cuedump[d.REM COMMENT]}}//#[	 ]#}//%[	 ]#}:+--comment=COMMENT=${${${cuedump[$th.REM COMMENT]:-${cuedump[d.REM COMMENT]}}/#[	 ]#}/%[	 ]#}}
@@ -517,13 +529,13 @@ ${cuedump[d.REM TOTALDISCS]:+--comment=DISCTOTAL=${cuedump[d.REM TOTALDISCS]}}
 --comment=TRACKTOTAL=${cuedump[tc]}
 '
                 ;|
-                (fdkaac|qaac)
+                (fdkaac|qaac|exhale)
                 runenc+='
 ${${${(M)cuedump[d.REM TOTALDISCS]:#1}:+--tag=disk:1/1}:-${cuedump[d.REM DISCNUMBER]:+--tag=disk:${cuedump[d.REM DISCNUMBER]}${cuedump[d.REM TOTALDISCS]:+/${cuedump[d.REM TOTALDISCS]}}}}
 --tag=trkn:${cuedump[$tn.tnum]/#0}/${cuedump[tc]}
 '
                 ;|
-                (aotuv|flac|fdkaac|qaac)
+                (aotuv|flac|fdkaac|qaac|exhale)
                 runenc+='
 ${cuedump[$tn.ISRC]:+--comment=ISRC=${cuedump[$tn.ISRC]}}
 ${cuedump[d.REM MUSICBRAINZ_ALBUMID]:+--comment=MUSICBRAINZ_ALBUMID=${cuedump[d.REM MUSICBRAINZ_ALBUMID]}}
@@ -534,12 +546,16 @@ ${${cuedump[$tn.REM REPLAYPEAK_TRACK_PEAK]:-${REPLAYGAIN_TRACK_PEAKs[$tn]}}:+--c
 ${cuedump[d.REM REPLAYGAIN_ALBUM_GAIN]:+--comment=REPLAYGAIN_ALBUM_GAIN=${cuedump[d.REM REPLAYGAIN_ALBUM_GAIN]}}
 ${cuedump[d.REM REPLAYPEAK_ALBUM_PEAK]:+--comment=REPLAYPEAK_ALBUM_PEAK=${cuedump[d.REM REPLAYPEAK_ALBUM_PEAK]}}
 '
+                ;|
+                (aotuv|flac|fdkaac|qaac)
                 runenc+='-o
 ${outdir:-/sdcard/Music/albums}/${${${${cuedump[d.TITLE]:- }/#./．}//\//／}:0:85}/"${${:-${cuedump[d.REM DISCNUMBER]:+${cuedump[d.REM DISCNUMBER]}#}${cuedump[$tn.tnum]}${cuedump[$tn.TITLE]:+.${cuedump[$tn.TITLE]//\//／}}}:0:80}"'
                 ;|
                 (aotuv) runenc+=.ogg ;|
                 (flac) runenc+=.flac ;|
                 (fdkaac|qaac) runenc+=.m4a ;|
+                ## bypass the trailing `-` in for loop
+                (exhale) runenc+=$';:\n' ;|
                 (fdkaac|qaac)
                 function {
                   while ((#)); do
@@ -555,6 +571,26 @@ ${outdir:-/sdcard/Music/albums}/${${${${cuedump[d.TITLE]:- }/#./．}//\//／}:0:
                     runenc=${runenc//\(s\|[^|]##\|\)}
                     setopt localoptions histsubstpattern
                     runenc=${runenc:gs/--comment=(#b)([^=]##)(#B)=/--long-tag='${match[1]}:'/}
+                  fi
+                } ${(k)vorbiscmt2itunes}
+                ;|
+                (exhale)
+                function {
+                  while ((#)); do
+                    if (( ${#vorbiscmt2itunes[$1]} <= 4 )); then
+                      runenc="${(@pj.\n.)${(@f)runenc}//--(comment|tag)=$1[=:]/${vorbiscmt2itunes[$1]}=}"
+                    else
+                      runenc="${(@pj.\n.)${(@f)runenc}//--(comment|long-tag)=$1[=:]/----:com.apple.iTunes:${vorbiscmt2itunes[$1]}=}"
+                    fi
+                    shift
+                  done
+                  local match=()
+                  if (( ${(M)#runenc:#*--comment=*} )); then
+                    runenc=${runenc//\(s\|[^|]##\|\)}
+                    setopt localoptions histsubstpattern
+                    runenc=${runenc:gs/--comment=(#b)([^=]##)(#B)=/----:com.apple.iTunes:'${match[1]}='/}
+                    match=()
+                    runenc=${runenc:gs/--tag=(#b)([^=](#c3,4))(#B):/'${match[1]}='/}
                   fi
                 } ${(k)vorbiscmt2itunes}
                 ;|
@@ -1146,6 +1182,10 @@ function .deps {
 
   if [[ -v commands[fdkaac] ]]; then
     ostr[fdkaac]='fdkaac -m3 -G2 -S --no-timestamp '
+  fi
+
+  if [[ -v commands[exhale] ]]; then
+    ostr[exhale]='sox -Dtraw -Lc2 -r44100 -b16 -e signed-integer - -twav - | exhale '
   fi
 
   if [[ -v commands[qaac64] ]] && qaac64 --check 2>&1 | grep -qsEe 'CoreAudioToolbox [0-9.]+'; then
