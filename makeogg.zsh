@@ -461,15 +461,15 @@ function .main {
                   elif (( ffprobe[streams.stream.0.duration_ts] < cuedump[${cuedump[tc]}.pskip]+588 )); then
                     .fatal 'cuesheet specified a timestamp beyond the duration of FILE (mismatched FILE?)'
                   fi
-                  if [[ ! -d "${outdir:-/sdcard/Music/albums}/${${${${cuedump[d.TITLE]:-
-}/#./．}//\//／}:0:85}" ]]; then
-                    mkdir -vp -- "${outdir:-/sdcard/Music/albums}/${${${${cuedump[d.TITLE]:- }/#./．}//\//／}:0:85}"
-                  fi
                 ;;
                 (*)
                 .fatal 'unsupported fmt: '${format.format_name}
               esac
               fi ## if [[ "$mmode" != fifo ]]; then
+              if [[ ! -d "${outdir:-/sdcard/Music/albums}/${${${${cuedump[d.TITLE]:-
+}/#./．}//\//／}:0:85}" ]]; then
+                mkdir -vp -- "${outdir:-/sdcard/Music/albums}/${${${${cuedump[d.TITLE]:- }/#./．}//\//／}:0:85}"
+              fi
               local runenc rundec tn
               case "$ofmt" in
                 (aotuv) runenc=$'oggenc\n-Qq5\n-s\n....\n' ;|
