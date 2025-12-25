@@ -797,12 +797,12 @@ ${outdir:-/sdcard/Music/albums}/${${${${cuedump[d.TITLE]:- }/#./．}//\//／}:0:
   done
 } ${(@Mn)${(@k)cuedump}:#<1->.tnum} | fzf --layout=reverse-list --prompt="${${cuefiles[$walkcuefiles]:t}:0:${$(( ${WIDTH:-80}/2 ))%.*}} tag(${(@)${(@k)commontags}[(r)(#i)*:$tagkey]%:?}).track:")%% *}") || continue
               elif eval '[[ "$tagkey" = ['${(@j..)${(@M)${(@k)commontags#*:}:#[a-z]}:l}'] ]]'; then
-                if IFS=" ,	" vared -ehp "${${cuefiles[$walkcuefiles]:t}:0:${$(( ${WIDTH:-80}/2 ))%.*}} tag(${(@)${(@k)commontags}[(r)(#i)*:$tagkey]%:?}).tracks:" tagtnums && (( ${(@)#${(@M)tagtnums:#[0-9]##(-[0-9]#|)}} )); then :
+                if IFS=" ,	" vared -ehp "${${cuefiles[$walkcuefiles]:t}:0:${$(( ${WIDTH:-80}/2 ))%.*}} tag(${(@)${(@k)commontags}[(r)(#i)*:$tagkey]%:?}).tracks:" tagtnums && (( ${(@)#${(@M)tagtnums:#([0-9]##(-[0-9]#|)|d)}} )); then :
                   function {
                     argv=("${(@)${(@Mn)${(@k)cuedump}:#<1->.tnum}%.*}")
                     ((#)) || continue
-                    tagtnums=("${(@)${(@)${(@M)tagtnums:#[0-9]##-[0-9]#}/#/<}/%/>}" "${(@M)tagtnums:#[0-9]##}")
-                    tagtnums=(${(@M)argv:#${(@)~${(@j.|.)tagtnums}}})
+                    tagtnums=("${(@)${(@)${(@M)tagtnums:#[0-9]##-[0-9]#}/#/<}/%/>}" "${(@M)tagtnums:#[0-9]##}" ${(@M)tagtnums:#d})
+                    tagtnums=(${(@M)argv:#${(@)~${(@j.|.)tagtnums}}} ${(@M)tagtnums:#d})
                     argv=(${cuedump[(I)(${(@j.|.)tagtnums}).${(@)commontags[${(@)commontags[(i)*:${tagkey:l}]}]}]})
                     local joinval=
                     while ((#)); do
@@ -824,7 +824,7 @@ ${outdir:-/sdcard/Music/albums}/${${${${cuedump[d.TITLE]:- }/#./．}//\//／}:0:
               if eval '[[ "$tagkey" = ['${(@j..)${(@M)${(@k)commontags#*:}:#[A-Za-z]}:l}'] ]]'; then
                 vared -ehp "${${cuefiles[$walkcuefiles]:t}:0:${$(( ${WIDTH:-80}/2 ))%.*}} tag(${(@)${(@k)commontags}[(r)(#i)*:$tagkey]%:?}).value:" tagvalue || continue
               fi
-              gawk -E <(print -r -- 'BEGIN { ' d\[\"${^${${(M)tagkey:#[${(@j..)${(@M)${(@k)commontags#*:}:#[A-Z]}:l}]}:+d}:-t${^tagtnums}}\"\]\[\"${(@)commontags[${(@)${(@k)commontags}[(r)(#i)*:$tagkey]}]}\"\]=\""${${tagvalue//\\/\\\\}//\"/\\\"}"\"\; ' };'$awkcueput) <(print -rn -- ${mbufs[-1]}) | readeof mbuf
+              gawk -E <(print -r -- $awkcuemput) <(printf '%s\n' ${^${${(M)tagkey:#[${(@j..)${(@M)${(@k)commontags#*:}:#[A-Z]}:l}]}:+d}:-${^tagtnums}}.${(@)commontags[${(@)${(@k)commontags}[(r)(#i)*:$tagkey]}]}$'\n'${tagvalue}) <(print -rn -- ${mbufs[-1]}) | readeof mbuf
               if (( $#mbuf )) && [[ "${mbufs[-1]}" != "$mbuf" ]]; then
                 mbufs+=($mbuf)
                 print -rn -- ${mbufs[-1]} | delta --paging=never <(print -rn -- ${mbufs[-2]}) - || :
