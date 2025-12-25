@@ -824,6 +824,9 @@ ${outdir:-/sdcard/Music/albums}/${${${${cuedump[d.TITLE]:- }/#./．}//\//／}:0:
               if eval '[[ "$tagkey" = ['${(@j..)${(@M)${(@k)commontags#*:}:#[A-Za-z]}:l}'] ]]'; then
                 vared -ehp "${${cuefiles[$walkcuefiles]:t}:0:${$(( ${WIDTH:-80}/2 ))%.*}} tag(${(@)${(@k)commontags}[(r)(#i)*:$tagkey]%:?}).value:" tagvalue || continue
               fi
+              if [[ "$tagkey" = g ]]; then
+                tagvalue=${tagvalue:+${(@)genres[(r)($tagvalue|(#i)$tagvalue*)]}}
+              fi
               gawk -E <(print -r -- $awkcuemput) <(printf '%s\n' ${^${${(M)tagkey:#[${(@j..)${(@M)${(@k)commontags#*:}:#[A-Z]}:l}]}:+d}:-${^tagtnums}}.${(@)commontags[${(@)${(@k)commontags}[(r)(#i)*:$tagkey]}]}$'\n'${tagvalue}) <(print -rn -- ${mbufs[-1]}) | readeof mbuf
               if (( $#mbuf )) && [[ "${mbufs[-1]}" != "$mbuf" ]]; then
                 mbufs+=($mbuf)
@@ -1159,6 +1162,17 @@ commontags=(
   'songwriter:w' 'SONGWRITER'
   'vocalist:v' 'REM VOCALIST'
   'genre:g' 'REM GENRE'
+)
+
+## https://eyed3.readthedocs.io/en/latest/plugins/genres_plugin.html
+declare -a genres=(
+  Soundtrack
+  Anime
+  JPop
+  Classical
+  Game
+  'National Folk'
+  Other
 )
 declare -a exts=(wav flac tta ape tak wv)
 declare -A fmtstr
