@@ -1188,7 +1188,7 @@ function .deps {
     ostr[exhale]='sox -Dtraw -Lc2 -r44100 -b16 -e signed-integer - -twav - | exhale '
   fi
 
-  if [[ -v commands[qaac64] ]] && qaac64 --check 2>&1 | grep -qsEe 'CoreAudioToolbox [0-9.]+'; then
+  if [[ -v commands[qaac64] && "$1" == qaac ]] && qaac64 --check 2>&1 | grep -qsEe 'CoreAudioToolbox [0-9.]+'; then
     ostr[qaac]='sox -Dtraw -Lc2 -r44100 -b16 -e signed-integer - -twav - | qaac64 -sV64 --gapless-mode 2 '
   fi
 }
@@ -1242,7 +1242,7 @@ function .fatal {
   return ${${(M)2:#<1->}:-1}
 }
 
-.deps
+.deps "${(@)argv}"
 trap - ZERR
 .main "${(@)argv}"
 return err
