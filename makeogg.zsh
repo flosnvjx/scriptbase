@@ -501,7 +501,7 @@ ${cuedump[date]:+--comment=DATE=${cuedump[date]}}
                 ;|
                 (fdkaac|qaac)
                 runenc+='
-${${${(M)${#cuedump[date]}:#10}:+--date=${cuedump[date]}T00:00:00Z}:-${cuedump[date]:+--date=${cuedump[date]}}}
+${${${(M)${#cuedump[date]}:#10}:+--tag=day:${cuedump[date]}T00:00:00Z}:-${cuedump[date]:+--tag=day:${cuedump[date]}}}
 '
                 ;|
                 (aotuv|flac|fdkaac|qaac)
@@ -519,8 +519,8 @@ ${cuedump[d.REM TOTALDISCS]:+--comment=DISCTOTAL=${cuedump[d.REM TOTALDISCS]}}
                 ;|
                 (fdkaac|qaac)
                 runenc+='
-${${${(M)cuedump[d.REM TOTALDISCS]:#1}:+--disk=1/1}:-${cuedump[d.REM DISCNUMBER]:+--disk=${cuedump[d.REM DISCNUMBER]}${cuedump[d.REM TOTALDISCS]:+/${cuedump[d.REM TOTALDISCS]}}}}
---track=${cuedump[$tn.tnum]/#0}/${cuedump[tc]}
+${${${(M)cuedump[d.REM TOTALDISCS]:#1}:+--tag=disk:1/1}:-${cuedump[d.REM DISCNUMBER]:+--tag=disk:${cuedump[d.REM DISCNUMBER]}${cuedump[d.REM TOTALDISCS]:+/${cuedump[d.REM TOTALDISCS]}}}}
+--tag=trkn:${cuedump[$tn.tnum]/#0}/${cuedump[tc]}
 '
                 ;|
                 (aotuv|flac|fdkaac|qaac)
