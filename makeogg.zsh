@@ -521,6 +521,7 @@ ${${${(M)${#cuedump[date]}:#10}:+--tag=day:${cuedump[date]}T00:00:00Z}:-${cuedum
 ${${${${(s| / |)${(s|×|)${(s|、|)cuedump[d.REM LABEL]}}}//#[	 ]##}//%[	 ]##}:+--comment=LABEL=}${^${${(s| / |)${(s|×|)${(s|、|)cuedump[d.REM LABEL]}}}/#[	 ]##}/%[	 ]##}
 ${${${${cuedump[$tn.REM COMMENT]:-${cuedump[d.REM COMMENT]}}//#[	 ]#}//%[	 ]#}:+--comment=COMMENT=${${${cuedump[$tn.REM COMMENT]:-${cuedump[d.REM COMMENT]}}/#[	 ]#}/%[	 ]#}}
 ${cuedump[d.REM CATALOGNUMBER]:+--comment=CATALOGNUMBER=${cuedump[d.REM CATALOGNUMBER]}}
+${${cuedump[$tn.REM GENRE]:-${cuedump[d.REM GENRE]}}:+--comment=GENRE=${cuedump[$tn.REM GENRE]:-${cuedump[d.REM GENRE]}}}
 '
                 ;|
                 (aotuv|flac)
