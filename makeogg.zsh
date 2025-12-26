@@ -48,7 +48,7 @@ function .main {
   local -a cuefilecodepages cuebuffers cue{file,discnumber,totaldiscs,filetitle,catno}directives
   local -a albumtitles albumfiles discnumbers totaldiscs catnos
   if [[ "$mmode" = tidy ]]; then
-    local -a albumtidyfiles suris vgmdbids cue{performer,label,date}directives dates labels aarts ssdlwids
+    local -a albumtidy{file,dir}s suris vgmdbids cue{performer,label,date}directives dates labels aarts ssdlwids
   fi
   function {
     local walkcuefiles REPLY
@@ -97,6 +97,7 @@ function .main {
       case ${(@)#${(@u)cuefiletitledirectives}} in
         (0)
           albumtitles+=("${${${cuefiles[$walkcuefiles]:r}%/[0-9A-Z]##[-0-9A-Z]##}:t}")
+            eval 'albumtitles[$walkcuefiles]=${albumtitles[$walkcuefiles]:#(CDImage|(|((Various|Unknown) Artist(s|)|(不明[なの]|複数の異なる)アーティスト) - )(Unknown[ _](Album|Title)|不明な(アルバム|タイトル)))}'
             until (( ${#albumtitles[$walkcuefiles]} )); do timeout 0.01 cat >/dev/null || :; vared -ehp 'album> ' "albumtitles[$walkcuefiles]"; done
           ;|
         (<1->)
@@ -106,7 +107,7 @@ function .main {
           else
             if (( ! ${#albumtitles[$walkcuefiles]} )) || [[ "${albumtitles[$walkcuefiles]}" = (Unknown (Album|Title)|不明な(アルバム|タイトル)) ]]; then
               albumtitles[$walkcuefiles]=${${${cuefiles[$walkcuefiles]:r}%/[0-9A-Z]##[-0-9A-Z]##}:t}
-              albumtitles[$walkcuefiles]=${albumtitles[$walkcuefiles]:#(CDImage|(|((Various|Unknown) Artist(s|)|(不明[なの]|複数の異なる)アーティスト) - )(Unknown[ _](Album|Title)|不明な(アルバム|タイトル)))}
+              eval 'albumtitles[$walkcuefiles]=${albumtitles[$walkcuefiles]:#(CDImage|(|((Various|Unknown) Artist(s|)|(不明[なの]|複数の異なる)アーティスト) - )(Unknown[ _](Album|Title)|不明な(アルバム|タイトル)))}'
             fi
             while timeout 0.01 cat >/dev/null || :; do vared -ehp 'album> ' "albumtitles[$walkcuefiles]"
               if (( ${#albumtitles[$walkcuefiles]} )); then break; fi
@@ -207,7 +208,7 @@ function .main {
             if [[ -n "${cueperformerdirectives[$walkcuefiles]}" && "${cueperformerdirectives[$walkcuefiles]}" != "${labels[$walkcuefiles]}" && "${cueperformerdirectives[$walkcuefiles]}" != ((Various|Unknown) Artist(s|)|(不明[なの]|複数の異なる)アーティスト) ]]; then
               aarts[$walkcuefiles]=${cueperformerdirectives[$walkcuefiles]}
             fi
-            if (( !${#aarts[$walkcuefiles]} )); then
+            if (( !${#aarts[$walkcuefiles]} )) || [[ "${aarts[$walkcuefiles]}" = "${labels[$walkcuefiles]}" ]]; then
               if (( totaldiscs[walkcuefiles] > 1 )); then
                 aarts[$walkcuefiles]=${aarts[${(@)albumtitles[(ie)${albumtitles[$walkcuefiles]}]}]}
               fi
@@ -240,11 +241,11 @@ function .main {
                 fi
                 suris[$walkcuefiles]=${match[1]}
               fi
-              if (( !${#suris[$walkcuefiles]} )) && (( ${#ssdlwids[$walkcuefiles]} )); then
+              if (( !${#suris[$walkcuefiles]} )) && (( !${#ssdlwids[$walkcuefiles]} )); then
                 while :; do
                   local suri=
                   vared -ehp 'suri+> ' suri
-                  if [[ "$suri" = https://m.miaola.work/read/(#b)([1-9][0-9]#)/sf/([0-9a-f](#c3))(#B)(|/keyword*) ]]; then
+                  if [[ "$suri" = https://m[.]miaola[.]work/read/(#b)([1-9][0-9]#)/sf/([0-9a-f](#c3))(#B)(|/keyword*) ]]; then
                       suris[$walkcuefiles]+="@kf.${match[1]}.sf${match[2]}"
                   elif [[ "$suri" = http(s|)://(bgm|bangumi).tv/subject/topic/(#b)([1-9][0-9]#)(#B)(|\#*) ]]; then
                       suris[$walkcuefiles]+="@bgm.subj.t${match[1]}"
