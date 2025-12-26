@@ -1,7 +1,7 @@
 #!/usr/bin/env shorthandzsh
 
 ## split cuesheets in cwd.
-## $0 output_fmt output_encoder_add_param shnsplit_param
+## $0 [mmode] [output_codec [output_codec_args]]
 
 setopt extendedglob pipefail errreturn xtrace
 function .main {
