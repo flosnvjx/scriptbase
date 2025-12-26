@@ -712,6 +712,9 @@ ${outdir:-/sdcard/Music/albums}/${${${${cuedump[d.TITLE]:- }/#./．}//\//／}:0:
               fi
             }
           ;|
+          ([ ])
+          command bat --file-name buf:${cuefiles[$walkcuefiles]} -pn <(printf '%s' $mbuf)
+          ;|
           ([$'\t'])
             local awktxt2tracktitledump='
             /^(|Edit )Disc [0-9]+(| \[[A-Z0-9][-A-Z0-9]*])$/ {
@@ -1189,6 +1192,7 @@ function .deps {
   ffprobe -version &>/dev/null
   ffmpeg -version &>/dev/null
   rw --help &>/dev/null
+  bat --version &>/dev/null
   cueprint --version &>/dev/null
   fmtstr[tta]='tta ffmpeg -loglevel quiet -xerror -hide_banner -err_detect explode -f tta -i %f -bitexact -f wav -'
   fmtstr[ape]='ape ffmpeg -loglevel quiet -xerror -hide_banner -err_detect explode -f ape -i %f -bitexact -f wav -'
@@ -1205,7 +1209,7 @@ function .deps {
     ostr[fdkaac]='fdkaac -m3 -G2 -S --no-timestamp '
   fi
 
-  if [[ -v commands[exhale] ]]; then
+  if [[ -v commands[exhale] ]] && [[ -v commands[mp4tagcli] ]]; then
     ostr[exhale]='sox -Dtraw -Lc2 -r44100 -b16 -e signed-integer - -twav - | exhale '
   fi
 
