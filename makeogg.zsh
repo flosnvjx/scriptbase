@@ -543,10 +543,10 @@ ${cuedump[$tn.ISRC]:+--comment=ISRC=${cuedump[$tn.ISRC]}}
 ${cuedump[d.REM MUSICBRAINZ_ALBUMID]:+--comment=MUSICBRAINZ_ALBUMID=${cuedump[d.REM MUSICBRAINZ_ALBUMID]}}
 ${cuedump[$tn.REM MUSICBRAINZ_RELEASETRACKID]:+--comment=MUSICBRAINZ_RELEASETRACKID=${cuedump[$tn.REM MUSICBRAINZ_RELEASETRACKID]}}
 ${cuedump[$tn.REM BPM]+--comment=BPM=${cuedump[$tn.REM BPM]}}
-${${cuedump[$tn.REM REPLAYGAIN_TRACK_GAIN]:-${REPLAYGAIN_TRACK_GAINs[$tn]}}:+--comment=REPLAYGAIN_TRACK_GAIN=${cuedump[$tn.REM REPLAYGAIN_TRACK_GAIN]:-${REPLAYGAIN_TRACK_GAINs[$tn]}}}
+${${${ofmt:#exhale}:-${replaygain:#0}}:+${${cuedump[$tn.REM REPLAYGAIN_TRACK_GAIN]:-${REPLAYGAIN_TRACK_GAINs[$tn]}}:+--comment=REPLAYGAIN_TRACK_GAIN=${cuedump[$tn.REM REPLAYGAIN_TRACK_GAIN]:-${REPLAYGAIN_TRACK_GAINs[$tn]}}}
 ${${cuedump[$tn.REM REPLAYGAIN_TRACK_PEAK]:-${REPLAYGAIN_TRACK_PEAKs[$tn]}}:+--comment=REPLAYGAIN_TRACK_PEAK=${cuedump[$tn.REM REPLAYGAIN_TRACK_PEAK]:-${REPLAYGAIN_TRACK_PEAKs[$tn]}}}
 ${cuedump[d.REM REPLAYGAIN_ALBUM_GAIN]:+--comment=REPLAYGAIN_ALBUM_GAIN=${cuedump[d.REM REPLAYGAIN_ALBUM_GAIN]}}
-${cuedump[d.REM REPLAYGAIN_ALBUM_PEAK]:+--comment=REPLAYGAIN_ALBUM_PEAK=${cuedump[d.REM REPLAYGAIN_ALBUM_PEAK]}}
+${cuedump[d.REM REPLAYGAIN_ALBUM_PEAK]:+--comment=REPLAYGAIN_ALBUM_PEAK=${cuedump[d.REM REPLAYGAIN_ALBUM_PEAK]}}}
 '
                 ;|
                 (aotuv|flac|fdkaac|qaac)
@@ -631,16 +631,18 @@ ${outdir:-/sdcard/Music/albums}/${${${${cuedump[d.TITLE]:- }/#./．}//\//／}:0:
                 rundec='flac -dcs'
                 ;|
                 (flac|wv)
-                  while (( $#seltnums )); do
-                    if ! (( ${#cuedump[${seltnums[1]}.REM REPLAYGAIN_TRACK_GAIN]} && ${#cuedump[${seltnums[1]}.REM REPLAYGAIN_TRACK_PEAK]} )); then
-                      local REPLAYGAIN_TRACK_GAIN= REPLAYGAIN_TRACK_PEAK=
-                      command ${(s. .)rundec} ${${(M)cuedump[${seltnums[1]}.skip]:#<1->}:+--skip=${cuedump[${seltnums[1]}.skip]}} ${${(M)cuedump[${seltnums[1]}.until]:#<1->}:+--until=${cuedump[${seltnums[1]}.until]}} -- $ifile | gainstdin
-                      REPLAYGAIN_TRACK_GAINs[${seltnums[1]}]=$REPLAYGAIN_TRACK_GAIN
-                      REPLAYGAIN_TRACK_PEAKs[${seltnums[1]}]=$REPLAYGAIN_TRACK_PEAK
-                    fi
-                    command ${(s. .)rundec} ${${(M)cuedump[${seltnums[1]}.skip]:#<1->}:+--skip=${cuedump[${seltnums[1]}.skip]}} ${${(M)cuedump[${seltnums[1]}.until]:#<1->}:+--until=${cuedump[${seltnums[1]}.until]}} -- $ifile | rw | eval command ${${${${(f)runenc}:#}//\[\$tn./'[${seltnums[1]}.'}//\[\$tn\]/'[${seltnums[1]}]'} "${(@q)ofmtargs}" -
-                    shift seltnums
-                  done
+                  if ! [[ "$ofmt" == exhale && "$replaygain" == (0|) ]]; then
+                    while (( $#seltnums )); do
+                      if ! (( ${#cuedump[${seltnums[1]}.REM REPLAYGAIN_TRACK_GAIN]} && ${#cuedump[${seltnums[1]}.REM REPLAYGAIN_TRACK_PEAK]} )); then
+                        local REPLAYGAIN_TRACK_GAIN= REPLAYGAIN_TRACK_PEAK=
+                        command ${(s. .)rundec} ${${(M)cuedump[${seltnums[1]}.skip]:#<1->}:+--skip=${cuedump[${seltnums[1]}.skip]}} ${${(M)cuedump[${seltnums[1]}.until]:#<1->}:+--until=${cuedump[${seltnums[1]}.until]}} -- $ifile | gainstdin
+                        REPLAYGAIN_TRACK_GAINs[${seltnums[1]}]=$REPLAYGAIN_TRACK_GAIN
+                        REPLAYGAIN_TRACK_PEAKs[${seltnums[1]}]=$REPLAYGAIN_TRACK_PEAK
+                      fi
+                      command ${(s. .)rundec} ${${(M)cuedump[${seltnums[1]}.skip]:#<1->}:+--skip=${cuedump[${seltnums[1]}.skip]}} ${${(M)cuedump[${seltnums[1]}.until]:#<1->}:+--until=${cuedump[${seltnums[1]}.until]}} -- $ifile | rw | eval command ${${${${(f)runenc}:#}//\[\$tn./'[${seltnums[1]}.'}//\[\$tn\]/'[${seltnums[1]}]'} "${(@q)ofmtargs}" -
+                      shift seltnums
+                    done
+                  fi
                 ;|
                 (wav|tak|tta|ape|)
                   ## match empty fmt in case of fifo mmode
@@ -650,19 +652,19 @@ ${outdir:-/sdcard/Music/albums}/${${${${cuedump[d.TITLE]:- }/#./．}//\//／}:0:
                     (aotuv|fdkaac) runenc+=$'\n--raw\n'
                     ;;
                   esac
-                  if [[ "$mmode" != fifo ]]; then
-                  command ffmpeg -loglevel warning -xerror -hide_banner -err_detect explode -i $ifile -f s16le - | {
-                    for ((tn=1;tn<=cuedump[tc];tn++)); do
-                      if (( ${seltnums[(I)$tn]} )); then
-                        local REPLAYGAIN_TRACK_GAIN= REPLAYGAIN_TRACK_PEAK=
-                        dd bs=128K ${${(M)cuedump[$tn.pskip]:#<1->}:+skip=$(( 4 * ${cuedump[$tn.pskip]} ))B} ${${(M)cuedump[$tn.plen]}:+count=$(( 4 * ${cuedump[$tn.plen]} ))B} iflag=fullblock status=none | gainstdin s16le
-                        REPLAYGAIN_TRACK_GAINs[$tn]=$REPLAYGAIN_TRACK_GAIN
-                        REPLAYGAIN_TRACK_PEAKs[$tn]=$REPLAYGAIN_TRACK_PEAK
-                      else
-                        pv -qX${cuedump[$tn.plen]:+Ss$((4*cuedump[$tn.plen]+4*cuedump[$tn.pskip]))}
-                      fi
-                    done
-                  }
+                  if [[ "$mmode" != fifo ]] && ! [[ "$ofmt" == exhale && "$replaygain" == (0|) ]]; then
+                    command ffmpeg -loglevel warning -xerror -hide_banner -err_detect explode -i $ifile -f s16le - | {
+                      for ((tn=1;tn<=cuedump[tc];tn++)); do
+                        if (( ${seltnums[(I)$tn]} )); then
+                          local REPLAYGAIN_TRACK_GAIN= REPLAYGAIN_TRACK_PEAK=
+                          dd bs=128K ${${(M)cuedump[$tn.pskip]:#<1->}:+skip=$(( 4 * ${cuedump[$tn.pskip]} ))B} ${${(M)cuedump[$tn.plen]}:+count=$(( 4 * ${cuedump[$tn.plen]} ))B} iflag=fullblock status=none | gainstdin s16le
+                          REPLAYGAIN_TRACK_GAINs[$tn]=$REPLAYGAIN_TRACK_GAIN
+                          REPLAYGAIN_TRACK_PEAKs[$tn]=$REPLAYGAIN_TRACK_PEAK
+                        else
+                          pv -qX${cuedump[$tn.plen]:+Ss$((4*cuedump[$tn.plen]+4*cuedump[$tn.pskip]))}
+                        fi
+                      done
+                    }
                   else
                     ifile=$fifo
                   fi
