@@ -104,8 +104,9 @@ function .main {
           if (( ${#albumtitles[$walkcuefiles]} && ${(@)#${(@M)albumtitles:#${albumtitles[$walkcuefiles]}}} > 1 )); then
             :
           else
-            if (( ! ${#albumtitles[$walkcuefiles]} )); then
+            if (( ! ${#albumtitles[$walkcuefiles]} )) || [[ "${albumtitles[$walkcuefiles]}" = (Unknown (Album|Title)|不明な(アルバム|タイトル)) ]]; then
               albumtitles[$walkcuefiles]=${${${cuefiles[$walkcuefiles]:r}%/[0-9A-Z]##[-0-9A-Z]##}:t}
+              albumtitles[$walkcuefiles]=${albumtitles[$walkcuefiles]:#(CDImage|(|((Various|Unknown) Artist(s|)|(不明[なの]|複数の異なる)アーティスト) - )(Unknown[ _](Album|Title)|不明な(アルバム|タイトル)))}
             fi
             while timeout 0.01 cat >/dev/null || :; do vared -ehp 'album> ' "albumtitles[$walkcuefiles]"
               if (( ${#albumtitles[$walkcuefiles]} )); then break; fi
@@ -203,7 +204,7 @@ function .main {
               vared -ehp 'la> ' "labels[$walkcuefiles]"
             fi
 
-            if [[ -n "${cueperformerdirectives[$walkcuefiles]}" && "${cueperformerdirectives[$walkcuefiles]}" != "${labels[$walkcuefiles]}" && "${cueperformerdirectives[$walkcuefiles]}" != (Various Artist(s|)) ]]; then
+            if [[ -n "${cueperformerdirectives[$walkcuefiles]}" && "${cueperformerdirectives[$walkcuefiles]}" != "${labels[$walkcuefiles]}" && "${cueperformerdirectives[$walkcuefiles]}" != ((Various|Unknown) Artist(s|)|(不明[なの]|複数の異なる)アーティスト) ]]; then
               aarts[$walkcuefiles]=${cueperformerdirectives[$walkcuefiles]}
             fi
             if (( !${#aarts[$walkcuefiles]} )); then
