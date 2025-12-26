@@ -426,6 +426,7 @@ function .main {
       while :; do
         timeout 0.1 cat >/dev/null || :
         read -k1 "REPLY?${cuefiles[$walkcuefiles]:t} [y/p/e/d/u($((${#mbufs}-1)))/m/t/q] "
+        timeout 0.01 cat >/dev/null || :
         case "$REPLY" in
           ([^$'\n']) echo
           ;|
@@ -775,6 +776,7 @@ ${outdir:-/sdcard/Music/albums}/${${${${cuedump[d.TITLE]:- }/#./．}//\//／}:0:
               local -aU tagtnums=()
               local tagvalue=
               read -k 1 "tagkey?${${cuefiles[$walkcuefiles]:t}:0:${$(( ${WIDTH:-80}/2 ))%.*}} [${${(@j..)${(@k)commontags}#*:}:l}?q] "
+              timeout 0.01 cat >/dev/null || :
               case "$tagkey" in
                 ([^$'\n']) echo
                   ;|
