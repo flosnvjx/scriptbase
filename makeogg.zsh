@@ -542,9 +542,9 @@ ${cuedump[d.REM MUSICBRAINZ_ALBUMID]:+--comment=MUSICBRAINZ_ALBUMID=${cuedump[d.
 ${cuedump[$tn.REM MUSICBRAINZ_RELEASETRACKID]:+--comment=MUSICBRAINZ_RELEASETRACKID=${cuedump[$tn.REM MUSICBRAINZ_RELEASETRACKID]}}
 ${cuedump[$tn.REM BPM]+--comment=BPM=${cuedump[$tn.REM BPM]}}
 ${${cuedump[$tn.REM REPLAYGAIN_TRACK_GAIN]:-${REPLAYGAIN_TRACK_GAINs[$tn]}}:+--comment=REPLAYGAIN_TRACK_GAIN=${cuedump[$tn.REM REPLAYGAIN_TRACK_GAIN]:-${REPLAYGAIN_TRACK_GAINs[$tn]}}}
-${${cuedump[$tn.REM REPLAYPEAK_TRACK_PEAK]:-${REPLAYGAIN_TRACK_PEAKs[$tn]}}:+--comment=REPLAYPEAK_TRACK_PEAK=${cuedump[$tn.REM REPLAYPEAK_TRACK_PEAK]:-${REPLAYGAIN_TRACK_PEAKs[$tn]}}}
+${${cuedump[$tn.REM REPLAYGAIN_TRACK_PEAK]:-${REPLAYGAIN_TRACK_PEAKs[$tn]}}:+--comment=REPLAYGAIN_TRACK_PEAK=${cuedump[$tn.REM REPLAYGAIN_TRACK_PEAK]:-${REPLAYGAIN_TRACK_PEAKs[$tn]}}}
 ${cuedump[d.REM REPLAYGAIN_ALBUM_GAIN]:+--comment=REPLAYGAIN_ALBUM_GAIN=${cuedump[d.REM REPLAYGAIN_ALBUM_GAIN]}}
-${cuedump[d.REM REPLAYPEAK_ALBUM_PEAK]:+--comment=REPLAYPEAK_ALBUM_PEAK=${cuedump[d.REM REPLAYPEAK_ALBUM_PEAK]}}
+${cuedump[d.REM REPLAYGAIN_ALBUM_PEAK]:+--comment=REPLAYGAIN_ALBUM_PEAK=${cuedump[d.REM REPLAYGAIN_ALBUM_PEAK]}}
 '
                 ;|
                 (aotuv|flac|fdkaac|qaac)
@@ -1120,7 +1120,7 @@ function gainstdin {
   REPLAYGAIN_TRACK_PEAK="${${${$(echo "scale=6; e(l(10)*${peak}/20)" | bc -l)/#./0.}/#+./+0.}#-./-0.}"
   else
     REPLAYGAIN_TRACK_GAIN=
-    REPLAYPEAK_TRACK_PEAK=
+    REPLAYGAIN_TRACK_PEAK=
   fi
 }
 
