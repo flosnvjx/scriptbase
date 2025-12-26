@@ -780,6 +780,7 @@ ${outdir:-/sdcard/Music/albums}/${${${${cuedump[d.TITLE]:- }/#./．}//\//／}:0:
               local tagkey=
               local -aU tagtnums=()
               local tagvalue=
+              timeout 0.01 cat >/dev/null || :
               read -k 1 "tagkey?${${cuefiles[$walkcuefiles]:t}:0:${$(( ${WIDTH:-80}/2 ))%.*}} [${${(@j..)${(@k)commontags}#*:}:l}?q] "
               timeout 0.01 cat >/dev/null || :
               case "$tagkey" in
