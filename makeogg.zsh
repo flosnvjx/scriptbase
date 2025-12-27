@@ -12,7 +12,7 @@ function .main {
     case "$mmode" in; (fifo*) mmode=fifo; fifo=${match[2]} ;; esac
     shift
   fi
-  if (( $#1 && ${(@)${(@k)ostr}[(I)(#i)${(q)1}]} )); then
+  if (( $#1 )) && [[ ${(@)${(@k)ostr}[(I)(#i)${(q)1}]} -gt 0 || "$1" == (none|null) ]]; then
     ofmt=$1
     shift
   elif (( !$#1 )); then
@@ -291,7 +291,7 @@ function .main {
       for ((walkcuefiles=1;walkcuefiles<=$#cuefiles;walkcuefiles++)); do
         match=()
         : ${dates[$walkcuefiles]:#(#b)(<1980-2099>)(#B)(|/(#b)(<1-12>)(#B)(|/(#b)(<1-31>)))}
-        albumtidydirs[$walkcuefiles]="[${match[1]:2:2}${${match[2]:+${${(M)match[2]:#?}:+0}${match[2]}}:-xx}${${match[3]:+${${(M)match[3]:#?}:+0}${match[3]}}:-xx}][${${labels[$walkcuefiles]:+${labels[$walkcuefiles]}${aarts[$walkcuefiles]:+ (${aarts[$walkcuefiles]})}}:-${aarts[${walkcuefiles}]}}] ${albumtitles[$walkcuefiles]} ${catnos:+[${(@j.,.)${(@nu)catnos}}]}${suris:+[${suris[$walkcuefiles]}]}[VGMdb${vgmdbids[$walkcuefiles]}]${ssdlwids[${walkcuefiles}]:+(${ssdlwids[${walkcuefiles}]})}"
+        albumtidydirs[$walkcuefiles]="[${match[1]:2:2}${${match[2]:+${${(M)match[2]:#?}:+0}${match[2]}}:-xx}${${match[3]:+${${(M)match[3]:#?}:+0}${match[3]}}:-xx}][${${labels[$walkcuefiles]:+${labels[$walkcuefiles]}${aarts[$walkcuefiles]:+ (${aarts[$walkcuefiles]})}}:-${aarts[${walkcuefiles}]}}] ${albumtitles[$walkcuefiles]} ${catnos:+[${(@j.,.)${(@nu)catnos}}]}${suris:+[${suris[$walkcuefiles]}]}[VGMdb${vgmdbids[$walkcuefiles]}]${ssdlwids[${walkcuefiles}]:+$'{'${ssdlwids[${walkcuefiles}]}$'}'}"
         albumtidyfiles[$walkcuefiles]=${${catnos[$walkcuefiles]:+${catnos[$walkcuefiles]}${${totaldiscs[$walkcuefiles]:#${(@)#${(@u)catnos}}}:+(#${discnumbers[$walkcuefiles]})}}:-VGMdb.album${vgmdbids[$walkcuefiles]}${${(M)totaldiscs[$walkcuefiles]:#<2->}:+.disc${discnumbers[$walkcuefiles]}}}${suris[$walkcuefiles]}
       done
       for ((walkcuefiles=1;walkcuefiles<=$#cuefiles;walkcuefiles++)); do
@@ -502,6 +502,7 @@ function .main {
               fi
               local runenc rundec tn
               case "$ofmt" in
+                (null) runenc=$'pv\n-qX;:\n' ;|
                 (aotuv) runenc=$'oggenc\n-Qq5\n-s\n....\n' ;|
                 (flac) runenc=$'flac\n-V8cs\n' ;|
                 (fdkaac|qaac|exhale) runenc=${ostr[$ofmt]// ##/
@@ -659,7 +660,15 @@ ${outdir:-/sdcard/Music/albums}/${${${${cuedump[d.TITLE]:- }/#./．}//\//／}:0:
                 (flac) flac -ts -- $ifile
                 rundec='flac -dcs'
                 ;|
+                (tak)
+                  if [[ -v commands[takc] ]]; then
+                    takc -t -md5 -silent ./$ifile
+                  fi
+                ;|
                 (flac|wv)
+                  if [[ "$ofmt" == null ]]; then
+                    break
+                  fi
                   if ! [[ "$ofmt" == exhale && "$replaygain" == (0|) ]]; then
                     while (( $#seltnums )); do
                       if ! (( ${#cuedump[${seltnums[1]}.REM REPLAYGAIN_TRACK_GAIN]} && ${#cuedump[${seltnums[1]}.REM REPLAYGAIN_TRACK_PEAK]} )); then
@@ -1231,6 +1240,10 @@ function .deps {
   flac --version &>/dev/null
   ostr[flac]='flac -scV8 '
 
+  if [[ -v commands[takc] ]] && (( ${(@)argv[1,2][(I)takc]} )) && takc -version 2>&1 | grep -qEe '^TAKC [2-9][.][1-9][0-9]*[.][0-9]*'; then
+    ostr[takc]='takc -e -p4e -wm0 -md5 -silent '
+  fi
+
   if oggenc --help | grep -qse "aoTuV"; then
     ostr[aotuv]='oggenc -Qq5 -s .... '
   fi
@@ -1243,7 +1256,7 @@ function .deps {
     ostr[exhale]='sox -Dtraw -Lc2 -r44100 -b16 -e signed-integer - -twav - | exhale '
   fi
 
-  if [[ -v commands[qaac64] ]] && (( ${(@)argv[(I)qaac]} )) && qaac64 --check 2>&1 | grep -qsEe 'CoreAudioToolbox [0-9.]+'; then
+  if [[ -v commands[qaac64] ]] && (( ${(@)argv[1,2][(I)qaac]} )) && qaac64 --check 2>&1 | grep -qsEe 'CoreAudioToolbox [0-9.]+'; then
     ostr[qaac]='sox -Dtraw -Lc2 -r44100 -b16 -e signed-integer - -twav - | qaac64 -sV64 --gapless-mode 2 '
   fi
 }
