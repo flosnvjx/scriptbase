@@ -24,6 +24,8 @@ function .main {
         shift
       done
     } aotuv fdkaac flac
+  elif [[ "$mmode" == cue ]]; then
+    ofmt=none
   else
     .fatal "unsupported output fmt: $1"
   fi
@@ -469,7 +471,7 @@ function .main {
             fi
           ;|
           (y|[pP])
-            if (( $#ofmt )); then
+            if (( $#ofmt )) && [[ "$ofmt" != none ]]; then
               cuedump=("${(@Q)${(@z)${(@f)$(gawk -E <(print -rn -- $awkcuedump) - <<< ${mbufs[-1]})}}}") || continue
               local -A ffprobe
               if [[ "$mmode" == fifo ]]; then
