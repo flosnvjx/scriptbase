@@ -292,7 +292,7 @@ function .main {
         match=()
         : ${dates[$walkcuefiles]:#(#b)(<1980-2099>)(#B)(|/(#b)(<1-12>)(#B)(|/(#b)(<1-31>)))}
         albumtidydirs[$walkcuefiles]="[${match[1]:2:2}${${match[2]:+${${(M)match[2]:#?}:+0}${match[2]}}:-xx}${${match[3]:+${${(M)match[3]:#?}:+0}${match[3]}}:-xx}][${${labels[$walkcuefiles]:+${labels[$walkcuefiles]}${aarts[$walkcuefiles]:+ (${aarts[$walkcuefiles]})}}:-${aarts[${walkcuefiles}]}}] ${albumtitles[$walkcuefiles]} ${catnos:+[${(@j.,.)${(@nu)catnos}}]}${suris:+[${suris[$walkcuefiles]}]}[VGMdb${vgmdbids[$walkcuefiles]}]${ssdlwids[${walkcuefiles}]:+$'{'${ssdlwids[${walkcuefiles}]}$'}'}"
-        albumtidyfiles[$walkcuefiles]=${${catnos[$walkcuefiles]:+${catnos[$walkcuefiles]}${${totaldiscs[$walkcuefiles]:#${(@)#${(@u)catnos}}}:+(#${discnumbers[$walkcuefiles]})}}:-VGMdb.album${vgmdbids[$walkcuefiles]}${${(M)totaldiscs[$walkcuefiles]:#<2->}:+.disc${discnumbers[$walkcuefiles]}}}${suris[$walkcuefiles]}
+        albumtidyfiles[$walkcuefiles]=${${catnos[$walkcuefiles]:+${catnos[$walkcuefiles]}${${totaldiscs[$walkcuefiles]:#${(@)#${(@u)catnos}}}:+.disc${discnumbers[$walkcuefiles]})}}:-VGMdb.album${vgmdbids[$walkcuefiles]}${${(M)totaldiscs[$walkcuefiles]:#<2->}:+.disc${discnumbers[$walkcuefiles]}}}${suris[$walkcuefiles]}
       done
       for ((walkcuefiles=1;walkcuefiles<=$#cuefiles;walkcuefiles++)); do
         if (( ${(@)#${(@u)albumtidydirs}} == 1 )); then
@@ -471,7 +471,7 @@ function .main {
             fi
           ;|
           (y|[pP])
-            if (( $#ofmt )) && [[ "$ofmt" != none ]]; then
+            if [[ "$ofmt" != none ]]; then
               cuedump=("${(@Q)${(@z)${(@f)$(gawk -E <(print -rn -- $awkcuedump) - <<< ${mbufs[-1]})}}}") || continue
               local -A ffprobe
               if [[ "$mmode" == fifo ]]; then
@@ -630,6 +630,8 @@ ${outdir:-/sdcard/Music/albums}/${${${${cuedump[d.TITLE]:- }/#./．}//\//／}:0:
               esac
               local -a seltnums=()
               timeout 0.01 cat >/dev/null||:
+
+              if [[ "$ofmt" != null ]]; then
               seltnums=("${(@)${(@f)$(function {
   while ((#)); do
     printf '%-2d  %s\n' ${1%%.*} ${cuedump[${1%%.*}.TITLE]}${cuedump[${1%%.*}.PERFORMER]:+		"[@"${cuedump[${1%%.*}.PERFORMER]}"]"}
@@ -650,25 +652,77 @@ ${outdir:-/sdcard/Music/albums}/${${${${cuedump[d.TITLE]:- }/#./．}//\//／}:0:
                 }
                 (( $#seltnums )) || continue
               }
+              else
+                seltnums=(${(@)${(@Mn)${(@k)cuedump}:#<1->.tnum}%.*})
+              fi
+
               local -a testbpms=()
               local -a testmusicalkeys=()
               local -a REPLAYGAIN_TRACK_GAINs=() REPLAYGAIN_TRACK_PEAKs=()
               case "${ffprobe[format.format_name]}" in
                 (wv) wvunpack -qmvz0 -- $ifile
                 rundec='wvunpack -q -z0 -o -'
-                ;|
+                ;;
                 (flac) flac -ts -- $ifile
                 rundec='flac -dcs'
-                ;|
+                ;;
                 (tak)
                   if [[ -v commands[takc] ]]; then
                     takc -t -md5 -silent ./$ifile
+                  fi
+                ;;
+                (ape)
+                  if [[ -v commands[wine] ]]; then
+                    wine mac $ifile -v
+                  fi
+                ;;
+              esac
+            fi
+            ;|
+          (y)
+            if [[ "$mmode" == tidy && "$ofmt" != none && -v commands[takc] ]]; then
+              case "${ffprobe[format.format_name]}" in
+                (flac|wv)
+                  command ${(z)rundec[$walkcuefiles]} -- $ifile | command ${(z)ostr[takc]} -tt CUESHEET="$(cueconvert -i cue -o toc <<< ${mbufs[-1]}|cueconvert -i toc -o cue|sed -Ee '/("|^$)/d')" - ./${ifile:r}.tak
+                ;|
+                (wav)
+                command ${(z)ostr[takc]} -tt CUESHEET="$(cueconvert -i cue -o toc <<< ${mbufs[-1]}|cueconvert -i toc -o cue|sed -Ee '/("|^$)/d')" ./${ifile} ./${ifile:r}.tak
+                ;|
+                (tta)
+                ffmpeg -loglevel quiet -xerror -hide_banner -err_detect explode -i $ifile -f wav - | command ${(z)ostr[takc]} -tt CUESHEET="$(cueconvert -i cue -o toc <<< ${mbufs[-1]}|cueconvert -i toc -o cue|sed -Ee '/("|^$)/d')" - ./${ifile:r}.tak
+                ;|
+                (flac|wv|wav|tta)
+                gawk -E <(print -r -- $awkcuemput) <(printf '%s\n' d.FILE ${ifile:r}.tak) <(print -r -- ${mbufs[-1]}) | readeof mbuf
+                mbufs+=($mbuf)
+                albumfiles[$walkcuefiles]=${ifile:r}.tak
+                if ! print -rn -- ${mbufs[-1]} | cmp -s -- ${cuefiles[$walkcuefiles]}; then
+                  print -rn -- ${mbufs[-1]} | rw -- ${cuefiles[$walkcuefiles]}
+                fi
+                ifile=${ifile:r}.tak
+                ffprobe=("${(@Q)${(@z)${(@f)"$(ffprobe -err_detect explode -show_entries streams:format -of flat -hide_banner -loglevel warning -select_streams a -i $ifile)"}/=/ }}")
+                ;|
+              esac
+            fi
+            ;|
+          (y|[pP])
+            if (( $#ofmt )) && [[ "$ofmt" != none ]]; then
+              case "${ffprobe[format.format_name]}" in
+                (ape)
+                  if [[ -v commands[wine] ]] && [[ "$ofmt" == null ]]; then
+                    break
+                  fi
+                ;|
+                (tak)
+                  if [[ -v commands[takc] ]] && [[ "$ofmt" == null ]]; then
+                    break
                   fi
                 ;|
                 (flac|wv)
                   if [[ "$ofmt" == null ]]; then
                     break
                   fi
+                ;|
+                (flac|wv)
                   if ! [[ "$ofmt" == exhale && "$replaygain" == (0|) ]]; then
                     while (( $#seltnums )); do
                       if ! (( ${#cuedump[${seltnums[1]}.REM REPLAYGAIN_TRACK_GAIN]} && ${#cuedump[${seltnums[1]}.REM REPLAYGAIN_TRACK_PEAK]} )); then
@@ -1240,7 +1294,7 @@ function .deps {
   flac --version &>/dev/null
   ostr[flac]='flac -scV8 '
 
-  if [[ -v commands[takc] ]] && (( ${(@)argv[1,2][(I)takc]} )) && takc -version 2>&1 | grep -qEe '^TAKC [2-9][.][1-9][0-9]*[.][0-9]*'; then
+  if [[ -v commands[takc] ]]; then
     ostr[takc]='takc -e -p4e -wm0 -md5 -silent '
   fi
 
