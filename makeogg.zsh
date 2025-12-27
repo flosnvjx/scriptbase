@@ -280,10 +280,35 @@ function .main {
                 done
               fi
             fi
+
           fi
           ;|
       esac
     done
+    if [[ "$mmode" = tidy ]] && (( 1 == ${(@)#${(@u)albumtitles}} )); then
+      for ((walkcuefiles=1;walkcuefiles<=$#cuefiles;walkcuefiles++)); do
+        match=()
+        : ${dates[$walkcuefiles]:#(#b)(<1980-2099>)(#B)(|/(#b)(<1-12>)(#B)(|/(#b)(<1-31>)))}
+        albumtidydirs[$walkcuefiles]="[${match[1]:2:2}${${match[2]:+${${(M)match[2]:#?}:+0}${match[2]}}:-xx}${${match[3]:+${${(M)match[3]:#?}:+0}${match[3]}}:-xx}][${${labels[$walkcuefiles]:+${labels[$walkcuefiles]}${aarts[$walkcuefiles]:+ (${aarts[$walkcuefiles]})}}:-${aarts[${walkcuefiles}]}}] ${albumtitles[$walkcuefiles]} ${catnos:+[${(@j.,.)${(@nu)catnos}}]}${suris:+[${suris[$walkcuefiles]}]}[VGMdb${vgmdbids[$walkcuefiles]}]${ssdlwids[${walkcuefiles}]:+(${ssdlwids[${walkcuefiles}]})}"
+        albumtidyfiles[$walkcuefiles]=${${catnos[$walkcuefiles]:+${catnos[$walkcuefiles]}${${totaldiscs[$walkcuefiles]:#${(@)#${(@u)catnos}}}:+(#${discnumbers[$walkcuefiles]})}}:-VGMdb.album${vgmdbids[$walkcuefiles]}${${(M)totaldiscs[$walkcuefiles]:#<2->}:+.disc${discnumbers[$walkcuefiles]}}}${suris[$walkcuefiles]}
+      done
+      for ((walkcuefiles=1;walkcuefiles<=$#cuefiles;walkcuefiles++)); do
+        if (( ${(@)#${(@u)albumtidydirs}} == 1 )); then
+          if [[ ${cuefiles[$walkcuefiles]} == ?*/?* && ${cuefiles[$walkcuefiles]:r} != (#i)Disc[0-9]##/[^/]## && \
+            "${cuefiles[$walkcuefiles]:h}" != "${albumtidydirs[$walkcuefiles]}"(|*/) && "${PWD:t}" != "${albumtidydirs[$walkcuefiles]}" ]] || \
+            [[ "${PWD:t}" != "${albumtidydirs[$walkcuefiles]}" ]]; then
+            if [[ ! -e "${albumtidydirs[$walkcuefiles]}" ]]; then
+              mkdir -v -- "${albumtidydirs[$walkcuefiles]}"
+            fi
+            if function { return $(( $#==0 )); } ${cuefiles[$walkcuefiles]:r}.*(.N); then rename -vo -- ${cuefiles[$walkcuefiles]:r} ${albumtidydirs[$walkcuefiles]}/${albumtidyfiles[$walkcuefiles]} ${cuefiles[$walkcuefiles]:r}.*(.N); fi
+            cuefiles[$walkcuefiles]=${cuefiles[$walkcuefiles]/${cuefiles[$walkcuefiles]:r}/${albumtidydirs[$walkcuefiles]}\/${albumtidyfiles[$walkcuefiles]}}
+          else
+            if function { return $(( $#==0 )); } ${cuefiles[$walkcuefiles]:r}.*(.N); then rename -vo -- ${cuefiles[$walkcuefiles]:r} ${albumtidyfiles[$walkcuefiles]} ${cuefiles[$walkcuefiles]:r}.*(.N); fi
+            cuefiles[$walkcuefiles]=${cuefiles[$walkcuefiles]/${cuefiles[$walkcuefiles]:r}/${albumtidyfiles[$walkcuefiles]}}
+          fi
+        fi
+      done
+    fi
     for ((walkcuefiles=1;walkcuefiles<=$#cuefiles;walkcuefiles++)); do
       local -a match=() mbegin=() mend=()
       .msg "${cuefiles[$walkcuefiles]} (\"${cuefiledirectives[$walkcuefiles]}\")"
