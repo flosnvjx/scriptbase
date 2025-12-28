@@ -21,7 +21,7 @@ case "${exe}" in
 esac
 
 if (( $#exes )); then
-  if [[ "$0" == (*/|)winecmd ]]; then
+  if [[ "$0" = (|*/)wine ]]; then
     shift
   fi
   exec hangover-wine "${exes[1]}" "${(@)argv}"
