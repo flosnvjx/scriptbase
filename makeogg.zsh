@@ -223,7 +223,7 @@ function .main {
             fi
             if (( !${#ssdlwids[$walkcuefiles]} )) && (( $#acuefiles == totaldiscs[walkcuefiles] )) && (( 1 == ${(@)#${(@u)albumtitles}} )); then
               match=()
-              : ${(M)${PWD:t}:#{(#b)(M-[0-9](#c7))}*}
+              : ${(M)${PWD:t}:#*{(#b)(M[-.][0-9](#c7))}*}
               ssdlwids[$walkcuefiles]=${match[1]}
             fi
             if (( !${#ssdlwids[$walkcuefiles]} )) && (( $#ssdlwtxt )); then
@@ -263,9 +263,9 @@ function .main {
               if (( !${#vgmdbids[$walkcuefiles]} )) && (( $#acuefiles == totaldiscs[walkcuefiles] )) && (( 1 == ${(@)#${(@u)albumtitles}} )); then
                 match=()
                 if [[ ${cuefiles[$walkcuefiles]} == ?*/?* && ${cuefiles[$walkcuefiles]:r} != (#i)Disc[0-9]##/[^/]## ]]; then
-                  : ${(M)${cuefiles[$walkcuefiles]:h:t}:#*\[VGMdb.(#b)(<1->)\]*}
+                  : ${(M)${cuefiles[$walkcuefiles]:h:t}:#*\[VGMdb(#b)(<1->)\]*}
                 else
-                  : ${(M)${PWD:t}:#*\[VGMdb.(#b)(<1->)\]*}
+                  : ${(M)${PWD:t}:#*\[VGMdb(#b)(<1->)\]*}
                 fi
                 vgmdbids[$walkcuefiles]=${match[1]}
               fi
@@ -291,7 +291,7 @@ function .main {
       for ((walkcuefiles=1;walkcuefiles<=$#cuefiles;walkcuefiles++)); do
         match=()
         : ${dates[$walkcuefiles]:#(#b)(<1980-2099>)(#B)(|/(#b)(<1-12>)(#B)(|/(#b)(<1-31>)))}
-        albumtidydirs[$walkcuefiles]="[${match[1]:2:2}${${match[2]:+${${(M)match[2]:#?}:+0}${match[2]}}:-xx}${${match[3]:+${${(M)match[3]:#?}:+0}${match[3]}}:-xx}][${${labels[$walkcuefiles]:+${labels[$walkcuefiles]}${aarts[$walkcuefiles]:+ (${aarts[$walkcuefiles]})}}:-${aarts[${walkcuefiles}]}}] ${albumtitles[$walkcuefiles]} ${catnos:+[${(@j.,.)${(@nu)catnos}}]}${suris:+[${suris[$walkcuefiles]}]}[VGMdb${vgmdbids[$walkcuefiles]}]${ssdlwids[${walkcuefiles}]:+$'{'${ssdlwids[${walkcuefiles}]}$'}'}"
+        albumtidydirs[$walkcuefiles]="[${match[1]:2:2}${${match[2]:+${${(M)match[2]:#?}:+0}${match[2]}}:-xx}${${match[3]:+${${(M)match[3]:#?}:+0}${match[3]}}:-xx}][${${labels[$walkcuefiles]:+${labels[$walkcuefiles]}${aarts[$walkcuefiles]:+ (${aarts[$walkcuefiles]})}}:-${aarts[${walkcuefiles}]}}] ${albumtitles[$walkcuefiles]} ${catnos:+[${(@j.,.)${(@nu)catnos}}]}${suris:+[${suris[$walkcuefiles]}]}[VGMdb${vgmdbids[$walkcuefiles]}]${ssdlwids[${walkcuefiles}]:+{${ssdlwids[${walkcuefiles}]}\}}"
         albumtidyfiles[$walkcuefiles]=${${catnos[$walkcuefiles]:+${catnos[$walkcuefiles]}${${totaldiscs[$walkcuefiles]:#${(@)#${(@u)catnos}}}:+.disc${discnumbers[$walkcuefiles]})}}:-VGMdb.album${vgmdbids[$walkcuefiles]}${${(M)totaldiscs[$walkcuefiles]:#<2->}:+.disc${discnumbers[$walkcuefiles]}}}${suris[$walkcuefiles]}
       done
       for ((walkcuefiles=1;walkcuefiles<=$#cuefiles;walkcuefiles++)); do
@@ -299,12 +299,12 @@ function .main {
           if [[ ${cuefiles[$walkcuefiles]} == ?*/?* && ${cuefiles[$walkcuefiles]:r} != (#i)Disc[0-9]##/[^/]## && \
             "${cuefiles[$walkcuefiles]:h}" != "${albumtidydirs[$walkcuefiles]}"(|*/) && "${PWD:t}" != "${albumtidydirs[$walkcuefiles]}" ]] || \
             [[ "${PWD:t}" != "${albumtidydirs[$walkcuefiles]}" ]]; then
-            if [[ ! -e "${albumtidydirs[$walkcuefiles]}" ]]; then
+            if (( walkcuefiles==1 )); then
               mkdir -v -- "${albumtidydirs[$walkcuefiles]}"
             fi
             if function { return $(( $#==0 )); } ${cuefiles[$walkcuefiles]:r}.*(.N); then rename -vo -- ${cuefiles[$walkcuefiles]:r} ${albumtidydirs[$walkcuefiles]}/${albumtidyfiles[$walkcuefiles]} ${cuefiles[$walkcuefiles]:r}.*(.N); fi
             cuefiles[$walkcuefiles]=${cuefiles[$walkcuefiles]/${cuefiles[$walkcuefiles]:r}/${albumtidydirs[$walkcuefiles]}\/${albumtidyfiles[$walkcuefiles]}}
-          else
+          elif [[ "${cuefiles[$walkcuefiles]:r}" != "${albumtidyfiles[$walkcuefiles]}" ]]; then
             if function { return $(( $#==0 )); } ${cuefiles[$walkcuefiles]:r}.*(.N); then rename -vo -- ${cuefiles[$walkcuefiles]:r} ${albumtidyfiles[$walkcuefiles]} ${cuefiles[$walkcuefiles]:r}.*(.N); fi
             cuefiles[$walkcuefiles]=${cuefiles[$walkcuefiles]/${cuefiles[$walkcuefiles]:r}/${albumtidyfiles[$walkcuefiles]}}
           fi
@@ -1287,6 +1287,8 @@ function .deps {
   rw --help &>/dev/null
   bat --version &>/dev/null
   cueprint --version &>/dev/null
+  cueconvert --version &>/dev/null
+  xxhsum --version &>/dev/null
   fmtstr[tta]='tta ffmpeg -loglevel quiet -xerror -hide_banner -err_detect explode -f tta -i %f -bitexact -f wav -'
   fmtstr[ape]='ape ffmpeg -loglevel quiet -xerror -hide_banner -err_detect explode -f ape -i %f -bitexact -f wav -'
   fmtstr[tak]='tak ffmpeg -loglevel quiet -xerror -hide_banner -err_detect explode -i %f -bitexact -f wav -'
