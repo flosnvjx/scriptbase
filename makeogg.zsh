@@ -668,7 +668,10 @@ ${outdir:-/sdcard/Music/albums}/${${${${cuedump[d.TITLE]:- }/#./．}//\//／}:0:
                 ;;
                 (tak)
                   if [[ -v commands[takc] ]]; then
-                    takc -t -md5 -silent ./$ifile
+                    local embedmd5="${(@)${(@s.;.)$(takc -fi -fim5 ./$ifile)}[6]}"
+                    if (( $#embedmd5 == 32 )); then
+                      [[ "${$(ffmpeg -loglevel warning -xerror -hide_banner -err_detect explode -i $ifile -f s16le -|md5sum --tag -)##* = }" == $embedmd5 ]]
+                    fi
                   fi
                 ;;
                 (ape)
@@ -745,7 +748,7 @@ ${outdir:-/sdcard/Music/albums}/${${${${cuedump[d.TITLE]:- }/#./．}//\//／}:0:
                   fi
                 ;|
                 (tak)
-                  if [[ -v commands[takc] ]] && [[ "$ofmt" == null ]]; then
+                  if [[ -v commands[takc] ]] && (( $#embedmd5 == 32 )) && [[ "$ofmt" == null ]]; then
                     break
                   fi
                 ;|
