@@ -680,28 +680,51 @@ ${outdir:-/sdcard/Music/albums}/${${${${cuedump[d.TITLE]:- }/#./．}//\//／}:0:
             fi
             ;|
           (y)
-            if [[ "$mmode" == tidy && "$ofmt" != none && -v commands[takc] ]]; then
-              case "${ffprobe[format.format_name]}" in
-                (flac|wv)
-                  command ${(z)rundec[$walkcuefiles]} -- $ifile | command ${(z)ostr[takc]} -tt CUESHEET="$(cueconvert -i cue -o toc <<< ${mbufs[-1]}|cueconvert -i toc -o cue|sed -Ee '/("|^$)/d')" - ./${ifile:r}.tak
-                ;|
-                (wav)
-                command ${(z)ostr[takc]} -tt CUESHEET="$(cueconvert -i cue -o toc <<< ${mbufs[-1]}|cueconvert -i toc -o cue|sed -Ee '/("|^$)/d')" ./${ifile} ./${ifile:r}.tak
-                ;|
-                (tta)
-                ffmpeg -loglevel quiet -xerror -hide_banner -err_detect explode -i $ifile -f wav - | command ${(z)ostr[takc]} -tt CUESHEET="$(cueconvert -i cue -o toc <<< ${mbufs[-1]}|cueconvert -i toc -o cue|sed -Ee '/("|^$)/d')" - ./${ifile:r}.tak
-                ;|
-                (flac|wv|wav|tta)
-                gawk -E <(print -r -- $awkcuemput) <(printf '%s\n' d.FILE ${ifile:r}.tak) <(print -r -- ${mbufs[-1]}) | readeof mbuf
+            if [[ "$mmode" == tidy && "$ofmt" != none ]]; then
+              match=()
+              eval 'local oldsamplecount="${${(M)${ifile:t:r}:#?*\#soxDiscardNull.statSamples[0-9]##(|.XXH3_[0-9a-f](#c16))(|\#*)}:+${ifile:t:r:s/?*\#soxDiscardNull.statSamples(#b)([0-9]##)(#B)(.XXH3_(#b)([0-9a-f](#c16))(#B)|)(\#*|)/\${match[1]\}/}}"'
+              local oldxxh3=${match[2]}
+              if ! (( $#oldxxh3 && $#oldsamplecount )); then
+                function {
+                  argv=("${(@f)$({ ffmpeg -loglevel warning -xerror -hide_banner -err_detect explode -i $ifile -f wav -|LC_ALL=C sox -Dtwav - -traw - silence 1 1 0 -1 1 0 stat|xxhsum --tag -H3 -; } 2>&1;)}")
+                  oldsamplecount=${argv[(r)Samples read: #[0-9]##]##*: #}
+                  oldxxh3=${argv[(r)XXH3 \(?*\) = [0-9a-f](#c16)]##* = }
+                  (( $#oldsamplecount && $#oldxxh3==16 ))
+                }
+                if [[ "$ofmt" == null ]]; then
+                  ofmt=none
+                fi
+              fi
+              if [[ -v commands[takc] ]]; then
+                case "${ffprobe[format.format_name]}" in
+                  (flac|wv)
+                    command ${(z)rundec} -- $ifile | command ${(z)ostr[takc]} -tt CUESHEET="$(cueconvert -i cue -o toc <<< ${mbufs[-1]}|cueconvert -i toc -o cue|sed -Ee '/("|^$)/d')" - ./${ifile:r}.tak
+                  ;|
+                  (wav)
+                  command ${(z)ostr[takc]} -tt CUESHEET="$(cueconvert -i cue -o toc <<< ${mbufs[-1]}|cueconvert -i toc -o cue|sed -Ee '/("|^$)/d')" ./${ifile} ./${ifile:r}.tak
+                  ;|
+                  (tta|ape)
+                  command ffmpeg -loglevel warning -xerror -hide_banner -err_detect explode -i $ifile -f wav - | command ${(z)ostr[takc]} -tt CUESHEET="$(cueconvert -i cue -o toc <<< ${mbufs[-1]}|cueconvert -i toc -o cue|sed -Ee '/("|^$)/d')" - ./${ifile:r}.tak
+                  ;|
+                esac
+              fi
+              if [[ -f ${ifile:r}.(#i)log ]]; then
+                mv -- ${ifile:r}.(#i)log "${${ifile:r}%%\#soxDiscardNull.statSamples[0-9]##(.XXH3_[0-9a-f](#c16)|)(\#*|)}#soxDiscardNull.statSamples$oldsamplecount.XXH3_$oldxxh3.${ifile:e}.log"
+              fi
+              if [[ "${${ifile:r}%%\#soxDiscardNull.statSamples[0-9]##(.XXH3_[0-9a-f](#c16)|)(\#*|)}#soxDiscardNull.statSamples$oldsamplecount.XXH3_$oldxxh3" != "${ifile:r}" ]]; then
+                mv -v -- ${${${commands[takc]:+${(M)ffprobe[format.format_name]:#(flac|wv|wav|tta)}}:+${ifile:r}.tak}:-$ifile} "${${ifile:r}%%\#soxDiscardNull.statSamples[0-9]##(.XXH3_[0-9a-f](#c16)|)(\#*|)}#soxDiscardNull.statSamples$oldsamplecount.XXH3_$oldxxh3${${commands[takc]:+${(M)ffprobe[format.format_name]:#(flac|wv|wav|tta|ape)}}:+#convFrom.${ffprobe[format.format_name]}}.${${${commands[takc]:+${(M)ffprobe[format.format_name]:#(flac|wv|wav|tta|ape)}}:+tak}:-${ifile:e}}"
+                ifile="${${ifile:r}%%\#soxDiscardNull.statSamples[0-9]##(.XXH3_[0-9a-f](#c16)|)(\#*|)}#soxDiscardNull.statSamples$oldsamplecount.XXH3_$oldxxh3${${commands[takc]:+${(M)ffprobe[format.format_name]:#(flac|wv|wav|tta|ape)}}:+#convFrom.${ffprobe[format.format_name]}}.${${${commands[takc]:+${(M)ffprobe[format.format_name]:#(flac|wv|wav|tta|ape)}}:+tak}:-${ifile:e}}"
+                gawk -E <(print -r -- $awkcuemput) <(printf '%s\n%s\n' d.FILE $ifile) <(print -r -- ${mbufs[-1]}) | readeof mbuf
                 mbufs+=($mbuf)
-                albumfiles[$walkcuefiles]=${ifile:r}.tak
+                if [[ "${cuefiles[$walkcuefiles]}" != (#i)${ifile:r}.cue   ]]; then
+                  mv -v -- "${cuefiles[$walkcuefiles]}" ${ifile:r}.cue
+                  cuefiles[$walkcuefiles]=${ifile:r}.cue
+                fi
                 if ! print -rn -- ${mbufs[-1]} | cmp -s -- ${cuefiles[$walkcuefiles]}; then
                   print -rn -- ${mbufs[-1]} | rw -- ${cuefiles[$walkcuefiles]}
                 fi
-                ifile=${ifile:r}.tak
                 ffprobe=("${(@Q)${(@z)${(@f)"$(ffprobe -err_detect explode -show_entries streams:format -of flat -hide_banner -loglevel warning -select_streams a -i $ifile)"}/=/ }}")
-                ;|
-              esac
+              fi
             fi
             ;|
           (y|[pP])
