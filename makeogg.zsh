@@ -706,6 +706,15 @@ ${outdir:-/sdcard/Music/albums}/${${${${cuedump[d.TITLE]:- }/#./．}//\//／}:0:
                   (tta|ape)
                   command ffmpeg -loglevel warning -xerror -hide_banner -err_detect explode -i $ifile -f wav - | command ${(z)ostr[takc]} -tt CUESHEET="$(cueconvert -i cue -o toc <<< ${mbufs[-1]}|cueconvert -i toc -o cue|sed -Ee '/("|^$)/d')" - ./${ifile:r}.tak
                   ;|
+                  (tta|ape|flac|wav|wv)
+                  function {
+                    argv=("${(@f)$({ ffmpeg -loglevel warning -xerror -hide_banner -err_detect explode -i ${ifile:r}.tak -f wav -|LC_ALL=C sox -Dtwav - -traw - silence 1 1 0 -1 1 0 stat|xxhsum --tag -H3 -; } 2>&1;)}")
+                    local newsamplecount=${argv[(r)Samples read: #[0-9]##]##*: #}
+                    local newxxh3=${argv[(r)XXH3 \(?*\) = [0-9a-f](#c16)]##* = }
+                    [[ "$oldsamplecount" == "$newsamplecount" ]]
+                    [[ "$oldxxh3" == "$newxxh3" ]]
+                  }
+                  ;|
                 esac
               fi
               if [[ -f ${ifile:r}.(#i)log ]]; then
