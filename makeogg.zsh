@@ -682,7 +682,7 @@ ${outdir:-/sdcard/Music/albums}/${${${${cuedump[d.TITLE]:- }/#./．}//\//／}:0:
           (y)
             if [[ "$mmode" == tidy && "$ofmt" != none ]]; then
               match=()
-              eval 'local oldsamplecount="${${(M)${ifile:t:r}:#?*\#soxDiscardNull.statSamples[0-9]##(|.XXH3_[0-9a-f](#c16))(|\#*)}:+${ifile:t:r:s/?*\#soxDiscardNull.statSamples(#b)([0-9]##)(#B)(.XXH3_(#b)([0-9a-f](#c16))(#B)|)(\#*|)/\${match[1]\}/}}"'
+              eval 'local oldsamplecount="${${(M)${ifile:t:r}:#?*\#soxStatExclNull.Samples[0-9]##(|.XXH3_[0-9a-f](#c16))(|\#*)}:+${ifile:t:r:s/?*\#soxStatExclNull.Samples(#b)([0-9]##)(#B)(.XXH3_(#b)([0-9a-f](#c16))(#B)|)(\#*|)/\${match[1]\}/}}"'
               local oldxxh3=${match[2]}
               if ! (( $#oldxxh3 && $#oldsamplecount )); then
                 function {
@@ -709,11 +709,11 @@ ${outdir:-/sdcard/Music/albums}/${${${${cuedump[d.TITLE]:- }/#./．}//\//／}:0:
                 esac
               fi
               if [[ -f ${ifile:r}.(#i)log ]]; then
-                mv -- ${ifile:r}.(#i)log "${${ifile:r}%%\#soxDiscardNull.statSamples[0-9]##(.XXH3_[0-9a-f](#c16)|)(\#*|)}#soxDiscardNull.statSamples$oldsamplecount.XXH3_$oldxxh3.${ifile:e}.log"
+                mv -- ${ifile:r}.(#i)log "${${ifile:r}%%\#soxStatExclNull.Samples[0-9]##(.XXH3_[0-9a-f](#c16)|)(\#*|)}#soxStatExclNull.Samples$oldsamplecount.XXH3_$oldxxh3.${ifile:e}.log"
               fi
-              if [[ "${${ifile:r}%%\#soxDiscardNull.statSamples[0-9]##(.XXH3_[0-9a-f](#c16)|)(\#*|)}#soxDiscardNull.statSamples$oldsamplecount.XXH3_$oldxxh3" != "${ifile:r}" ]]; then
-                mv -v -- ${${${commands[takc]:+${(M)ffprobe[format.format_name]:#(flac|wv|wav|tta)}}:+${ifile:r}.tak}:-$ifile} "${${ifile:r}%%\#soxDiscardNull.statSamples[0-9]##(.XXH3_[0-9a-f](#c16)|)(\#*|)}#soxDiscardNull.statSamples$oldsamplecount.XXH3_$oldxxh3${${commands[takc]:+${(M)ffprobe[format.format_name]:#(flac|wv|wav|tta|ape)}}:+#convFrom.${ffprobe[format.format_name]}}.${${${commands[takc]:+${(M)ffprobe[format.format_name]:#(flac|wv|wav|tta|ape)}}:+tak}:-${ifile:e}}"
-                ifile="${${ifile:r}%%\#soxDiscardNull.statSamples[0-9]##(.XXH3_[0-9a-f](#c16)|)(\#*|)}#soxDiscardNull.statSamples$oldsamplecount.XXH3_$oldxxh3${${commands[takc]:+${(M)ffprobe[format.format_name]:#(flac|wv|wav|tta|ape)}}:+#convFrom.${ffprobe[format.format_name]}}.${${${commands[takc]:+${(M)ffprobe[format.format_name]:#(flac|wv|wav|tta|ape)}}:+tak}:-${ifile:e}}"
+              if [[ "${${ifile:r}%%\#soxStatExclNull.Samples[0-9]##(.XXH3_[0-9a-f](#c16)|)(\#*|)}#soxStatExclNull.Samples$oldsamplecount.XXH3_$oldxxh3" != "${ifile:r}" ]]; then
+                mv -v -- ${${${commands[takc]:+${(M)ffprobe[format.format_name]:#(flac|wv|wav|tta)}}:+${ifile:r}.tak}:-$ifile} "${${ifile:r}%%\#soxStatExclNull.Samples[0-9]##(.XXH3_[0-9a-f](#c16)|)(\#*|)}#soxStatExclNull.Samples$oldsamplecount.XXH3_$oldxxh3${${commands[takc]:+${(M)ffprobe[format.format_name]:#(flac|wv|wav|tta|ape)}}:+#convFrom.${ffprobe[format.format_name]}}.${${${commands[takc]:+${(M)ffprobe[format.format_name]:#(flac|wv|wav|tta|ape)}}:+tak}:-${ifile:e}}"
+                ifile="${${ifile:r}%%\#soxStatExclNull.Samples[0-9]##(.XXH3_[0-9a-f](#c16)|)(\#*|)}#soxStatExclNull.Samples$oldsamplecount.XXH3_$oldxxh3${${commands[takc]:+${(M)ffprobe[format.format_name]:#(flac|wv|wav|tta|ape)}}:+#convFrom.${ffprobe[format.format_name]}}.${${${commands[takc]:+${(M)ffprobe[format.format_name]:#(flac|wv|wav|tta|ape)}}:+tak}:-${ifile:e}}"
                 gawk -E <(print -r -- $awkcuemput) <(printf '%s\n%s\n' d.FILE $ifile) <(print -r -- ${mbufs[-1]}) | readeof mbuf
                 mbufs+=($mbuf)
                 if [[ "${cuefiles[$walkcuefiles]}" != (#i)${ifile:r}.cue   ]]; then
