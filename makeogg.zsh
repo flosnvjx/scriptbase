@@ -1305,6 +1305,8 @@ declare -a genres=(
   JPop
   Classical
   Game
+  Indie
+  Doujin
   'National Folk'
   Other
 )
