@@ -792,7 +792,7 @@ ${outdir:-/sdcard/Music/albums}/${${${${cuedump[d.TITLE]:- }/#./．}//\//／}:0:
                         fi
                       done
                     }
-                  else
+                  elif [[ "$mmode" == fifo ]]; then
                     ifile=$fifo
                   fi
                   command ffmpeg -loglevel warning -xerror -hide_banner -err_detect explode -i $ifile -f s16le - | {
