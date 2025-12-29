@@ -496,9 +496,6 @@ function .main {
                 .fatal 'unsupported fmt: '${format.format_name}
               esac
               fi ## if [[ "$mmode" != fifo ]]; then
-              if [[ ! -d "${outdir:-/sdcard/Music/albums}/[${${${${cuedump[d.REM LABEL]:-${cuedump[d.PERFORMER]}}:+${cuedump[d.REM LABEL]:-(${cuedump[d.PERFORMER]})}}:-(no label)}//\//∕}]/${${:-${${${cuedump[d.TITLE]:-(no title)}/#./．}//\//∕} ${cuedump[d.REM CATALOGNUMBER]:+[${cuedump[d.REM CATALOGNUMBER]}]}${cuedump[d.REM DATE]:+[${cuedump[d.REM DATE]//\//.}]}}}" ]]; then
-                mkdir -vp -- "${outdir:-/sdcard/Music/albums}/[${${${${cuedump[d.REM LABEL]:-${cuedump[d.PERFORMER]}}:+${cuedump[d.REM LABEL]:-(${cuedump[d.PERFORMER]})}}:-(no label)}//\//∕}]/${${:-${${${cuedump[d.TITLE]:-(no title)}/#./．}//\//∕} ${cuedump[d.REM CATALOGNUMBER]:+[${cuedump[d.REM CATALOGNUMBER]}]}${cuedump[d.REM DATE]:+[${cuedump[d.REM DATE]//\//.}]}}}"
-              fi
               local runenc rundec tn
               case "$ofmt" in
                 (null) runenc=$'pv\n-qX;:\n' ;|
@@ -513,10 +510,15 @@ function .main {
                 else
                   runenc+=$'\n3\n'
                 fi
-                runenc+='"${outdir:-/sdcard/Music/albums}/[${${${${cuedump[d.REM LABEL]:-${cuedump[d.PERFORMER]}}:+${cuedump[d.REM LABEL]:-(${cuedump[d.PERFORMER]})}}:-(no label)}//\//∕}]/${${:-${${${cuedump[d.TITLE]:-(no title)}/#./．}//\//∕} ${cuedump[d.REM CATALOGNUMBER]:+[${cuedump[d.REM CATALOGNUMBER]}]}${cuedump[d.REM DATE]:+[${cuedump[d.REM DATE]//\//.}]}}}"/"${${:-${cuedump[d.REM DISCNUMBER]:+${cuedump[d.REM DISCNUMBER]}#}${cuedump[$tn.tnum]}${cuedump[$tn.TITLE]:+.${cuedump[$tn.TITLE]//\//／}}}:0:80}".m4a'
-                runenc+=';mp4tagcli
+                runenc+='"$outfnpref/$outfnsuff".m4a'
+                runenc+='${${${cuedump[$tn.REM VOCALIST]}:-${cuedump[d.REM VOCALIST]}}:+;MP4Box
+$outfnpref/$outfnsuff.m4a
+-keep-utc
+-bo
+-lang
+ja};mp4tagcli
 --
-"${outdir:-/sdcard/Music/albums}/[${${${${cuedump[d.REM LABEL]:-${cuedump[d.PERFORMER]}}:+${cuedump[d.REM LABEL]:-(${cuedump[d.PERFORMER]})}}:-(no label)}//\//∕}]/${${:-${${${cuedump[d.TITLE]:-(no title)}/#./．}//\//∕} ${cuedump[d.REM CATALOGNUMBER]:+[${cuedump[d.REM CATALOGNUMBER]}]}${cuedump[d.REM DATE]:+[${cuedump[d.REM DATE]//\//.}]}}}"/"${${:-${cuedump[d.REM DISCNUMBER]:+${cuedump[d.REM DISCNUMBER]}#}${cuedump[$tn.tnum]}${cuedump[$tn.TITLE]:+.${cuedump[$tn.TITLE]//\//／}}}:0:80}".m4a'
+"$outfnpref/$outfnsuff".m4a'
                 ;|
                 (aotuv|flac)
                 runenc+='
@@ -580,7 +582,7 @@ ${cuedump[d.REM REPLAYGAIN_ALBUM_PEAK]:+--comment=REPLAYGAIN_ALBUM_PEAK=${cuedum
                 ;|
                 (aotuv|flac|fdkaac|qaac)
                 runenc+='-o
-"${outdir:-/sdcard/Music/albums}/[${${${${cuedump[d.REM LABEL]:-${cuedump[d.PERFORMER]}}:+${cuedump[d.REM LABEL]:-(${cuedump[d.PERFORMER]})}}:-(no label)}//\//∕}]/${${:-${${${cuedump[d.TITLE]:-(no title)}/#./．}//\//∕} ${cuedump[d.REM CATALOGNUMBER]:+[${cuedump[d.REM CATALOGNUMBER]}]}${cuedump[d.REM DATE]:+[${cuedump[d.REM DATE]//\//.}]}}}/${${:-${${${cuedump[d.TITLE]:-(no title)}/#./．}//\//∕}${cuedump[d.REM CATALOGNUMBER]:+ [${cuedump[d.REM CATALOGNUMBER]}]}}}"/"${${:-${cuedump[d.REM DISCNUMBER]:+${cuedump[d.REM DISCNUMBER]}#}${cuedump[$tn.tnum]}${cuedump[$tn.TITLE]:+.${cuedump[$tn.TITLE]//\//／}}}:0:80}"'
+"$outfnpref/$outfnsuff"'
                 ;|
                 (aotuv) runenc+=.ogg ;|
                 (flac) runenc+=.flac ;|
@@ -756,6 +758,12 @@ ${cuedump[d.REM REPLAYGAIN_ALBUM_PEAK]:+--comment=REPLAYGAIN_ALBUM_PEAK=${cuedum
                     break
                   fi
                 ;|
+                (*)
+                  local outfnpref="${outdir:-/sdcard/Music/albums}/[${${${${cuedump[d.REM LABEL]:-${cuedump[d.PERFORMER]}}:+${cuedump[d.REM LABEL]:-(${cuedump[d.PERFORMER]})}}:-(no label)}//\//∕}]/${${:-${${${cuedump[d.TITLE]:-(no title)}/#./．}//\//∕} ${cuedump[d.REM CATALOGNUMBER]:+[${cuedump[d.REM CATALOGNUMBER]}]}${cuedump[d.REM DATE]:+[${cuedump[d.REM DATE]//\//.}]}}}"
+                  if [[ ! -d "$outfnpref" ]]; then
+                    mkdir -v -- $outfnpref
+                  fi
+                ;|
                 (flac|wv)
                   if ! [[ "$ofmt" == exhale && "$replaygain" == (0|) ]]; then
                     while (( $#seltnums )); do
@@ -765,6 +773,7 @@ ${cuedump[d.REM REPLAYGAIN_ALBUM_PEAK]:+--comment=REPLAYGAIN_ALBUM_PEAK=${cuedum
                         REPLAYGAIN_TRACK_GAINs[${seltnums[1]}]=$REPLAYGAIN_TRACK_GAIN
                         REPLAYGAIN_TRACK_PEAKs[${seltnums[1]}]=$REPLAYGAIN_TRACK_PEAK
                       fi
+                      local outfnsuff="${${:-${cuedump[d.REM DISCNUMBER]:+${cuedump[d.REM DISCNUMBER]}#}${cuedump[$tn.tnum]}${cuedump[$tn.TITLE]:+.${cuedump[$tn.TITLE]//\//／}}}:0:80}"
                       command ${(s. .)rundec} ${${(M)cuedump[${seltnums[1]}.skip]:#<1->}:+--skip=${cuedump[${seltnums[1]}.skip]}} ${${(M)cuedump[${seltnums[1]}.until]:#<1->}:+--until=${cuedump[${seltnums[1]}.until]}} -- $ifile | rw | eval command ${${${${(f)runenc}:#}//\[\$tn./'[${seltnums[1]}.'}//\[\$tn\]/'[${seltnums[1]}]'} "${(@q)ofmtargs}" -
                       shift seltnums
                     done
@@ -796,6 +805,7 @@ ${cuedump[d.REM REPLAYGAIN_ALBUM_PEAK]:+--comment=REPLAYGAIN_ALBUM_PEAK=${cuedum
                   fi
                   command ffmpeg -loglevel warning -xerror -hide_banner -err_detect explode -i $ifile -f s16le - | {
                     for ((tn=1;tn<=cuedump[tc];tn++)); do
+                      local outfnsuff="${${:-${cuedump[d.REM DISCNUMBER]:+${cuedump[d.REM DISCNUMBER]}#}${cuedump[$tn.tnum]}${cuedump[$tn.TITLE]:+.${cuedump[$tn.TITLE]//\//／}}}:0:80}"
                       if (( ${seltnums[(I)$tn]} )); then
                         dd bs=128K ${${(M)cuedump[$tn.pskip]:#<1->}:+skip=$(( 4 * ${cuedump[$tn.pskip]} ))B} ${${(M)cuedump[$tn.plen]}:+count=$(( 4 * ${cuedump[$tn.plen]} ))B} iflag=fullblock status=none | rw | eval command ${${(f)runenc}:#} "${(@q)ofmtargs}" -
                       else
