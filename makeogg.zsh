@@ -947,6 +947,19 @@ ${cuedump[d.REM REPLAYGAIN_ALBUM_PEAK]:+--comment=REPLAYGAIN_ALBUM_PEAK=${cuedum
                     argv=(${(fu)joinval})
                     if (( $#==1 )); then
                       tagvalue=${argv[1]}
+                    elif (( $#==0 )); then
+                      case "$tagkey" in
+                        (v) argv=(${cuedump[(I)(${(@j.|.)tagtnums}|d).PERFORMER]}) ;|
+                        (v) joinval=; while ((#)); do
+                              joinval+=${${cuedump[$1]/#[	 ]#}/%[	 ]#}$'\n'
+                              shift
+                            done
+                            argv=(${(fu)joinval})
+                            if (( $#==1 )); then
+                              tagvalue=${argv[1]}
+                            fi
+                        ;|
+                      esac
                     fi
                   }
                 else continue
