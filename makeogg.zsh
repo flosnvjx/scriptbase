@@ -84,7 +84,7 @@ function .main {
       cuefiletitledirectives+=( "${${(@)${(@f)cuebuffers[$walkcuefiles]}[1,${(@)${(@f)cuebuffers[$walkcuefiles]}[(i)[ 	 ]#TRACK*]}-1][(R)[ 	 ]#TITLE "*" #]#*\"}%\" #}" )
       cuediscnumberdirectives+=("${${(@)${(@f)cuebuffers[$walkcuefiles]}[1,${(@)${(@f)cuebuffers[$walkcuefiles]}[(i)[ 	 ]#TRACK*]}-1][(R)[ 	 ]#REM DISCNUMBER [1-9][0-9]# #]#[ 	 ]#REM DISCNUMBER }% #}")
       cuetotaldiscsdirectives+=("${${(@)${(@f)cuebuffers[$walkcuefiles]}[1,${(@)${(@f)cuebuffers[$walkcuefiles]}[(i)[ 	 ]#TRACK*]}-1][(R)[ 	 ]#REM TOTALDISCS [1-9][0-9]# #]#[ 	 ]#REM TOTALDISCS }% #}")
-      cuecatnodirectives+=("${${${(@)${(@f)cuebuffers[$walkcuefiles]}[1,${(@)${(@f)cuebuffers[$walkcuefiles]}[(i)[ 	 ]#TRACK*]}-1][(R)[ 	 ]#REM CATALOGNUMBER ("[A-Z][-0-9A-Z]##"|[A-Z][-0-9A-Z]##) #]#[ 	 ]#REM CATALOGNUMBER }%\" #}#\"}")
+      cuecatnodirectives+=("${${${(@)${(@f)cuebuffers[$walkcuefiles]}[1,${(@)${(@f)cuebuffers[$walkcuefiles]}[(i)[ 	 ]#TRACK*]}-1][(R)[ 	 ]#REM CATALOGNUMBER ("[A-Z][-_0-9A-Z]##"|[A-Z][-_0-9A-Z]##) #]#[ 	 ]#REM CATALOGNUMBER }%\" #}#\"}")
     if [[ "$mmode" = tidy ]]; then
       cuelabeldirectives+=("${${(@)${(@f)cuebuffers[$walkcuefiles]}[1,${(@)${(@f)cuebuffers[$walkcuefiles]}[(i)[ 	 ]#TRACK*]}-1][(R)[ 	 ]#REM LABEL "*" #]#*\"}%\" #}")
       cueperformerdirectives+=("${${(@)${(@f)cuebuffers[$walkcuefiles]}[1,${(@)${(@f)cuebuffers[$walkcuefiles]}[(i)[ 	 ]#TRACK*]}-1][(R)[ 	 ]#PERFORMER "*" #]#*\"}%\" #}")
@@ -162,7 +162,7 @@ function .main {
             while :;do
               timeout 0.01 cat > /dev/null||:
               vared -ehp 'pn> ' "catnos[$walkcuefiles]"
-              if [[ "${catnos[$walkcuefiles]}" = ([A-Z][A-Z0-9]##(-[A-Z0-9]##)#|) ]]; then
+              if [[ "${catnos[$walkcuefiles]}" = ([A-Z][A-Z0-9]##([-_][A-Z0-9]##)#|) ]]; then
                 break
               fi
             done
@@ -496,9 +496,8 @@ function .main {
                 .fatal 'unsupported fmt: '${format.format_name}
               esac
               fi ## if [[ "$mmode" != fifo ]]; then
-              if [[ ! -d "${outdir:-/sdcard/Music/albums}/${${${${cuedump[d.TITLE]:-
-}/#./．}//\//／}:0:85}" ]]; then
-                mkdir -vp -- "${outdir:-/sdcard/Music/albums}/${${${${cuedump[d.TITLE]:- }/#./．}//\//／}:0:85}"
+              if [[ ! -d "${outdir:-/sdcard/Music/albums}/[${${${${cuedump[d.REM LABEL]:-${cuedump[d.PERFORMER]}}:+${cuedump[d.REM LABEL]:-(${cuedump[d.PERFORMER]})}}:-(no label)}//\//∕}]/${${:-${${${cuedump[d.TITLE]:-(no title)}/#./．}//\//∕} ${cuedump[d.REM CATALOGNUMBER]:+[${cuedump[d.REM CATALOGNUMBER]}]}${cuedump[d.REM DATE]:+[${cuedump[d.REM DATE]//\//.}]}}}" ]]; then
+                mkdir -vp -- "${outdir:-/sdcard/Music/albums}/[${${${${cuedump[d.REM LABEL]:-${cuedump[d.PERFORMER]}}:+${cuedump[d.REM LABEL]:-(${cuedump[d.PERFORMER]})}}:-(no label)}//\//∕}]/${${:-${${${cuedump[d.TITLE]:-(no title)}/#./．}//\//∕} ${cuedump[d.REM CATALOGNUMBER]:+[${cuedump[d.REM CATALOGNUMBER]}]}${cuedump[d.REM DATE]:+[${cuedump[d.REM DATE]//\//.}]}}}"
               fi
               local runenc rundec tn
               case "$ofmt" in
@@ -514,10 +513,10 @@ function .main {
                 else
                   runenc+=$'\n3\n'
                 fi
-                runenc+='${outdir:-/sdcard/Music/albums}/${${${${cuedump[d.TITLE]:- }/#./．}//\//／}:0:85}/"${${:-${cuedump[d.REM DISCNUMBER]:+${cuedump[d.REM DISCNUMBER]}#}${cuedump[$tn.tnum]}${cuedump[$tn.TITLE]:+.${cuedump[$tn.TITLE]//\//／}}}:0:80}".m4a'
+                runenc+='"${outdir:-/sdcard/Music/albums}/[${${${${cuedump[d.REM LABEL]:-${cuedump[d.PERFORMER]}}:+${cuedump[d.REM LABEL]:-(${cuedump[d.PERFORMER]})}}:-(no label)}//\//∕}]/${${:-${${${cuedump[d.TITLE]:-(no title)}/#./．}//\//∕} ${cuedump[d.REM CATALOGNUMBER]:+[${cuedump[d.REM CATALOGNUMBER]}]}${cuedump[d.REM DATE]:+[${cuedump[d.REM DATE]//\//.}]}}}"/"${${:-${cuedump[d.REM DISCNUMBER]:+${cuedump[d.REM DISCNUMBER]}#}${cuedump[$tn.tnum]}${cuedump[$tn.TITLE]:+.${cuedump[$tn.TITLE]//\//／}}}:0:80}".m4a'
                 runenc+=';mp4tagcli
 --
-${outdir:-/sdcard/Music/albums}/${${${${cuedump[d.TITLE]:- }/#./．}//\//／}:0:85}/"${${:-${cuedump[d.REM DISCNUMBER]:+${cuedump[d.REM DISCNUMBER]}#}${cuedump[$tn.tnum]}${cuedump[$tn.TITLE]:+.${cuedump[$tn.TITLE]//\//／}}}:0:80}".m4a'
+"${outdir:-/sdcard/Music/albums}/[${${${${cuedump[d.REM LABEL]:-${cuedump[d.PERFORMER]}}:+${cuedump[d.REM LABEL]:-(${cuedump[d.PERFORMER]})}}:-(no label)}//\//∕}]/${${:-${${${cuedump[d.TITLE]:-(no title)}/#./．}//\//∕} ${cuedump[d.REM CATALOGNUMBER]:+[${cuedump[d.REM CATALOGNUMBER]}]}${cuedump[d.REM DATE]:+[${cuedump[d.REM DATE]//\//.}]}}}"/"${${:-${cuedump[d.REM DISCNUMBER]:+${cuedump[d.REM DISCNUMBER]}#}${cuedump[$tn.tnum]}${cuedump[$tn.TITLE]:+.${cuedump[$tn.TITLE]//\//／}}}:0:80}".m4a'
                 ;|
                 (aotuv|flac)
                 runenc+='
@@ -581,7 +580,7 @@ ${cuedump[d.REM REPLAYGAIN_ALBUM_PEAK]:+--comment=REPLAYGAIN_ALBUM_PEAK=${cuedum
                 ;|
                 (aotuv|flac|fdkaac|qaac)
                 runenc+='-o
-${outdir:-/sdcard/Music/albums}/${${${${cuedump[d.TITLE]:- }/#./．}//\//／}:0:85}/"${${:-${cuedump[d.REM DISCNUMBER]:+${cuedump[d.REM DISCNUMBER]}#}${cuedump[$tn.tnum]}${cuedump[$tn.TITLE]:+.${cuedump[$tn.TITLE]//\//／}}}:0:80}"'
+"${outdir:-/sdcard/Music/albums}/[${${${${cuedump[d.REM LABEL]:-${cuedump[d.PERFORMER]}}:+${cuedump[d.REM LABEL]:-(${cuedump[d.PERFORMER]})}}:-(no label)}//\//∕}]/${${:-${${${cuedump[d.TITLE]:-(no title)}/#./．}//\//∕} ${cuedump[d.REM CATALOGNUMBER]:+[${cuedump[d.REM CATALOGNUMBER]}]}${cuedump[d.REM DATE]:+[${cuedump[d.REM DATE]//\//.}]}}}/${${:-${${${cuedump[d.TITLE]:-(no title)}/#./．}//\//∕}${cuedump[d.REM CATALOGNUMBER]:+ [${cuedump[d.REM CATALOGNUMBER]}]}}}"/"${${:-${cuedump[d.REM DISCNUMBER]:+${cuedump[d.REM DISCNUMBER]}#}${cuedump[$tn.tnum]}${cuedump[$tn.TITLE]:+.${cuedump[$tn.TITLE]//\//／}}}:0:80}"'
                 ;|
                 (aotuv) runenc+=.ogg ;|
                 (flac) runenc+=.flac ;|
@@ -726,7 +725,7 @@ ${outdir:-/sdcard/Music/albums}/${${${${cuedump[d.TITLE]:- }/#./．}//\//／}:0:
               if [[ "${${ifile:r}%%\#soxStatExclNull.Samples[0-9]##(.XXH3_[0-9a-f](#c16)|)(\#*|)}#soxStatExclNull.Samples$oldsamplecount.XXH3_$oldxxh3" != "${ifile:r}" ]]; then
                 mv -v -- ${${${commands[takc]:+${(M)ffprobe[format.format_name]:#(flac|wv|wav|tta)}}:+${ifile:r}.tak}:-$ifile} "${${ifile:r}%%\#soxStatExclNull.Samples[0-9]##(.XXH3_[0-9a-f](#c16)|)(\#*|)}#soxStatExclNull.Samples$oldsamplecount.XXH3_$oldxxh3${${commands[takc]:+${(M)ffprobe[format.format_name]:#(flac|wv|wav|tta|ape)}}:+#convFrom.${ffprobe[format.format_name]}}.${${${commands[takc]:+${(M)ffprobe[format.format_name]:#(flac|wv|wav|tta|ape)}}:+tak}:-${ifile:e}}"
                 ifile="${${ifile:r}%%\#soxStatExclNull.Samples[0-9]##(.XXH3_[0-9a-f](#c16)|)(\#*|)}#soxStatExclNull.Samples$oldsamplecount.XXH3_$oldxxh3${${commands[takc]:+${(M)ffprobe[format.format_name]:#(flac|wv|wav|tta|ape)}}:+#convFrom.${ffprobe[format.format_name]}}.${${${commands[takc]:+${(M)ffprobe[format.format_name]:#(flac|wv|wav|tta|ape)}}:+tak}:-${ifile:e}}"
-                gawk -E <(print -r -- $awkcuemput) <(printf '%s\n%s\n' d.FILE $ifile) <(print -r -- ${mbufs[-1]}) | readeof mbuf
+                gawk -E <(print -r -- $awkcuemput) <(printf '%s\n%s\n' d.FILE ${ifile#${${(M)cuefiles[$walkcuefiles]:#*/?*}:+${cuefiles[$walkcuefiles]:h}/}}) <(print -r -- ${mbufs[-1]}) | readeof mbuf
                 mbufs+=($mbuf)
                 if [[ "${cuefiles[$walkcuefiles]}" != (#i)${ifile:r}.cue   ]]; then
                   mv -v -- "${cuefiles[$walkcuefiles]}" ${ifile:r}.cue
