@@ -292,7 +292,7 @@ function .main {
         match=()
         : ${dates[$walkcuefiles]:#(#b)(<1980-2099>)(#B)(|/(#b)(<1-12>)(#B)(|/(#b)(<1-31>)))}
         albumtidydirs[$walkcuefiles]="[${match[1]:2:2}${${match[2]:+${${(M)match[2]:#?}:+0}${match[2]}}:-xx}${${match[3]:+${${(M)match[3]:#?}:+0}${match[3]}}:-xx}][${${labels[$walkcuefiles]:+${labels[$walkcuefiles]}${aarts[$walkcuefiles]:+ (${aarts[$walkcuefiles]})}}:-${aarts[${walkcuefiles}]}}] ${albumtitles[$walkcuefiles]} ${catnos:+[${(@j.,.)${(@nu)catnos}}]}${suris:+[${suris[$walkcuefiles]}]}[VGMdb${vgmdbids[$walkcuefiles]}]${ssdlwids[${walkcuefiles}]:+{${ssdlwids[${walkcuefiles}]}\}}"
-        albumtidyfiles[$walkcuefiles]=${${catnos[$walkcuefiles]:+${catnos[$walkcuefiles]}${${totaldiscs[$walkcuefiles]:#${(@)#${(@u)catnos}}}:+.disc${discnumbers[$walkcuefiles]})}}:-VGMdb.album${vgmdbids[$walkcuefiles]}${${(M)totaldiscs[$walkcuefiles]:#<2->}:+.disc${discnumbers[$walkcuefiles]}}}${suris[$walkcuefiles]}
+        albumtidyfiles[$walkcuefiles]=${${catnos[$walkcuefiles]:+${catnos[$walkcuefiles]}${${totaldiscs[$walkcuefiles]:#${(@)#${(@u)catnos}}}:+.disc${discnumbers[$walkcuefiles]}}}:-VGMdb.album${vgmdbids[$walkcuefiles]}${${(M)totaldiscs[$walkcuefiles]:#<2->}:+.disc${discnumbers[$walkcuefiles]}}}${suris[$walkcuefiles]}
       done
       for ((walkcuefiles=1;walkcuefiles<=$#cuefiles;walkcuefiles++)); do
         if (( ${(@)#${(@u)albumtidydirs}} == 1 )); then
@@ -1323,7 +1323,7 @@ commontags=(
   'genre:g' 'REM GENRE'
 )
 
-## https://eyed3.readthedocs.io/en/latest/plugins/genres_plugin.html
+## https://mutagen-specs.readthedocs.io/en/latest/id3/id3v1-genres.html
 declare -a genres=(
   Soundtrack
   Anime
@@ -1331,8 +1331,9 @@ declare -a genres=(
   Classical
   Game
   Indie
-  Doujin
+  Doujin ## https://xiami-music-genre.readthedocs.io/zh-cn/latest/list.html#doujin
   'National Folk'
+  'Audio Theatre'
   Other
 )
 declare -a exts=(wav flac tta ape tak wv)
