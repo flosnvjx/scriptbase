@@ -302,11 +302,11 @@ function .main {
             if (( walkcuefiles==1 )); then
               mkdir -v -- "${albumtidydirs[$walkcuefiles]}"
             fi
-            if function { return $(( $#==0 )); } ${cuefiles[$walkcuefiles]:r}.*(.N); then rename -vo -- ${cuefiles[$walkcuefiles]:r} ${albumtidydirs[$walkcuefiles]}/${albumtidyfiles[$walkcuefiles]} ${cuefiles[$walkcuefiles]:r}.*(.N); fi
-            cuefiles[$walkcuefiles]=${cuefiles[$walkcuefiles]/${cuefiles[$walkcuefiles]:r}/${albumtidydirs[$walkcuefiles]}\/${albumtidyfiles[$walkcuefiles]}}
-          elif [[ "${cuefiles[$walkcuefiles]:r}" != "${albumtidyfiles[$walkcuefiles]}" ]]; then
-            if function { return $(( $#==0 )); } ${cuefiles[$walkcuefiles]:r}.*(.N); then rename -vo -- ${cuefiles[$walkcuefiles]:r} ${albumtidyfiles[$walkcuefiles]} ${cuefiles[$walkcuefiles]:r}.*(.N); fi
-            cuefiles[$walkcuefiles]=${cuefiles[$walkcuefiles]/${cuefiles[$walkcuefiles]:r}/${albumtidyfiles[$walkcuefiles]}}
+            if function { return $(( $#==0 )); } {${cuefiles[$walkcuefiles]:r},${${cuefiles[$walkcuefiles]:r}%%\#soxStatExclNull.Samples[0-9]##(|.XXH3_[0-9a-f](#c16))(|\#*)}}.*(.N); then rename -vo -- ${${cuefiles[$walkcuefiles]:r}%%\#soxStatExclNull.Samples[0-9]##(|.XXH3_[0-9a-f](#c16))(|\#*)} ${albumtidydirs[$walkcuefiles]}/${albumtidyfiles[$walkcuefiles]} {${cuefiles[$walkcuefiles]:r},${${cuefiles[$walkcuefiles]:r}%%\#soxStatExclNull.Samples[0-9]##(|.XXH3_[0-9a-f](#c16))(|\#*)}}.*(.N); fi
+            cuefiles[$walkcuefiles]=${cuefiles[$walkcuefiles]/${${cuefiles[$walkcuefiles]:r}%%\#soxStatExclNull.Samples[0-9]##(|.XXH3_[0-9a-f](#c16))(|\#*)}/${albumtidydirs[$walkcuefiles]}\/${albumtidyfiles[$walkcuefiles]}}
+          elif [[ "${${cuefiles[$walkcuefiles]:r}%%\#soxStatExclNull.Samples[0-9]##(|.XXH3_[0-9a-f](#c16))(|\#*)}" != "${albumtidyfiles[$walkcuefiles]}" ]]; then
+            if function { return $(( $#==0 )); } {${cuefiles[$walkcuefiles]:r},${${cuefiles[$walkcuefiles]:r}%%\#soxStatExclNull.Samples[0-9]##(|.XXH3_[0-9a-f](#c16))(|\#*)}}.*(.N); then rename -vo -- ${${cuefiles[$walkcuefiles]:r}%%\#soxStatExclNull.Samples[0-9]##(|.XXH3_[0-9a-f](#c16))(|\#*)} ${albumtidyfiles[$walkcuefiles]} {${cuefiles[$walkcuefiles]:r},${${cuefiles[$walkcuefiles]:r}%%\#soxStatExclNull.Samples[0-9]##(|.XXH3_[0-9a-f](#c16))(|\#*)}}.*(.N); fi
+            cuefiles[$walkcuefiles]=${cuefiles[$walkcuefiles]/${${cuefiles[$walkcuefiles]:r}%%\#soxStatExclNull.Samples[0-9]##(|.XXH3_[0-9a-f](#c16))(|\#*)}/${albumtidyfiles[$walkcuefiles]}}
           fi
         fi
       done
@@ -686,8 +686,9 @@ ${cuedump[d.REM REPLAYGAIN_ALBUM_PEAK]:+--comment=REPLAYGAIN_ALBUM_PEAK=${cuedum
           (y)
             if [[ "$mmode" == tidy && "$ofmt" != none ]]; then
               match=()
-              eval 'local oldsamplecount="${${(M)${ifile:t:r}:#?*\#soxStatExclNull.Samples[0-9]##(|.XXH3_[0-9a-f](#c16))(|\#*)}:+${ifile:t:r:s/?*\#soxStatExclNull.Samples(#b)([0-9]##)(#B)(.XXH3_(#b)([0-9a-f](#c16))(#B)|)(\#*|)/\${match[1]\}/}}"'
-              local oldxxh3=${match[2]}
+              : ${(M)${ifile:t:r}:#?*\#soxStatExclNull.Samples(#b)([0-9]##)(#B)(|.XXH3_(#b)([0-9a-fA-F](#c16))(#B))(|\#*)}
+              local oldsamplecount=${match[1]}
+              local oldxxh3=${match[2]:l}
               if ! (( $#oldxxh3 && $#oldsamplecount )); then
                 function {
                   argv=("${(@f)$({ ffmpeg -loglevel warning -xerror -hide_banner -err_detect explode -i $ifile -f wav -|LC_ALL=C sox -Dtwav - -traw - silence 1 1 0 -1 1 0 stat|xxhsum --tag -H3 -; } 2>&1;)}")
@@ -695,9 +696,14 @@ ${cuedump[d.REM REPLAYGAIN_ALBUM_PEAK]:+--comment=REPLAYGAIN_ALBUM_PEAK=${cuedum
                   oldxxh3=${argv[(r)XXH3 \(?*\) = [0-9a-f](#c16)]##* = }
                   (( $#oldsamplecount && $#oldxxh3==16 ))
                 }
-                if [[ "$ofmt" == null ]]; then
-                  ofmt=none
-                fi
+              else
+                function {
+                  argv=("${(@f)$({ ffmpeg -loglevel warning -xerror -hide_banner -err_detect explode -i $ifile -f wav -|LC_ALL=C sox -Dtwav - -traw - silence 1 1 0 -1 1 0 stat|xxhsum --tag -H3 -; } 2>&1;)}")
+                  local newsamplecount=${argv[(r)Samples read: #[0-9]##]##*: #}
+                  local newxxh3=${argv[(r)XXH3 \(?*\) = [0-9a-f](#c16)]##* = }
+                  [[ "$oldsamplecount" == "$newsamplecount" ]]
+                  [[ "$oldxxh3" == "$newxxh3" ]]
+                }
               fi
               if [[ -v commands[takc] ]]; then
                 case "${ffprobe[format.format_name]}" in
@@ -721,17 +727,17 @@ ${cuedump[d.REM REPLAYGAIN_ALBUM_PEAK]:+--comment=REPLAYGAIN_ALBUM_PEAK=${cuedum
                   ;|
                 esac
               fi
-              if [[ -f ${ifile:r}.(#i)log ]]; then
-                mv -- ${ifile:r}.(#i)log "${${ifile:r}%%\#soxStatExclNull.Samples[0-9]##(.XXH3_[0-9a-f](#c16)|)(\#*|)}#soxStatExclNull.Samples$oldsamplecount.XXH3_$oldxxh3.${ifile:e}.log"
-              fi
-              if [[ "${${ifile:r}%%\#soxStatExclNull.Samples[0-9]##(.XXH3_[0-9a-f](#c16)|)(\#*|)}#soxStatExclNull.Samples$oldsamplecount.XXH3_$oldxxh3" != "${ifile:r}" ]]; then
-                mv -v -- ${${${commands[takc]:+${(M)ffprobe[format.format_name]:#(flac|wv|wav|tta)}}:+${ifile:r}.tak}:-$ifile} "${${ifile:r}%%\#soxStatExclNull.Samples[0-9]##(.XXH3_[0-9a-f](#c16)|)(\#*|)}#soxStatExclNull.Samples$oldsamplecount.XXH3_$oldxxh3${${commands[takc]:+${(M)ffprobe[format.format_name]:#(flac|wv|wav|tta)}}:+#convFrom.${ffprobe[format.format_name]}}.${${${commands[takc]:+${(M)ffprobe[format.format_name]:#(flac|wv|wav|tta)}}:+tak}:-${ifile:e}}"
+              if [[ "${${ifile:r}%%\#soxStatExclNull.Samples[0-9]##(.XXH3_[0-9a-f](#c16)|)(\#*|)}#soxStatExclNull.Samples$oldsamplecount.XXH3_$oldxxh3" != "${${ifile:r}%\#convFrom.[^.]##}" ]]; then
+                mv -vo -- ${${${commands[takc]:+${(M)ffprobe[format.format_name]:#(flac|wv|wav|tta)}}:+${ifile:r}.tak}:-$ifile} "${${ifile:r}%%\#soxStatExclNull.Samples[0-9]##(.XXH3_[0-9a-f](#c16)|)(\#*|)}#soxStatExclNull.Samples$oldsamplecount.XXH3_$oldxxh3${${commands[takc]:+${(M)ffprobe[format.format_name]:#(flac|wv|wav|tta)}}:+#convFrom.${ffprobe[format.format_name]}}.${${${commands[takc]:+${(M)ffprobe[format.format_name]:#(flac|wv|wav|tta)}}:+tak}:-${ifile:e}}"
+                if [[ -f "${ifile:r}".(#i)log ]]; then
+                  mv -- "${ifile:r}".(#i)log "${${ifile:r}%%\#soxStatExclNull.Samples[0-9]##(.XXH3_[0-9a-f](#c16)|)(\#*|)}#soxStatExclNull.Samples$oldsamplecount.XXH3_$oldxxh3.${ifile:e}.log"
+                fi
                 ifile="${${ifile:r}%%\#soxStatExclNull.Samples[0-9]##(.XXH3_[0-9a-f](#c16)|)(\#*|)}#soxStatExclNull.Samples$oldsamplecount.XXH3_$oldxxh3${${commands[takc]:+${(M)ffprobe[format.format_name]:#(flac|wv|wav|tta)}}:+#convFrom.${ffprobe[format.format_name]}}.${${${commands[takc]:+${(M)ffprobe[format.format_name]:#(flac|wv|wav|tta)}}:+tak}:-${ifile:e}}"
                 gawk -E <(print -r -- $awkcuemput) <(printf '%s\n%s\n' d.FILE ${ifile#${${(M)cuefiles[$walkcuefiles]:#*/?*}:+${cuefiles[$walkcuefiles]:h}/}}) <(print -r -- ${mbufs[-1]}) | readeof mbuf
                 mbufs+=($mbuf)
-                if [[ "${cuefiles[$walkcuefiles]}" != (#i)${ifile:r}.cue   ]]; then
-                  mv -v -- "${cuefiles[$walkcuefiles]}" ${ifile:r}.cue
-                  cuefiles[$walkcuefiles]=${ifile:r}.cue
+                if [[ "${cuefiles[$walkcuefiles]}" != ${${ifile:r}%%\#soxStatExclNull.Samples[0-9]##(.XXH3_[0-9a-f](#c16)|)(\#*|)}#soxStatExclNull.Samples$oldsamplecount.XXH3_$oldxxh3(#i).cue   ]]; then
+                  mv -v -- "${cuefiles[$walkcuefiles]}" ${${ifile:r}%%\#soxStatExclNull.Samples[0-9]##(.XXH3_[0-9a-f](#c16)|)(\#*|)}#soxStatExclNull.Samples$oldsamplecount.XXH3_$oldxxh3.cue
+                  cuefiles[$walkcuefiles]=${${ifile:r}%%\#soxStatExclNull.Samples[0-9]##(.XXH3_[0-9a-f](#c16)|)(\#*|)}#soxStatExclNull.Samples$oldsamplecount.XXH3_$oldxxh3.cue
                 fi
                 if ! print -rn -- ${mbufs[-1]} | cmp -s -- ${cuefiles[$walkcuefiles]}; then
                   print -rn -- ${mbufs[-1]} | rw -- ${cuefiles[$walkcuefiles]}
