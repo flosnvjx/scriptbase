@@ -300,7 +300,7 @@ function .main {
             "${cuefiles[$walkcuefiles]:h}" != "${albumtidydirs[$walkcuefiles]}"(|*/) && "${PWD:t}" != "${albumtidydirs[$walkcuefiles]}" ]] || \
             [[ "${PWD:t}" != "${albumtidydirs[$walkcuefiles]}" ]]; then
             if (( walkcuefiles==1 )); then
-              mkdir -v -- "${albumtidydirs[$walkcuefiles]}"
+              mkdir -vp -- "${albumtidydirs[$walkcuefiles]}"
             fi
             if function { return $(( $#==0 )); } {${cuefiles[$walkcuefiles]:r},${${cuefiles[$walkcuefiles]:r}%%\#soxStatExclNull.Samples[0-9]##(|.XXH3_[0-9a-f](#c16))(|\#*)}}.*(.N); then rename -vo -- ${${cuefiles[$walkcuefiles]:r}%%\#soxStatExclNull.Samples[0-9]##(|.XXH3_[0-9a-f](#c16))(|\#*)} ${albumtidydirs[$walkcuefiles]}/${albumtidyfiles[$walkcuefiles]} {${cuefiles[$walkcuefiles]:r},${${cuefiles[$walkcuefiles]:r}%%\#soxStatExclNull.Samples[0-9]##(|.XXH3_[0-9a-f](#c16))(|\#*)}}.*(.N); fi
             cuefiles[$walkcuefiles]=${cuefiles[$walkcuefiles]/${${cuefiles[$walkcuefiles]:r}%%\#soxStatExclNull.Samples[0-9]##(|.XXH3_[0-9a-f](#c16))(|\#*)}/${albumtidydirs[$walkcuefiles]}\/${albumtidyfiles[$walkcuefiles]}}
@@ -767,7 +767,7 @@ ${cuedump[d.REM REPLAYGAIN_ALBUM_PEAK]:+--comment=REPLAYGAIN_ALBUM_PEAK=${cuedum
                 (*)
                   local outfnpref="${outdir:-/sdcard/Music/albums}/[${${${${cuedump[d.REM LABEL]:-${cuedump[d.PERFORMER]}}:+${cuedump[d.REM LABEL]:-(${cuedump[d.PERFORMER]})}}:-(no label)}//\//∕}]/${${:-${${${cuedump[d.TITLE]:-(no title)}/#./．}//\//∕} ${cuedump[d.REM CATALOGNUMBER]:+[${cuedump[d.REM CATALOGNUMBER]}]}${cuedump[d.REM DATE]:+[${cuedump[d.REM DATE]//\//.}]}}}"
                   if [[ ! -d "$outfnpref" ]]; then
-                    mkdir -v -- $outfnpref
+                    mkdir -vp -- $outfnpref
                   fi
                 ;|
                 (flac|wv)
