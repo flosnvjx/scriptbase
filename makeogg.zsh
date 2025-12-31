@@ -511,12 +511,22 @@ function .main {
                   runenc+=$'\n3\n'
                 fi
                 runenc+='"$outfnpref/$outfnsuff".m4a'
-                runenc+='${${${cuedump[$tn.REM VOCALIST]}:-${cuedump[d.REM VOCALIST]}}:+;MP4Box
+                runenc+=';if
+[[
+-n
+"${${cuedump[$tn.REM VOCALIST]}:-${cuedump[d.REM VOCALIST]}}"
+]];
+then
+MP4Box
 $outfnpref/$outfnsuff.m4a
+-inter
+0
 -keep-utc
 -bo
 -lang
-ja};mp4tagcli
+ja;
+fi;
+mp4tagcli
 --
 "$outfnpref/$outfnsuff".m4a'
                 ;|
