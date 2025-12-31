@@ -716,15 +716,16 @@ ${cuedump[d.REM REPLAYGAIN_ALBUM_PEAK]:+--comment=REPLAYGAIN_ALBUM_PEAK=${cuedum
                 }
               fi
               if [[ -v commands[takc] ]]; then
+                local CUESHEET="$(cueconvert -i cue -o toc <<< ${mbufs[-1]}|cueconvert -i toc -o cue|sed -Ee '/("|^$)/d')"
                 case "${ffprobe[format.format_name]}" in
                   (flac|wv)
-                    command ${(z)rundec} -- $ifile | command ${(z)ostr[takc]} -tt CUESHEET="$(cueconvert -i cue -o toc <<< ${mbufs[-1]}|cueconvert -i toc -o cue|sed -Ee '/("|^$)/d')" - ./${ifile:r}.tak
+                    command ${(z)rundec} -- $ifile | command ${(z)ostr[takc]} -tt CUESHEET="$CUESHEET" - ./${ifile:r}.tak
                   ;|
                   (wav)
-                  command ${(z)ostr[takc]} -tt CUESHEET="$(cueconvert -i cue -o toc <<< ${mbufs[-1]}|cueconvert -i toc -o cue|sed -Ee '/("|^$)/d')" ./${ifile} ./${ifile:r}.tak
+                  command ${(z)ostr[takc]} -tt CUESHEET="$CUESHEET" ./${ifile} ./${ifile:r}.tak
                   ;|
                   (tta)
-                  command ffmpeg -loglevel warning -xerror -hide_banner -err_detect explode -i $ifile -f wav - | command ${(z)ostr[takc]} -tt CUESHEET="$(cueconvert -i cue -o toc <<< ${mbufs[-1]}|cueconvert -i toc -o cue|sed -Ee '/("|^$)/d')" - ./${ifile:r}.tak
+                  command ffmpeg -loglevel warning -xerror -hide_banner -err_detect explode -i $ifile -f wav - | command ${(z)ostr[takc]} -tt CUESHEET="$CUESHEET" - ./${ifile:r}.tak
                   ;|
                   (tta|flac|wav|wv)
                   function {
