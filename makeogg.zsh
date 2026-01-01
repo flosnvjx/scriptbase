@@ -726,22 +726,31 @@ ${cuedump[d.REM REPLAYGAIN_ALBUM_PEAK]:+--comment=REPLAYGAIN_ALBUM_PEAK=${cuedum
                           break
                           done
                           ;;
-                        ([eyp]) local lrcfiles=(${${(M)cuefiles[$walkcuefiles]:#*/*}:+${cuefiles[$walkcuefiles]%/*}/}${(e)outfnsuff_t//\$tn/\$seltnums}.(#i)(|(zh|cn|ja|jp|n).)lrc(N.L+10))
+                        ([ceyp]) local lrcfiles=(${${(M)cuefiles[$walkcuefiles]:#*/*}:+${cuefiles[$walkcuefiles]%/*}/}${(e)outfnsuff_t//\$tn/\$seltnums}.(#i)(|(zh|cn|ja|jp|n).)lrc(N.L+10))
                           ;|
-                        (e)
+                        ([ce])
                           if (( $#lrcfiles )); then
                             local editthislrc="$(fzf <<< ${(F)lrcfiles})" || continue
                             if (( !$#editthislrc )); then
                               continue
                             fi
-                            zed $editthislrc || continue
                           else
-                            .warn 'no lrc files to edit.'
+                            .warn 'no lrc file available to process.'
                             continue
                           fi
-                          ;;
+                          ;|
+                        (c)
+                          local clrcbuf="$(opencc -c s2t -i $editthislrc | opencc -c t2jp)"
+                          if (( $#clrcbuf>10 )) && ! cmp -s $editthislrc - <<< $clrcbuf; then
+                            delta --paging never -- $editthislrc - <<< $clrcbuf || :
+                            rw -- $editthislrc <<< $clrcbuf
+                          fi
+                          ;|
+                        (e)
+                          zed $editthislrc || continue
+                          ;|
                         (y|p)
-                          mpv --start="#$seltnums" --end=${${$(( seltnums==cuedump[tc] ))/#%1/-0}/#%0/#$((seltnums+1))} --{,secondary-}sub-delay="$(( 60 * ${${(s|:|)cuedump[$seltnums.INDEX 01]}[1]#0} * 75 + ${${(s|:|)cuedump[$seltnums.INDEX 01]}[2]#0} * 75 + ${${(s|:|)cuedump[$seltnums.INDEX 01]}[3]#0} ))/75" --sub-file=${(@)^lrcfiles} -- ${cuefiles[$walkcuefiles]} ;;
+                          mpv --start="#$seltnums" ${${$(( seltnums==cuedump[tc] ))/#%1}/#%0/--end=#$((seltnums+1))} --{,secondary-}sub-delay="$(( 60 * ${${(s|:|)cuedump[$seltnums.INDEX 01]}[1]#0} * 75 + ${${(s|:|)cuedump[$seltnums.INDEX 01]}[2]#0} * 75 + ${${(s|:|)cuedump[$seltnums.INDEX 01]}[3]#0} ))/75" --sub-file=${(@)^lrcfiles} -- ${cuefiles[$walkcuefiles]} ;;
                         (q) break ;;
                       esac
                     done
