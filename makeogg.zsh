@@ -646,6 +646,109 @@ ${cuedump[d.REM REPLAYGAIN_ALBUM_PEAK]:+--comment=REPLAYGAIN_ALBUM_PEAK=${cuedum
               local -a seltnums=()
               timeout 0.01 cat >/dev/null||:
 
+              local outfnsuff_t='${${:-${cuedump[d.REM DISCNUMBER]:+${cuedump[d.REM DISCNUMBER]}#}${cuedump[$tn.tnum]}${cuedump[$tn.TITLE]:+.${cuedump[$tn.TITLE]//\//／}}}:0:80}'
+
+              if [[ "$mmode" == lrc ]]; then function {
+                  argv=(${cuedump[(I)(d|<1->).REM VOCALIST]})
+                  if ((#)); then while ((#)); do
+                      if [[ -z "${cuedump[$1]}" ]]; then
+                        .warn "empty $1 field, please either edit or remove it."
+                        continue
+                      fi
+                      shift
+                    done
+                  else
+                    .warn 'no track tagged vocalist'
+                    continue
+                  fi
+                }
+              fi
+              if [[ "$mmode" == lrc ]]; then while :; do
+                seltnums=("${(@f)$(function {
+                  if [[ -n "${cuedump[d.REM VOCALIST]}" ]]; then
+                    argv=(${(@)^${(@Mn)${(@k)cuedump}:#<1->.tnum}%.*})
+                  else
+                    argv=(${(@)^${(@Mn)${(@k)cuedump}:#<1->.REM VOCALIST}%.*})
+                  fi
+                  setopt histsubstpattern
+                  local match=()
+                  while ((#)); do
+                    printf '%-2d %-4s' $1 ${cuedump[$1.tnum]}
+                    function {
+                      if ((#)); then
+                        argv=(${(@)argv%(#i).lrc})
+                        printf "%-8s" '+'${(j|,|)argv:l}
+                      else
+                        printf "%-8s" ''
+                      fi
+                    } ${${(M)cuefiles[$walkcuefiles]:#*/*}:+${cuefiles[$walkcuefiles]%/*}/}${(e)outfnsuff_t//\$tn/\$1}.(#i)(|(zh|cn|ja|jp).)lrc(#qN.L+10:s/#%*(#b)(#i)((.(zh|cn|ja|jp|n)|).lrc)/'${match[1]}'/:l)
+                    printf ' %s[%s]\n' "${cuedump[$1.TITLE]}		[@${${cuedump[$1.REM VOCALIST]}:-${cuedump[d.REM VOCALIST]}}]" ${$(TZ=UTC date +%H:%M:%S -d @$(( ${cuedump[$1.plen]:-0} / 44100))):#00:}
+                    shift
+                  done
+                  printf '%s\n' 'done [done]'
+                  } | fzf --accept-nth=1 --layout=reverse-list --with-nth=2..)}"
+                )
+                case "${seltnums}"; in
+                  (done) break ${${(M)ofmt:#null}:+2};;
+                  (<0->)
+                    local lrckey=
+                    function fetch {
+                      command curl -qgLsfy6 -Y1 "${(@)argv}"
+                    }
+                    while :; do read -k 1 "lrckey?${(e)outfnsuff_t//\$tn/\$seltnums}?lrc.action [ypq]"
+                      case "$lrckey" in
+                        (y)
+                          local ncmquery="${cuedump[$seltnums.TITLE]} ${${cuedump[$seltnums.REM VOCALIST]}:-${cuedump[d.REM VOCALIST]}} ${cuedump[d.TITLE]}"
+                          vared -chp 'keyword> ' ncmquery || continue
+                          local ncmresult="$(fetch "$NCMAPI/cloudsearch?keywords=$( printf %s $ncmquery|uconv -x ':: NFKC; [^[:Alphabetic=Yes:]1234567890] > \ ;'|basenc --base16 -w0|sed -Ee 's@(..)@%\1@g')" )" || continue
+                          if ! printf %s $ncmresult | jq -r 'if (.result.songCount>0) then halt else empty|halt_error end'; then
+                            .warn "no result"
+                            continue
+                          fi
+                          local -a ncmresults=(
+                            "${(@0)$( printf %s $ncmresult | jq --raw-output0 '.result.songs[]|[.id,.name,([.ar[].name]|join("/")),.al.name,.dt,.cd,.no]|join("\n")' )}"
+                          )
+                          while :; do
+                          local selncmresults="$(printf '%s\0' ${ncmresults} | gawk -v FS=$'\n' -v dt=5 'BEGIN{OFS=FS;RS="\0";ORS=RS}{$(dt)=$(dt)/1000;re_min=($(dt)%60); if (re_min) {$(dt)=(($(dt)-re_min)/60 ":" sprintf("%02d",re_min))} else {$(dt)=("00:" sprintf("%02d",re_min))}}{print}' | fzf --no-sort --layout=reverse-list -d $'\n' --read0 --wrap --accept-nth=1 -n '2..4' --with-nth=$'{6}#{7}.\t{2}\n\t({4})\n[{5}][@{3}]')"
+                          (( ${#selncmresults[1]} )) || break
+                          local ncmlrcreply="$(fetch $NCMAPI"/lyric/new?id=$selncmresults")"
+                          local lrcbuf="$(jq -r '.lrc.lyric' <<< $ncmlrcreply | sed -e '/^[{]/d')"
+                          local trcbuf="$(jq -r '.tlyric.lyric' <<< $ncmlrcreply)"
+                          if ! [[ -n "$lrcbuf" ]]; then
+                            .warn 'no lyric data associated with this song!'
+                            read
+                            continue
+                          fi
+                          rw -- ${${(M)cuefiles[$walkcuefiles]:#*/*}:+${cuefiles[$walkcuefiles]%/*}/}${(e)outfnsuff_t//\$tn/\$seltnums}.lrc <<< ${lrcbuf%%[$'\n']##}
+                          if [[ -n "$trcbuf" ]]; then
+                            rw -- ${${(M)cuefiles[$walkcuefiles]:#*/*}:+${cuefiles[$walkcuefiles]%/*}/}${(e)outfnsuff_t//\$tn/\$seltnums}.zh.lrc  <<< ${trcbuf%%[$'\n']##}
+                          fi
+                          break
+                          done
+                          ;;
+                        ([eyp]) local lrcfiles=(${${(M)cuefiles[$walkcuefiles]:#*/*}:+${cuefiles[$walkcuefiles]%/*}/}${(e)outfnsuff_t//\$tn/\$seltnums}.(#i)(|(zh|cn|ja|jp|n).)lrc(N.L+10))
+                          ;|
+                        (e)
+                          if (( $#lrcfiles )); then
+                            local editthislrc="$(fzf <<< ${(F)lrcfiles})" || continue
+                            if (( !$#editthislrc )); then
+                              continue
+                            fi
+                            zed $editthislrc || continue
+                          else
+                            .warn 'no lrc files to edit.'
+                            continue
+                          fi
+                          ;;
+                        (y|p)
+                          mpv --start="#$seltnums" --end=${${$(( seltnums==cuedump[tc] ))/#%1/-0}/#%0/#$((seltnums+1))} --{,secondary-}sub-delay="$(( 60 * ${${(s|:|)cuedump[$seltnums.INDEX 01]}[1]#0} * 75 + ${${(s|:|)cuedump[$seltnums.INDEX 01]}[2]#0} * 75 + ${${(s|:|)cuedump[$seltnums.INDEX 01]}[3]#0} ))/75" --sub-file=${(@)^lrcfiles} -- ${cuefiles[$walkcuefiles]} ;;
+                        (q) break ;;
+                      esac
+                    done
+                  ;;
+                esac
+              done
+              fi
               if [[ "$ofmt" != null ]]; then
               seltnums=("${(@)${(@f)$(function {
   while ((#)); do
