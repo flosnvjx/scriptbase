@@ -777,24 +777,23 @@ ${cuedump[d.REM REPLAYGAIN_ALBUM_PEAK]:+--comment=REPLAYGAIN_ALBUM_PEAK=${cuedum
                 ;|
                 (*)
                   local outfnpref="${outdir:-/sdcard/Music/albums}/[${${${${cuedump[d.REM LABEL]:-${cuedump[d.PERFORMER]}}:+${cuedump[d.REM LABEL]:-(${cuedump[d.PERFORMER]})}}:-(no label)}//\//∕}]/${${:-${${${cuedump[d.TITLE]:-(no title)}/#./．}//\//∕} ${cuedump[d.REM CATALOGNUMBER]:+[${cuedump[d.REM CATALOGNUMBER]}]}${cuedump[d.REM DATE]:+[${cuedump[d.REM DATE]//\//.}]}}}"
+
                   if [[ ! -d "$outfnpref" ]]; then
                     mkdir -vp -- $outfnpref
                   fi
                 ;|
                 (flac|wv)
-                  if ! [[ "$ofmt" == exhale && "$replaygain" == (0|) ]]; then
-                    while (( $#seltnums )); do
-                      if ! (( ${#cuedump[${seltnums[1]}.REM REPLAYGAIN_TRACK_GAIN]} && ${#cuedump[${seltnums[1]}.REM REPLAYGAIN_TRACK_PEAK]} )); then
-                        local REPLAYGAIN_TRACK_GAIN= REPLAYGAIN_TRACK_PEAK=
-                        command ${(s. .)rundec} ${${(M)cuedump[${seltnums[1]}.skip]:#<1->}:+--skip=${cuedump[${seltnums[1]}.skip]}} ${${(M)cuedump[${seltnums[1]}.until]:#<1->}:+--until=${cuedump[${seltnums[1]}.until]}} -- $ifile | gainstdin
-                        REPLAYGAIN_TRACK_GAINs[${seltnums[1]}]=$REPLAYGAIN_TRACK_GAIN
-                        REPLAYGAIN_TRACK_PEAKs[${seltnums[1]}]=$REPLAYGAIN_TRACK_PEAK
-                      fi
-                      local outfnsuff="${${:-${cuedump[d.REM DISCNUMBER]:+${cuedump[d.REM DISCNUMBER]}#}${cuedump[$tn.tnum]}${cuedump[$tn.TITLE]:+.${cuedump[$tn.TITLE]//\//／}}}:0:80}"
-                      command ${(s. .)rundec} ${${(M)cuedump[${seltnums[1]}.skip]:#<1->}:+--skip=${cuedump[${seltnums[1]}.skip]}} ${${(M)cuedump[${seltnums[1]}.until]:#<1->}:+--until=${cuedump[${seltnums[1]}.until]}} -- $ifile | rw | eval command ${${${${(f)runenc}:#}//\[\$tn./'[${seltnums[1]}.'}//\[\$tn\]/'[${seltnums[1]}]'} "${(@q)ofmtargs}" -
-                      shift seltnums
-                    done
-                  fi
+                  while (( $#seltnums )); do
+                    if ! [[ "$ofmt" == exhale && "$replaygain" == (0|) ]] && ! (( ${#cuedump[${seltnums[1]}.REM REPLAYGAIN_TRACK_GAIN]} && ${#cuedump[${seltnums[1]}.REM REPLAYGAIN_TRACK_PEAK]} )) && [[ "$ofmt" != null ]]; then
+                      local REPLAYGAIN_TRACK_GAIN= REPLAYGAIN_TRACK_PEAK=
+                      command ${(s. .)rundec} ${${(M)cuedump[${seltnums[1]}.skip]:#<1->}:+--skip=${cuedump[${seltnums[1]}.skip]}} ${${(M)cuedump[${seltnums[1]}.until]:#<1->}:+--until=${cuedump[${seltnums[1]}.until]}} -- $ifile | gainstdin
+                      REPLAYGAIN_TRACK_GAINs[${seltnums[1]}]=$REPLAYGAIN_TRACK_GAIN
+                      REPLAYGAIN_TRACK_PEAKs[${seltnums[1]}]=$REPLAYGAIN_TRACK_PEAK
+                    fi
+                    local outfnsuff="${(e)outfnsuff_t}"
+                    command ${(s. .)rundec} ${${(M)cuedump[${seltnums[1]}.skip]:#<1->}:+--skip=${cuedump[${seltnums[1]}.skip]}} ${${(M)cuedump[${seltnums[1]}.until]:#<1->}:+--until=${cuedump[${seltnums[1]}.until]}} -- $ifile | rw | eval command ${${${${(f)runenc}:#}//\[\$tn./'[${seltnums[1]}.'}//\[\$tn\]/'[${seltnums[1]}]'} "${(@q)ofmtargs}" -
+                    shift seltnums
+                  done
                 ;|
                 (wav|tak|tta|ape|)
                   ## match empty fmt in case of fifo mmode
@@ -804,7 +803,7 @@ ${cuedump[d.REM REPLAYGAIN_ALBUM_PEAK]:+--comment=REPLAYGAIN_ALBUM_PEAK=${cuedum
                     (aotuv|fdkaac) runenc+=$'\n--raw\n'
                     ;;
                   esac
-                  if [[ "$mmode" != fifo ]] && ! [[ "$ofmt" == exhale && "$replaygain" == (0|) ]]; then
+                  if [[ "$mmode" != fifo ]] && ! [[ "$ofmt" == exhale && "$replaygain" == (0|) ]] && [[ "$ofmt" != null ]]; then
                     command ffmpeg -loglevel warning -xerror -hide_banner -err_detect explode -i $ifile -f s16le - | {
                       for ((tn=1;tn<=cuedump[tc];tn++)); do
                         if (( ${seltnums[(I)$tn]} )); then
@@ -820,16 +819,16 @@ ${cuedump[d.REM REPLAYGAIN_ALBUM_PEAK]:+--comment=REPLAYGAIN_ALBUM_PEAK=${cuedum
                   elif [[ "$mmode" == fifo ]]; then
                     ifile=$fifo
                   fi
-                  command ffmpeg -loglevel warning -xerror -hide_banner -err_detect explode -i $ifile -f s16le - | {
+                  command ffmpeg -loglevel warning -xerror -hide_banner -err_detect explode -i $ifile -f s16le - | (
                     for ((tn=1;tn<=cuedump[tc];tn++)); do
-                      local outfnsuff="${${:-${cuedump[d.REM DISCNUMBER]:+${cuedump[d.REM DISCNUMBER]}#}${cuedump[$tn.tnum]}${cuedump[$tn.TITLE]:+.${cuedump[$tn.TITLE]//\//／}}}:0:80}"
+                      local outfnsuff="${(e)outfnsuff_t}"
                       if (( ${seltnums[(I)$tn]} )); then
                         dd bs=128K ${${(M)cuedump[$tn.pskip]:#<1->}:+skip=$(( 4 * ${cuedump[$tn.pskip]} ))B} ${${(M)cuedump[$tn.plen]}:+count=$(( 4 * ${cuedump[$tn.plen]} ))B} iflag=fullblock status=none | rw | eval command ${${(f)runenc}:#} "${(@q)ofmtargs}" -
                       else
                         pv -qX${cuedump[$tn.plen]:+Ss$((4*cuedump[$tn.plen]+4*cuedump[$tn.pskip]))}
                       fi
                     done
-                  }
+                  )
                 ;|
               esac
             fi
