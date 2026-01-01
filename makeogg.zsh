@@ -1508,7 +1508,7 @@ function .deps {
   fi
 
   if [[ -v commands[exhale] ]] && [[ -v commands[mp4tagcli] ]]; then
-    ostr[exhale]='sox -Dtraw -Lc2 -r44100 -b16 -e signed-integer - -twav - | exhale '
+    ostr[exhale]='ffmpeg -loglevel warning -xerror -hide_banner -err_detect explode -f s16le -ac 2 -ar 44100 -i - -f wav - | exhale '
   fi
 
   if [[ -v commands[qaac64] ]] && (( ${(@)argv[1,2][(I)qaac]} )) && qaac64 --check 2>&1 | grep -qsEe 'CoreAudioToolbox [0-9.]+'; then
