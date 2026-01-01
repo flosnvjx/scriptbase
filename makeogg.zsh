@@ -7,7 +7,7 @@ setopt extendedglob pipefail errreturn xtrace
 function .main {
   local ofmt= mmode= fifo=
   local match=()
-  if [[ "$1" = ((#b)(cue|tidy|fifo[.:=](/?*))(#B)) ]]; then
+  if [[ "$1" = ((#b)(cue|tidy|lrc|fifo[.:=](/?*))(#B)) ]]; then
     mmode=${match[1]}
     case "$mmode" in; (fifo*) mmode=fifo; fifo=${match[2]} ;; esac
     shift
@@ -16,16 +16,20 @@ function .main {
     ofmt=$1
     shift
   elif (( !$#1 )); then
-    function {
-      while ((#)); do if [[ -v ostr[$1] ]]; then
-        ofmt=$1
-        break
-        fi
-        shift
-      done
-    } aotuv fdkaac flac
-  elif [[ "$mmode" == cue ]]; then
-    ofmt=none
+    if [[ "$mmode" == cue ]]; then
+      ofmt=none
+    elif [[ "$mmode" == lrc ]]; then
+      ofmt=null
+    else
+      function {
+        while ((#)); do if [[ -v ostr[$1] ]]; then
+          ofmt=$1
+          break
+          fi
+          shift
+        done
+      } aotuv fdkaac flac
+    fi
   else
     .fatal "unsupported output fmt: $1"
   fi
@@ -1357,6 +1361,9 @@ declare -a genres=(
   Other
 )
 declare -a exts=(wav flac tta ape tak wv)
+
+declare NCMAPI=${${(M)NCMAPI:#http(s|)://?*}:-https://163api.qijieya.cn}
+
 declare -A fmtstr
 declare -A ostr
 function .deps {
