@@ -306,10 +306,20 @@ function .main {
             if (( walkcuefiles==1 )); then
               mkdir -vp -- "${albumtidydirs[$walkcuefiles]}"
             fi
-            if function { return $(( $#==0 )); } {${cuefiles[$walkcuefiles]:r},${${cuefiles[$walkcuefiles]:r}%%\#soxStatExclNull.Samples[0-9]##(|.XXH3_[0-9a-f](#c16))(|\#*)}}.*(.N); then rename -vo -- ${${cuefiles[$walkcuefiles]:r}%%\#soxStatExclNull.Samples[0-9]##(|.XXH3_[0-9a-f](#c16))(|\#*)} ${albumtidydirs[$walkcuefiles]}/${albumtidyfiles[$walkcuefiles]} {${cuefiles[$walkcuefiles]:r},${${cuefiles[$walkcuefiles]:r}%%\#soxStatExclNull.Samples[0-9]##(|.XXH3_[0-9a-f](#c16))(|\#*)}}.*(.N); fi
+            function {
+              if ((#)); then
+                argv=(${(u)argv})
+                rename -vo -- ${${cuefiles[$walkcuefiles]:r}%%\#soxStatExclNull.Samples[0-9]##(|.XXH3_[0-9a-f](#c16))(|\#*)} ${albumtidydirs[$walkcuefiles]}/${albumtidyfiles[$walkcuefiles]} ${argv}
+              fi
+            } {${cuefiles[$walkcuefiles]:r},${${cuefiles[$walkcuefiles]:r}%%\#soxStatExclNull.Samples[0-9]##(|.XXH3_[0-9a-f](#c16))(|\#*)}}.*(.N)
             cuefiles[$walkcuefiles]=${cuefiles[$walkcuefiles]/${${cuefiles[$walkcuefiles]:r}%%\#soxStatExclNull.Samples[0-9]##(|.XXH3_[0-9a-f](#c16))(|\#*)}/${albumtidydirs[$walkcuefiles]}\/${albumtidyfiles[$walkcuefiles]}}
           elif [[ "${${cuefiles[$walkcuefiles]:r}%%\#soxStatExclNull.Samples[0-9]##(|.XXH3_[0-9a-f](#c16))(|\#*)}" != "${albumtidyfiles[$walkcuefiles]}" ]]; then
-            if function { return $(( $#==0 )); } {${cuefiles[$walkcuefiles]:r},${${cuefiles[$walkcuefiles]:r}%%\#soxStatExclNull.Samples[0-9]##(|.XXH3_[0-9a-f](#c16))(|\#*)}}.*(.N); then rename -vo -- ${${cuefiles[$walkcuefiles]:r}%%\#soxStatExclNull.Samples[0-9]##(|.XXH3_[0-9a-f](#c16))(|\#*)} ${albumtidyfiles[$walkcuefiles]} {${cuefiles[$walkcuefiles]:r},${${cuefiles[$walkcuefiles]:r}%%\#soxStatExclNull.Samples[0-9]##(|.XXH3_[0-9a-f](#c16))(|\#*)}}.*(.N); fi
+            if function {
+              if ((#)); then
+                argv=(${(u)argv})
+                rename -vo -- ${${cuefiles[$walkcuefiles]:r}%%\#soxStatExclNull.Samples[0-9]##(|.XXH3_[0-9a-f](#c16))(|\#*)} ${albumtidyfiles[$walkcuefiles]} ${argv}
+              fi
+            } {${cuefiles[$walkcuefiles]:r},${${cuefiles[$walkcuefiles]:r}%%\#soxStatExclNull.Samples[0-9]##(|.XXH3_[0-9a-f](#c16))(|\#*)}}.*(.N)
             cuefiles[$walkcuefiles]=${cuefiles[$walkcuefiles]/${${cuefiles[$walkcuefiles]:r}%%\#soxStatExclNull.Samples[0-9]##(|.XXH3_[0-9a-f](#c16))(|\#*)}/${albumtidyfiles[$walkcuefiles]}}
           fi
         fi
