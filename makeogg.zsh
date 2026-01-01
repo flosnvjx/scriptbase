@@ -340,13 +340,15 @@ function .main {
               argv=({${${(M)cuefiles[$walkcuefiles]:#*/*}:+${cuefiles[$walkcuefiles]%/*}/}${cuefiledirectives[$walkcuefiles]:r},${cuefiles[$walkcuefiles]:r}}.(#i)(flac|wav|tak|tta|ape)(.N))
               if ((#)); then
                 ifile=$1
-                albumfiles[$walkcuefiles]=${${${(M)cuefiles[$walkcuefiles]:#*/*}:+${ifile#"${cuefiles[$walkcuefiles]%/*}"/}}:-$ifile}
+                albumfiles[$walkcuefiles]=${${${(M)cuefiles[$walkcuefiles]:#*/*}:+${ifile#${cuefiles[$walkcuefiles]%/*}/}}:-$ifile}
                 .msg "${cuefiles[$walkcuefiles]} (\"${cuefiledirectives[$walkcuefiles]}\" -> \"${albumfiles[$walkcuefiles]}\" [NOTE: fallback])"
                 return
+              else
+                .fatal "no potential FILE, abort."
               fi
             }
           else
-            albumfiles[$walkcuefiles]=${${${(M)cuefiles[$walkcuefiles]:#*/*}:+${ifile#"${cuefiles[$walkcuefiles]%/*}"/}}:-$ifile}
+            albumfiles[$walkcuefiles]=${${${(M)cuefiles[$walkcuefiles]:#*/*}:+${ifile#${cuefiles[$walkcuefiles]%/*}/}}:-$ifile}
           fi
           local ifmt=${${ifile:l}##*.}
         ;;
