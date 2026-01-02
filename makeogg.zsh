@@ -131,8 +131,9 @@ function .main {
 
           discnumbers[$walkcuefiles]=${cuediscnumberdirectives[$walkcuefiles]:-$(( match[1] ))}
           match=()
+          local pat_fileisunderdiscdir='("["|"("|)(#i)Disc[#. ]#([0-9]##)(")"|"]"|)/[^/]##'
           if (( !${discnumbers[$walkcuefiles]} )); then
-            if [[ "${cuefiles[$walkcuefiles]:t:r}" = (*[^a-zA-Z]##|)(#i)disc([＊*#＃. ]|)(#b)([1-9][1-90]#) ]] || [[ "${cuefiles[$walkcuefiles]:r}" != (#i)Disc(#b)([1-9][1-90]#)/[^/]## ]]; then
+            if [[ "${cuefiles[$walkcuefiles]:t:r}" = (*[^a-zA-Z]##|)(#i)disc([＊*#＃. ]|)(#b)([1-9][1-90]#) ]] || [[ "${cuefiles[$walkcuefiles]:r}" == ("["|"("|)(#i)Disc[#. ]#(#b)(<1->)(")"|"]"|)/[^/]## ]]; then
               discnumbers[$walkcuefiles]=$(( match[1] ))
             fi
             if (( discnumbers[walkcuefiles] > totaldiscs[walkcuefiles] )); then
@@ -156,7 +157,7 @@ function .main {
               catnos[$walkcuefiles]=${${catnos[${(@)albumtitles[(ie)${albumtitles[$walkcuefiles]}]}]}:-${match[1]}}
             fi
             if (( !${#catnos[$walkcuefiles]} )) && (( $#acuefiles == totaldiscs[walkcuefiles] )) && (( 1 == ${(@)#${(@u)albumtitles}} )); then
-              if [[ ${cuefiles[$walkcuefiles]:r} == ?*/?* && ${cuefiles[$walkcuefiles]:r} != (#i)[(\[]#Disc[ .]#[0-9]##[\])]#/[^/]## ]]; then
+              if [[ ${cuefiles[$walkcuefiles]:r} == ?*/?* && ${cuefiles[$walkcuefiles]:r} != ${~pat_fileisunderdiscdir} ]]; then
                 : ${(M)${cuefiles[$walkcuefiles]:h:t}:#*\[(#b)([A-Z][A-Z0-9](#c1,4)(-[A-Z](#c0,3)[0-9](#c1,5)[A-Z](#c0,3)(|[~～][0-9A-Z](#c0,4)))(#c1,2))\]*}
               else
                 : ${(M)${PWD:t}:#*\[(#b)([A-Z][A-Z0-9](#c1,4)(-[A-Z](#c0,3)[0-9](#c1,5)[A-Z](#c0,3)(|[~～][0-9A-Z](#c0,4)))(#c1,2))\]*}
@@ -194,7 +195,7 @@ function .main {
               fi
               match=()
               if (( !${#dates[$walkcuefiles]} || !${#match[5]} )) && (( $#acuefiles == totaldiscs[walkcuefiles] )) && (( 1 == ${(@)#${(@u)albumtitles}} )); then
-                if [[ ${cuefiles[$walkcuefiles]} == ?*/?* && ${cuefiles[$walkcuefiles]:r} != (#i)Disc[0-9]##/[^/]## ]]; then
+                if [[ ${cuefiles[$walkcuefiles]} == ?*/?* && ${cuefiles[$walkcuefiles]:r} != ${~pat_fileisunderdiscdir} ]]; then
                   : ${(M)${cuefiles[$walkcuefiles]:h:t}:#*\[(#b)([0-9](#c2))([0-9x](#c2))([0-9x](#c2))\]*}
                 else
                   : ${(M)${PWD:t}:#*\[(#b)([0-9](#c2))([0-9x](#c2))([0-9x](#c2))\]*}
@@ -253,7 +254,7 @@ function .main {
             else
               if (( !${#suris[$walkcuefiles]} )) && (( $#acuefiles == totaldiscs[walkcuefiles] )) && (( 1 == ${(@)#${(@u)albumtitles}} )); then
                 match=()
-                if [[ ${cuefiles[$walkcuefiles]} == ?*/?* && ${cuefiles[$walkcuefiles]:r} != (#i)Disc[0-9]##/[^/]## ]]; then
+                if [[ ${cuefiles[$walkcuefiles]} == ?*/?* && ${cuefiles[$walkcuefiles]:r} != ${~pat_fileisunderdiscdir} ]]; then
                   eval : '${(M)${cuefiles[$walkcuefiles]:h:t}:#*\[(#b)((@('${(@j.|.)suriscms}'))##)\]*}'
                 else
                   eval : '${(M)${PWD:t}:#*\[(#b)((@('${(@j.|.)suriscms}'))##)\]*}'
@@ -279,7 +280,7 @@ function .main {
               fi
               if (( !${#vgmdbids[$walkcuefiles]} )) && (( $#acuefiles == totaldiscs[walkcuefiles] )) && (( 1 == ${(@)#${(@u)albumtitles}} )); then
                 match=()
-                if [[ ${cuefiles[$walkcuefiles]} == ?*/?* && ${cuefiles[$walkcuefiles]:r} != (#i)Disc[0-9]##/[^/]## ]]; then
+                if [[ ${cuefiles[$walkcuefiles]} == ?*/?* && ${cuefiles[$walkcuefiles]:r} != ${~pat_fileisunderdiscdir} ]]; then
                   : ${(M)${cuefiles[$walkcuefiles]:h:t}:#*\[VGMdb(#b)(<1->)\]*}
                 else
                   : ${(M)${PWD:t}:#*\[VGMdb(#b)(<1->)\]*}
@@ -313,7 +314,7 @@ function .main {
       done
       for ((walkcuefiles=1;walkcuefiles<=$#cuefiles;walkcuefiles++)); do
         if (( ${(@)#${(@u)albumtidydirs}} == 1 )); then
-          if [[ ${cuefiles[$walkcuefiles]} == ?*/?* && ${cuefiles[$walkcuefiles]:r} != (#i)Disc[0-9]##/[^/]## && \
+          if [[ ${cuefiles[$walkcuefiles]} == ?*/?* && ${cuefiles[$walkcuefiles]:r} != ${~pat_fileisunderdiscdir} && \
             "${cuefiles[$walkcuefiles]:h}" != "${albumtidydirs[$walkcuefiles]}"(|*/) && "${PWD:t}" != "${albumtidydirs[$walkcuefiles]}" ]] || \
             [[ "${PWD:t}" != "${albumtidydirs[$walkcuefiles]}" ]]; then
             if (( walkcuefiles==1 )); then
