@@ -504,6 +504,9 @@ function .main {
           ;|
           ([yY])
             if ! print -rn -- ${mbufs[-1]} | cmp -s -- ${cuefiles[$walkcuefiles]}; then
+              if [[ ! -e "${cuefiles[$walkcuefiles]}.bak" ]]; then
+                mv -- ${cuefiles[$walkcuefiles]}{,.bak}
+              fi
               print -rn -- ${mbufs[-1]} | rw -- ${cuefiles[$walkcuefiles]}
             fi
           ;|
@@ -895,6 +898,9 @@ ${cuedump[d.REM REPLAYGAIN_ALBUM_PEAK]:+--comment=REPLAYGAIN_ALBUM_PEAK=${cuedum
                   cuefiles[$walkcuefiles]="${${ifile:r}%%\#soxStatExclNull.Samples[0-9]##(.XXH3_[0-9a-f](#c16)|)(\#*|)}#soxStatExclNull.Samples$oldsamplecount.XXH3_$oldxxh3.cue"
                 fi
                 if ! print -rn -- ${mbufs[-1]} | cmp -s -- ${cuefiles[$walkcuefiles]}; then
+                  if [[ ! -e "${cuefiles[$walkcuefiles]}.bak" ]]; then
+                    mv -- ${cuefiles[$walkcuefiles]}{,.bak}
+                  fi
                   print -rn -- ${mbufs[-1]} | rw -- ${cuefiles[$walkcuefiles]}
                 fi
                 ffprobe=("${(@Q)${(@z)${(@f)"$(ffprobe -err_detect explode -show_entries streams:format -of flat -hide_banner -loglevel warning -select_streams a -i $ifile)"}/=/ }}")
