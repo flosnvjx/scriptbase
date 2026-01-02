@@ -1108,7 +1108,7 @@ ${cuedump[d.REM REPLAYGAIN_ALBUM_PEAK]:+--comment=REPLAYGAIN_ALBUM_PEAK=${cuedum
                     ((#)) || continue
                     setopt localoptions histsubstpattern
                     local match=()
-                    tagtnums=("${(@)${(@)${(@M)tagtnums:#[0-9]##-[0-9]#}/#/<}/%/>}" ${(@)${(@M)tagtnums:#[0-9]##}:s/(#b)(*)(#B)/<'${match[1]}'-'${match[1]}'>/} ${(@M)tagtnums:#d})
+                    tagtnums=("${(@)${(@)${(@M)tagtnums:#[0-9]##[-~][0-9]#}/#/<}/%/>}" ${(@)${(@M)tagtnums:#[0-9]##}:s/(#b)(*)(#B)/<'${match[1]}'-'${match[1]}'>/} ${(@M)tagtnums:#d})
                     tagtnums=(${(@M)argv:#${(@)~${(@j.|.)tagtnums}}} ${(@M)tagtnums:#d})
                     argv=(${cuedump[(I)(${(@j.|.)tagtnums}).${(@)commontags[${(@)commontags[(i)*:${tagkey:l}]}]}]})
                     local joinval=
