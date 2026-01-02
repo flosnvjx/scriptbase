@@ -3,7 +3,7 @@
 ## split cuesheets in cwd.
 ## $0 [mmode] [output_codec [output_codec_args]]
 
-setopt extendedglob pipefail errreturn xtrace
+setopt extendedglob pipefail errexit xtrace
 function .main {
   local ofmt= mmode= fifo=
   local match=()
@@ -259,12 +259,16 @@ function .main {
                 while :; do
                   local suri=
                   vared -ehp 'suri+> ' suri
-                  if [[ "$suri" = https://m[.]miaola[.]work/read/(#b)([1-9][0-9]#)/sf/([0-9a-f](#c3))(#B)(|/keyword*) ]]; then
+                  if [[ "$suri" = https://m[.]mia[o]la[.]w[o]rk/read/(#b)([1-9][0-9]#)/sf/([0-9a-f](#c3))(#B)(|/keyword*) ]]; then
                       suris[$walkcuefiles]+="@kf.${match[1]}.sf${match[2]}"
                   elif [[ "$suri" = http(s|)://(bgm|bangumi).tv/subject/topic/(#b)([1-9][0-9]#)(#B)(|\#*) ]]; then
                       suris[$walkcuefiles]+="@bgm.subj.t${match[1]}"
-                  elif [[ "$suri" = http(s|)://tieba[.]baidu[.]com/p/(#b)([1-9][0-9]#)(#B)(|\?*)(|\#*) ]]; then
+                  elif [[ "$suri" = http(s|)://ti[e]ba[.]b[a]idu[.]com/p/(#b)([1-9][0-9]#)(#B)(|\?*)(|\#*) ]]; then
                       suris[$walkcuefiles]+="@tb.p${match[1]}"
+                  elif [[ "$suris" = http(s|)://(#b)(suk[e]bei.|)(#B)n[y]aa.si(|.)/view/(#b)(<1->)(#B)(|\#*)( #"magnet:?xt=urn:btih:"(#b)([0-9a-f](#c40))(#B)(|"&"*)|) ]]; then
+                    suris[$walkcuefiles]+="@${${match[1]:+skb}:-nyaa}.${match[2]}${match[3]:+=${$(basenc --base16 -d <<< ${match[3]:u} | basenc --base64url)%%=##}}"
+                  elif [[ "$suris" = http(s|)://(www.|)anime-sharing.com/threads/([^/]#.|)(#b)(<1->)(#B)(|/)(|\#*)( #"magnet:?xt=urn:btih:"(#b)([0-9a-f](#c40))(#B)(|"&"*)|) ]]; then
+                    suris[$walkcuefiles]+="@as.t${match[1]}${match[3]:+=${$(basenc --base16 -d <<< ${match[2]:u} | basenc --base64url)%%=##}}"
                   fi
                   if (( ${#suris[$walkcuefiles]} )); then
                     suris[$walkcuefiles]="@"${(j.@.)${(s.@.u)suris[$walkcuefiles]}}
@@ -533,21 +537,14 @@ function .main {
                   runenc+=$'\n3\n'
                 fi
                 runenc+='"$outfnpref/$outfnsuff".m4a'
-                runenc+=';if
-[[
--n
-"${${cuedump[$tn.REM VOCALIST]}:-${cuedump[d.REM VOCALIST]}}"
-]];
-then
-MP4Box
+                runenc+=';MP4Box
 $outfnpref/$outfnsuff.m4a
 -inter
 0
 -keep-utc
 -bo
 -lang
-ja;
-fi;
+${${${${cuedump[$tn.REM VOCALIST]}:-${cuedump[d.REM VOCALIST]}}:+ja}:-zxx};
 mp4tagcli
 --
 "$outfnpref/$outfnsuff".m4a'
@@ -1488,8 +1485,8 @@ declare -a genres=(
   Game
   Indie
   Doujin ## https://xiami-music-genre.readthedocs.io/zh-cn/latest/list.html#doujin
+  'Radio Drama' ## https://xiami-music-genre.readthedocs.io/zh-cn/latest/list.html#radio-drama
   'National Folk'
-  'Audio Theatre'
   Other
 )
 declare -a exts=(wav flac tta ape tak wv)
