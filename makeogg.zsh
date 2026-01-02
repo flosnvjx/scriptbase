@@ -156,12 +156,25 @@ function .main {
               catnos[$walkcuefiles]=${${catnos[${(@)albumtitles[(ie)${albumtitles[$walkcuefiles]}]}]}:-${match[1]}}
             fi
             if (( !${#catnos[$walkcuefiles]} )) && (( $#acuefiles == totaldiscs[walkcuefiles] )) && (( 1 == ${(@)#${(@u)albumtitles}} )); then
-              if [[ ${cuefiles[$walkcuefiles]} == ?*/?* && ${cuefiles[$walkcuefiles]:r} != (#i)Disc[0-9]##/[^/]## ]]; then
-                : ${(M)${cuefiles[$walkcuefiles]:h:t}:#*\[(#b)([A-Z][A-Z0-9](#c1,4)(-[A-Z](#c0,3)[0-9](#c1,5)[A-Z](#c0,3))(#c1,2))\]*}
+              if [[ ${cuefiles[$walkcuefiles]:r} == ?*/?* && ${cuefiles[$walkcuefiles]:r} != (#i)[(\[]#Disc[ .]#[0-9]##[\])]#/[^/]## ]]; then
+                : ${(M)${cuefiles[$walkcuefiles]:h:t}:#*\[(#b)([A-Z][A-Z0-9](#c1,4)(-[A-Z](#c0,3)[0-9](#c1,5)[A-Z](#c0,3)(|[~～][0-9A-Z](#c0,4)))(#c1,2))\]*}
               else
-                : ${(M)${PWD:t}:#*\[(#b)([A-Z][A-Z0-9](#c1,4)(-[A-Z](#c0,3)[0-9](#c1,5)[A-Z](#c0,3))(#c1,2))\]*}
+                : ${(M)${PWD:t}:#*\[(#b)([A-Z][A-Z0-9](#c1,4)(-[A-Z](#c0,3)[0-9](#c1,5)[A-Z](#c0,3)(|[~～][0-9A-Z](#c0,4)))(#c1,2))\]*}
               fi
               catnos[$walkcuefiles]=${match[1]}
+              if [[ "${match[1]}" == [^~～]##[~～][^~～]## ]]; then
+                function {
+                  argv=(${(s.-.)match[1]})
+                  setopt localoptions histsubstpattern
+                  local match=()
+                  argv=(${(@)argv:s/(#b)(?*)(#B)[~～](#b)(?*)(#B)/'${match[1]:0:$(( ${#match[1]} - ${#match[2]} ))}{${match[1][-${#match[2]},-1]}..${match[2]}}'/})
+                  argv=(${(j.-.)argv})
+                  eval "argv=(${argv[1]})"
+                  if ((#==${totaldiscs[$walkcuefiles]})); then
+                    catnos[$walkcuefiles]=${argv[$walkcuefiles]}
+                  fi
+                }
+              fi
             fi
             while :;do
               timeout 0.01 cat > /dev/null||:
