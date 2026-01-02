@@ -5,11 +5,16 @@
 
 setopt extendedglob pipefail errexit xtrace
 function .main {
-  local ofmt= mmode= fifo=
+  local ofmt= mmode= fifo= tidyconv=
   local match=()
-  if [[ "$1" = ((#b)(cue|tidy|lrc|fifo[.:=](/?*))(#B)) ]]; then
+  if [[ "$1" = ((#b)(cue|tidy(#B)(|.(#b)(none)(#B))|lrc|fifo[.:=](#b)(/?*))(#B)) ]]; then
     mmode=${match[1]}
-    case "$mmode" in; (fifo*) mmode=fifo; fifo=${match[2]} ;; esac
+    case "$mmode" in
+      (tidy*) mmode=tidy
+              match[2]=${match[2]:-takc}
+              tidyconv=${${(M)match[2]:#^(none)}:+${ostr[${match[2]}]:+${match[2]}}} ;;
+      (fifo*) mmode=fifo; fifo=${match[3]} ;;
+    esac
     shift
   fi
   if (( $#1 )) && [[ ${(@)${(@k)ostr}[(I)(#i)${(q)1}]} -gt 0 || "$1" == (none|null) ]]; then
@@ -860,7 +865,7 @@ ${cuedump[d.REM REPLAYGAIN_ALBUM_PEAK]:+--comment=REPLAYGAIN_ALBUM_PEAK=${cuedum
                   [[ "$oldxxh3" == "$newxxh3" ]]
                 }
               fi
-              if [[ -v commands[takc] ]]; then
+              if [[ "$tidyconv" == takc && -v commands[takc] ]]; then
                 local CUESHEET="$(cueconvert -i cue -o toc <<< ${mbufs[-1]}|cueconvert -i toc -o cue|sed -Ee '/("|^$)/d')"
                 case "${ffprobe[format.format_name]}" in
                   (flac|wv)
@@ -884,13 +889,13 @@ ${cuedump[d.REM REPLAYGAIN_ALBUM_PEAK]:+--comment=REPLAYGAIN_ALBUM_PEAK=${cuedum
                 esac
               fi
               if [[ "${${ifile:r}%%\#soxStatExclNull.Samples[0-9]##(.XXH3_[0-9a-f](#c16)|)(\#*|)}#soxStatExclNull.Samples$oldsamplecount.XXH3_$oldxxh3" != "${${ifile:r}%\#convFrom.[^.]##}" ]]; then
-                mv -v -- ${${${commands[takc]:+${(M)ffprobe[format.format_name]:#(flac|wv|wav|tta)}}:+${ifile:r}.tak}:-$ifile} "${${ifile:r}%%\#soxStatExclNull.Samples[0-9]##(.XXH3_[0-9a-f](#c16)|)(\#*|)}#soxStatExclNull.Samples$oldsamplecount.XXH3_$oldxxh3${${commands[takc]:+${(M)ffprobe[format.format_name]:#(flac|wv|wav|tta)}}:+#convFrom.${ffprobe[format.format_name]}}.${${${commands[takc]:+${(M)ffprobe[format.format_name]:#(flac|wv|wav|tta)}}:+tak}:-${ifile:e}}"
+                mv -v -- ${${${tidyconv:+${(M)ffprobe[format.format_name]:#(flac|wv|wav|tta)}}:+${ifile:r}.tak}:-$ifile} "${${ifile:r}%%\#soxStatExclNull.Samples[0-9]##(.XXH3_[0-9a-f](#c16)|)(\#*|)}#soxStatExclNull.Samples$oldsamplecount.XXH3_$oldxxh3${${tidyconv:+${(M)ffprobe[format.format_name]:#(flac|wv|wav|tta)}}:+#convFrom.${ffprobe[format.format_name]}}.${${${tidyconv:+${(M)ffprobe[format.format_name]:#(flac|wv|wav|tta)}}:+tak}:-${ifile:e}}"
                 function {
                   if ((#==1)); then
                     mv -- $1 "${${ifile:r}%%\#soxStatExclNull.Samples[0-9]##(.XXH3_[0-9a-f](#c16)|)(\#*|)}#soxStatExclNull.Samples$oldsamplecount.XXH3_$oldxxh3.${ifile:e}.log"
                   fi
                 } ${ifile:r}.(#i)log(.N)
-                ifile="${${ifile:r}%%\#soxStatExclNull.Samples[0-9]##(.XXH3_[0-9a-f](#c16)|)(\#*|)}#soxStatExclNull.Samples$oldsamplecount.XXH3_$oldxxh3${${commands[takc]:+${(M)ffprobe[format.format_name]:#(flac|wv|wav|tta)}}:+#convFrom.${ffprobe[format.format_name]}}.${${${commands[takc]:+${(M)ffprobe[format.format_name]:#(flac|wv|wav|tta)}}:+tak}:-${ifile:e}}"
+                ifile="${${ifile:r}%%\#soxStatExclNull.Samples[0-9]##(.XXH3_[0-9a-f](#c16)|)(\#*|)}#soxStatExclNull.Samples$oldsamplecount.XXH3_$oldxxh3${${tidyconv:+${(M)ffprobe[format.format_name]:#(flac|wv|wav|tta)}}:+#convFrom.${ffprobe[format.format_name]}}.${${${tidyconv:+${(M)ffprobe[format.format_name]:#(flac|wv|wav|tta)}}:+tak}:-${ifile:e}}"
                 gawk -E <(print -r -- $awkcuemput) <(printf '%s\n%s\n' d.FILE ${ifile#${${(M)cuefiles[$walkcuefiles]:#*/?*}:+${cuefiles[$walkcuefiles]:h}/}}) <(print -r -- ${mbufs[-1]}) | readeof mbuf
                 mbufs+=($mbuf)
                 if [[ "${cuefiles[$walkcuefiles]}" != "${${ifile:r}%%\#soxStatExclNull.Samples[0-9]##(.XXH3_[0-9a-f](#c16)|)(\#*|)}#soxStatExclNull.Samples$oldsamplecount.XXH3_$oldxxh3.cue"   ]]; then
