@@ -97,6 +97,9 @@ function .main {
     done
     (( $#cuefiledirectives == $#cuefiles )) || .fatal "specified $#cuefiles cue sheet(s), but found $#cuefiledirectives FILE directive(s)"
     (( $#cuefiledirectives == ${(@)#${(@u)cuefiledirectives}} )) || .fatal "multiple cue sheets referenced same FILE"
+
+    local -a cache_catno_triplets=()
+
     for ((walkcuefiles=1;walkcuefiles<=$#cuefiles;walkcuefiles++)); do
       .msg "${cuefiles[$walkcuefiles]} (${cuefiledirectives[$walkcuefiles]})"
       local -a match=()
@@ -148,7 +151,7 @@ function .main {
             match=()
             : ${(M)${cuefiledirectives[$walkcuefiles]:t:r}:#(#b)([A-Z][A-Z0-9](#c1,4)(-[A-Z](#c0,3)[0-9](#c1,5)[A-Z](#c0,3))(#c1,2))}
             if (( totaldiscs[walkcuefiles] > 1 )); then
-              catnos[$walkcuefiles]=${${catnos[${(@)albumtitles[(ie)${albumtitles[$walkcuefiles]}]}]}:-${match[1]}}
+              catnos[$walkcuefiles]=${${(@)${(@f)${(@M)cache_catno_triplets:#${albumtitles[$walkcuefiles]}$'\n'${discnumbers[$walkcuefiles]}$'\n'*}[-1]}[3]}:-${${catnos[${(@)albumtitles[(ie)${albumtitles[$walkcuefiles]}]}]}:-${match[1]}}}
             fi
             if (( !${#catnos[$walkcuefiles]} )) && (( $#acuefiles == totaldiscs[walkcuefiles] )) && (( 1 == ${(@)#${(@u)albumtitles}} )); then
               if [[ ${cuefiles[$walkcuefiles]:r} == ?*/?* && ${cuefiles[$walkcuefiles]:r} != ${~pat_fileisunderdiscdir} ]]; then
@@ -166,7 +169,15 @@ function .main {
                   argv=(${(j.-.)argv})
                   eval "argv=(${argv[1]})"
                   if ((#==${totaldiscs[$walkcuefiles]})); then
-                    catnos[$walkcuefiles]=${argv[$walkcuefiles]}
+                    catnos[$walkcuefiles]=${argv[${discnumbers[$walkcuefiles]}]}
+                    if ((${totaldiscs[$walkcuefiles]}>1)); then
+                      local enumcatno=
+                      for ((enumcatno=1;enumcatno<=#;enumcatno++)); do
+                        cache_catno_triplets+=(
+                          ${albumtitles[$walkcuefiles]}$'\n'${enumcatno}$'\n'${argv[$enumcatno]}
+                        )
+                      done
+                    fi
                   fi
                 }
               fi
