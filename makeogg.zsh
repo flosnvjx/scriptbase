@@ -131,7 +131,7 @@ function .main {
 
           discnumbers[$walkcuefiles]=${cuediscnumberdirectives[$walkcuefiles]:-$(( match[1] ))}
           match=()
-          local pat_fileisunderdiscdir='("["|"("|)(#i)Disc[#. ]#([0-9]##)(")"|"]"|)/[^/]##'
+          local pat_fileisunderdiscdir='(\[|\(|)(#i)Disc[#. ]#([0-9]##)(\)|\]|)/[^/]##'
           if (( !${discnumbers[$walkcuefiles]} )); then
             if [[ "${cuefiles[$walkcuefiles]:t:r}" = (*[^a-zA-Z]##|)(#i)disc([＊＃#. ])#(#b)([1-9][0-9]#)[^a-zA-Z0-9](#c0,1) ]] || [[ "${cuefiles[$walkcuefiles]:r}" == ("["|"("|)(#i)Disc([#. ])#(#b)(<1->)(")"|"]"|)/[^/]## ]]; then
               discnumbers[$walkcuefiles]=$(( match[1] ))
