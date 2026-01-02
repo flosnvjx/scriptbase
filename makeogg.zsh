@@ -688,7 +688,7 @@ ${cuedump[d.REM REPLAYGAIN_ALBUM_PEAK]:+--comment=REPLAYGAIN_ALBUM_PEAK=${cuedum
                   else
                     argv=(${(@)^${(@Mn)${(@k)cuedump}:#<1->.REM VOCALIST}%.*})
                   fi
-                  setopt histsubstpattern
+                  setopt localoptions histsubstpattern
                   local match=()
                   while ((#)); do
                     printf '%-2d %-4s' $1 ${cuedump[$1.tnum]}
