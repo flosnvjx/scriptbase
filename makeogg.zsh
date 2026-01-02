@@ -100,27 +100,22 @@ function .main {
     for ((walkcuefiles=1;walkcuefiles<=$#cuefiles;walkcuefiles++)); do
       .msg "${cuefiles[$walkcuefiles]} (${cuefiledirectives[$walkcuefiles]})"
       local -a match=()
-      case ${(@)#${(@u)cuefiletitledirectives}} in
-        (0)
-          albumtitles+=("${${${cuefiles[$walkcuefiles]:r}%/[0-9A-Z]##[-0-9A-Z]##}:t}")
-            eval 'albumtitles[$walkcuefiles]=${albumtitles[$walkcuefiles]:#(CDImage|(|((Various|Unknown) Artist(s|)|(不明[なの]|複数の異なる)アーティスト) - )(Unknown[ _](Album|Title)|不明な(アルバム|タイトル)))}'
-            until (( ${#albumtitles[$walkcuefiles]} )); do timeout 0.01 cat >/dev/null || :; vared -ehp 'album> ' "albumtitles[$walkcuefiles]"; done
-          ;|
-        (<1->)
+          local pat_fileisunderdiscdir='(\[|\(|)(#i)Disc[#. ]#([0-9]##)(\)|\]|)/[^/]##'
           albumtitles[$walkcuefiles]=${cuefiletitledirectives[$walkcuefiles]%[ 　]#([\[\(（<]|)(#i)Disc[＊＃ :：*.#]#(#b)(<1->)(#B)(#I)([\]\)）>]|)}
           if (( ${#albumtitles[$walkcuefiles]} && ${(@)#${(@M)albumtitles:#${albumtitles[$walkcuefiles]}}} > 1 )); then
             :
           else
             if (( ! ${#albumtitles[$walkcuefiles]} )) || [[ "${albumtitles[$walkcuefiles]}" = (Unknown (Album|Title)|不明な(アルバム|タイトル)) ]]; then
-              albumtitles[$walkcuefiles]=${${${cuefiles[$walkcuefiles]:r}%/[0-9A-Z]##[-0-9A-Z]##}:t}
-              eval 'albumtitles[$walkcuefiles]=${albumtitles[$walkcuefiles]:#(CDImage|(|((Various|Unknown) Artist(s|)|(不明[なの]|複数の異なる)アーティスト) - )(Unknown[ _](Album|Title)|不明な(アルバム|タイトル)))}'
+              albumtitles[$walkcuefiles]=${${${${cuefiles[$walkcuefiles]:r}%%/[0-9A-Z]##[-0-9A-Z]##(|[#. ]#(\[|\(|)(#i)Disc[#. ]#([0-9]##)(\)|\]|))}%%/${~pat_fileisunderdiscdir%%/*}}:#${~pat_fileisunderdiscdir%%/*}}
+              eval 'albumtitles[$walkcuefiles]=${${${${(j./.)${(s./.)albumtitles[$walkcuefiles]}#(CDImage|(|((Various|Unknown) Artist(s|)|(不明[なの]|複数の異なる)アーティスト) - )(Unknown[ _](Album|Title)|不明な(アルバム|タイトル)))}:t}##*\] #}%% #\[*}'
+              if (( !${#albumtitles[$walkcuefiles]} )) && [[ ${(@)#${(@u)${(@)acuefiles:h}%%/${~pat_fileisunderdiscdir%%/*}}:#(|${~pat_fileisunderdiscdir%%/*})} == [01] ]]; then
+                albumtitles[$walkcuefiles]=${${${PWD:t}##(\{[^\}]#\}|)( #(\([^\)]#\)|\[[^\]]#\]) #)#}%%( #(\([^\)]#\)|\[[^\]]#\]) #)#(\{[^\}]#\}|)}
+              fi
             fi
             while timeout 0.01 cat >/dev/null || :; do vared -ehp 'album> ' "albumtitles[$walkcuefiles]"
               if (( ${#albumtitles[$walkcuefiles]} )); then break; fi
             done
           fi
-          ;|
-        (<0->)
           totaldiscs[$walkcuefiles]=${cuetotaldiscsdirectives[$walkcuefiles]}
           if (( ${(@)#${(@M)albumtitles:#${albumtitles[$walkcuefiles]}}} > 1)); then
             totaldiscs[$walkcuefiles]=${totaldiscs[${(@)albumtitles[(ie)${albumtitles[$walkcuefiles]}]}]}
@@ -131,7 +126,6 @@ function .main {
 
           discnumbers[$walkcuefiles]=${cuediscnumberdirectives[$walkcuefiles]:-$(( match[1] ))}
           match=()
-          local pat_fileisunderdiscdir='(\[|\(|)(#i)Disc[#. ]#([0-9]##)(\)|\]|)/[^/]##'
           if (( !${discnumbers[$walkcuefiles]} )); then
             if [[ "${cuefiles[$walkcuefiles]:t:r}" = (*[^a-zA-Z]##|)(#i)disc([＊＃#. ])#(#b)([1-9][0-9]#)[^a-zA-Z0-9](#c0,1) ]] || [[ "${cuefiles[$walkcuefiles]:r}" == ("["|"("|)(#i)Disc([#. ])#(#b)(<1->)(")"|"]"|)/[^/]## ]]; then
               discnumbers[$walkcuefiles]=$(( match[1] ))
@@ -241,7 +235,7 @@ function .main {
             fi
             if (( !${#ssdlwids[$walkcuefiles]} )) && (( $#acuefiles == totaldiscs[walkcuefiles] )) && (( 1 == ${(@)#${(@u)albumtitles}} )); then
               match=()
-              : ${(M)${PWD:t}:#*{(#b)(M[-.][0-9](#c7))}*}
+              : ${(M)${PWD:t}:#*{(#b)(M[-.]00[0-9](#c5))}*}
               ssdlwids[$walkcuefiles]=${match[1]}
             fi
             if (( !${#ssdlwids[$walkcuefiles]} )) && (( $#ssdlwtxt )); then
@@ -302,8 +296,6 @@ function .main {
             fi
 
           fi
-          ;|
-      esac
     done
     if [[ "$mmode" = tidy ]] && (( 1 == ${(@)#${(@u)albumtitles}} )); then
       for ((walkcuefiles=1;walkcuefiles<=$#cuefiles;walkcuefiles++)); do
