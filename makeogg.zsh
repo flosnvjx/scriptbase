@@ -107,7 +107,7 @@ function .main {
             until (( ${#albumtitles[$walkcuefiles]} )); do timeout 0.01 cat >/dev/null || :; vared -ehp 'album> ' "albumtitles[$walkcuefiles]"; done
           ;|
         (<1->)
-          albumtitles[$walkcuefiles]=${cuefiletitledirectives[$walkcuefiles]%[ 　]#([\[\(（<]|)(#i)Disc([＊*#＃. ]|)(#b)(<1->)(#B)(#I)([\]\)）>]|)}
+          albumtitles[$walkcuefiles]=${cuefiletitledirectives[$walkcuefiles]%[ 　]#([\[\(（<]|)(#i)Disc[＊＃ :：*.#]#(#b)(<1->)(#B)(#I)([\]\)）>]|)}
           if (( ${#albumtitles[$walkcuefiles]} && ${(@)#${(@M)albumtitles:#${albumtitles[$walkcuefiles]}}} > 1 )); then
             :
           else
@@ -133,7 +133,7 @@ function .main {
           match=()
           local pat_fileisunderdiscdir='("["|"("|)(#i)Disc[#. ]#([0-9]##)(")"|"]"|)/[^/]##'
           if (( !${discnumbers[$walkcuefiles]} )); then
-            if [[ "${cuefiles[$walkcuefiles]:t:r}" = (*[^a-zA-Z]##|)(#i)disc([＊*#＃. ]|)(#b)([1-9][1-90]#) ]] || [[ "${cuefiles[$walkcuefiles]:r}" == ("["|"("|)(#i)Disc[#. ]#(#b)(<1->)(")"|"]"|)/[^/]## ]]; then
+            if [[ "${cuefiles[$walkcuefiles]:t:r}" = (*[^a-zA-Z]##|)(#i)disc([＊＃#. ])#(#b)([1-9][0-9]#)[^a-zA-Z0-9](#c0,1) ]] || [[ "${cuefiles[$walkcuefiles]:r}" == ("["|"("|)(#i)Disc([#. ])#(#b)(<1->)(")"|"]"|)/[^/]## ]]; then
               discnumbers[$walkcuefiles]=$(( match[1] ))
             fi
             if (( discnumbers[walkcuefiles] > totaldiscs[walkcuefiles] )); then
