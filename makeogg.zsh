@@ -765,15 +765,15 @@ ${cuedump[d.REM REPLAYGAIN_ALBUM_PEAK]:+--comment=REPLAYGAIN_ALBUM_PEAK=${cuedum
                             lrcbuf="$(jq -r '.lrc.lyric' <<< $ncmlrcreply | sed -e '/^[{]/d')"
                             trcbuf="$(jq -r '.tlyric.lyric' <<< $ncmlrcreply)"
                           elif [[ "$selncmkugouresult" == ?*@?* ]] && local kugoulrcresult="$(fetch "http://krcs.kugou.com/search?hash=${selncmkugouresult%@*}&album_id=${selncmkugouresult#*@}&ver=1&client=pc&man=yes" -A Mozilla/5.0 | jq -r '.candidates[0]|(.id+":"+.accesskey)')" && (( $#kugoulrcresult > 3 )) && local kugoulrcreply="$(fetch "http://lyrics.kugou.com/download?ver=1&client=pc&fmt=lrc&charset=utf8&id=${kugoulrcresult%:*}&accesskey=${kugoulrcresult#*:}" -A Mozilla/5.0 | jq -er 'if (.status==200) then .content else empty|halt_error end')"; then
-                            lrcbuf="$(base64 -d <<< $kugoulrcreply)"
+                            lrcbuf="$(base64 -d <<< $kugoulrcreply | gawk -v RS=$'\r\n|\n' '!/^\[[^0-9]+:[^]]*\]/{print}')"
                           fi
-                          if ! [[ -n "$lrcbuf" ]]; then
+                          if ! (( $#lrcbuf > 10 )); then
                             .warn 'no lyric data associated with this song!'
                             read
                             continue
                           fi
                           rw -- ${${(M)cuefiles[$walkcuefiles]:#*/*}:+${cuefiles[$walkcuefiles]%/*}/}${(e)outfnsuff_t//\$tn/\$seltnums}.lrc <<< ${lrcbuf%%[$'\n']##}
-                          if [[ -n "$trcbuf" ]]; then
+                          if (( $#trcbuf > 10 )); then
                             rw -- ${${(M)cuefiles[$walkcuefiles]:#*/*}:+${cuefiles[$walkcuefiles]%/*}/}${(e)outfnsuff_t//\$tn/\$seltnums}.zh.lrc  <<< ${trcbuf%%[$'\n']##}
                           fi
                           break
