@@ -274,7 +274,7 @@ function .main {
                 fi
                 suris[$walkcuefiles]=${match[1]}
               fi
-              if (( !${#suris[$walkcuefiles]} )) && (( !${#ssdlwids[$walkcuefiles]} )); then
+              if (( !${#suris[$walkcuefiles]} )) && [[ -z "${ssdlwids[$walkcuefiles]}" || "${ssdlwids[$walkcuefiles][2]}" == . ]]; then
                 while :; do
                   local suri=
                   vared -ehp 'suri+> ' suri
@@ -284,10 +284,10 @@ function .main {
                       suris[$walkcuefiles]+="@bgm.subj.t${match[1]}"
                   elif [[ "$suri" = http(s|)://ti[e]ba[.]b[a]idu[.]com/p/(#b)([1-9][0-9]#)(#B)(|\?*)(|\#*) ]]; then
                       suris[$walkcuefiles]+="@tb.p${match[1]}"
-                  elif [[ "$suris" = http(s|)://(#b)(suk[e]bei.|)(#B)n[y]aa.si(|.)/view/(#b)(<1->)(#B)(|\#*)( #"magnet:?xt=urn:btih:"(#b)([0-9a-f](#c40))(#B)(|"&"*)|) ]]; then
-                    suris[$walkcuefiles]+="@${${match[1]:+skb}:-nyaa}.${match[2]}${match[3]:+=${$(basenc --base16 -d <<< ${match[3]:u} | basenc --base64url)%%=##}}"
-                  elif [[ "$suris" = http(s|)://(www.|)anime-sharing.com/threads/([^/]#.|)(#b)(<1->)(#B)(|/)(|\#*)( #"magnet:?xt=urn:btih:"(#b)([0-9a-f](#c40))(#B)(|"&"*)|) ]]; then
-                    suris[$walkcuefiles]+="@as.t${match[1]}${match[3]:+=${$(basenc --base16 -d <<< ${match[2]:u} | basenc --base64url)%%=##}}"
+                  elif [[ "$suri" = http(s|)://(#b)(suk[e]bei.|)(#B)n[y]aa.si(|.)/view/(#b)(<1->)(#B)(|\#*)( #"magnet:?xt=urn:btih:"(#b)([0-9a-f](#c40))(#B)(|"&"*)|) ]]; then
+                    suris[$walkcuefiles]+="@${${match[1]:+skb}:-nyaa}.${match[2]}${match[3]:+.btih=${$(basenc --base16 -d <<< ${match[3]:u} | basenc --base64url)%%=##}}"
+                  elif [[ "$suri" = http(s|)://(www.|)anime-sharing.com/threads/([^/]#.|)(#b)(<1->)(#B)(|/)(|\#*)( #"magnet:?xt=urn:btih:"(#b)([0-9a-f](#c40))(#B)(|"&"*)|) ]]; then
+                    suris[$walkcuefiles]+="@as.t${match[1]}${match[3]:+=${$(basenc --base16 -d <<< ${match[2]:u} | basenc --base64url)%%.btih=##}}"
                   fi
                   if (( ${#suris[$walkcuefiles]} )); then
                     suris[$walkcuefiles]="@"${(j.@.)${(s.@.u)suris[$walkcuefiles]}}
