@@ -327,6 +327,7 @@ function .main {
         albumtidydirs[$walkcuefiles]="[${match[1]:2:2}${${match[2]:+${${(M)match[2]:#?}:+0}${match[2]}}:-xx}${${match[3]:+${${(M)match[3]:#?}:+0}${match[3]}}:-xx}][${${labels[$walkcuefiles]:+${labels[$walkcuefiles]}${aarts[$walkcuefiles]:+ (${aarts[$walkcuefiles]})}}:-${aarts[${walkcuefiles}]}}] ${albumtitles[$walkcuefiles]} ${${(@j..)catnos}:+[${(@j.,.)${(@nu)catnos}}]}${suris[$walkcuefiles]:+[${suris[$walkcuefiles]}]}[VGMdb${vgmdbids[$walkcuefiles]}]${ssdlwids[$walkcuefiles]:+{${ssdlwids[${walkcuefiles}]}\}}"
         albumtidyfiles[$walkcuefiles]=${${catnos[$walkcuefiles]:+${catnos[$walkcuefiles]}${${totaldiscs[$walkcuefiles]:#${(@)#${(@u)catnos}}}:+.disc${discnumbers[$walkcuefiles]}}}:-VGMdb.album${vgmdbids[$walkcuefiles]}${${(M)totaldiscs[$walkcuefiles]:#<2->}:+.disc${discnumbers[$walkcuefiles]}}}${suris[$walkcuefiles]}
       done
+      ## FIXME: improve if-cond
       for ((walkcuefiles=1;walkcuefiles<=$#cuefiles;walkcuefiles++)); do
         if (( ${(@)#${(@u)albumtidydirs}} == 1 )); then
           if [[ ${cuefiles[$walkcuefiles]} == ?*/?* && ${cuefiles[$walkcuefiles]:r} != ${~pat_fileisunderdiscdir} && \
@@ -1136,7 +1137,7 @@ ${cuedump[d.REM REPLAYGAIN_ALBUM_PEAK]:+--comment=REPLAYGAIN_ALBUM_PEAK=${cuedum
                     ((#)) || continue
                     setopt localoptions histsubstpattern
                     local match=()
-                    tagtnums=("${(@)${(@)${(@M)tagtnums:#[0-9]##[-~][0-9]#}/#/<}/%/>}" ${(@)${(@M)tagtnums:#[0-9]##}:s/(#b)(*)(#B)/<'${match[1]}'-'${match[1]}'>/} ${(@M)tagtnums:#d})
+                    tagtnums=("${(@)${(@)${(@)${(@M)tagtnums:#[0-9]##[-~][0-9]#}/#/<}/%/>}/[~]/-}" ${(@)${(@M)tagtnums:#[0-9]##}:s/(#b)(*)(#B)/<'${match[1]}'-'${match[1]}'>/} ${(@M)tagtnums:#d})
                     tagtnums=(${(@M)argv:#${(@)~${(@j.|.)tagtnums}}} ${(@M)tagtnums:#d})
                     argv=(${cuedump[(I)(${(@j.|.)tagtnums}).${(@)commontags[${(@)commontags[(i)*:${tagkey:l}]}]}]})
                     local joinval=
