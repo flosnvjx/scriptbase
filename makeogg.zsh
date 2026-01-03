@@ -736,22 +736,37 @@ ${cuedump[d.REM REPLAYGAIN_ALBUM_PEAK]:+--comment=REPLAYGAIN_ALBUM_PEAK=${cuedum
                     while :; do read -k 1 "lrckey?${(e)outfnsuff_t//\$tn/\$seltnums}?lrc.action [ypq]"
                       case "$lrckey" in
                         (y)
-                          local ncmquery="${cuedump[$seltnums.TITLE]} ${${cuedump[$seltnums.REM VOCALIST]}:-${cuedump[d.REM VOCALIST]}} ${cuedump[d.TITLE]}"
-                          vared -chp 'keyword> ' ncmquery || continue
-                          local ncmresult="$(fetch "$NCMAPI/cloudsearch?keywords=$( printf %s $ncmquery|uconv -x ':: NFKC; [^[:Alphabetic=Yes:]1234567890] > \ ;'|basenc --base16 -w0|sed -Ee 's@(..)@%\1@g')" )" || continue
-                          if ! printf %s $ncmresult | jq -r 'if (.result.songCount>0) then halt else empty|halt_error end'; then
+                          local lrcquery="${cuedump[$seltnums.TITLE]} ${${cuedump[$seltnums.REM VOCALIST]}:-${cuedump[d.REM VOCALIST]}} ${cuedump[d.TITLE]}"
+                          vared -chp 'keyword> ' lrcquery || continue
+                          local ncmresult="$(fetch "$NCMAPI/cloudsearch?keywords=$( printf %s $lrcquery|uconv -x ':: NFKC; [^[:Alphabetic=Yes:]1234567890] > \ ;'|basenc --base16 -w0|sed -Ee 's@(..)@%\1@g')" )" || :
+                          ## kugou.rs at erasin/lyrics-next - https://github.com/erasin/lyrics-next/blob/main/src/client/kugou.rs
+                          local kugouresult="$(fetch "$KGMAPI/search/song?keyword=$( printf %s $lrcquery|uconv -x ':: NFKC; [^[:Alphabetic=Yes:]1234567890] > \ ;'|basenc --base16 -w0|sed -Ee 's@(..)@%\1@g')" )" || :
+                          local -a ncmresults=(
+                            "${(@0)$(jq --raw-output0 '.result.songs[]|[.id,.name,([.ar[].name]|join("/")),.al.name,.dt,.cd,.no]|join("\n")' <<< $ncmresult)}"
+                          )
+                          local -a kugouresults=(
+                            "${(@0)$(jq --raw-output0 '.data.info[]|[(.hash+"@"+.album_id),.songname,.singername,.album_name,.duration]|join("\n")' <<< $kugouresult)}"
+                          )
+                          if (( !$#ncmresults&&!$#kugouresults )); then
                             .warn "no result"
                             continue
                           fi
-                          local -a ncmresults=(
-                            "${(@0)$( printf %s $ncmresult | jq --raw-output0 '.result.songs[]|[.id,.name,([.ar[].name]|join("/")),.al.name,.dt,.cd,.no]|join("\n")' )}"
-                          )
                           while :; do
-                          local selncmresults="$(printf '%s\0' ${ncmresults} | gawk -v FS=$'\n' -v dt=5 'BEGIN{OFS=FS;RS="\0";ORS=RS}{$(dt)=$(dt)/1000;re_min=($(dt)%60); if (re_min) {$(dt)=(($(dt)-re_min)/60 ":" sprintf("%02d",re_min))} else {$(dt)=("00:" sprintf("%02d",re_min))}}{print}' | fzf --no-sort --layout=reverse-list -d $'\n' --read0 --wrap --accept-nth=1 -n '2..4' --with-nth=$'{6}#{7}.\t{2}\n\t({4})\n[{5}][@{3}]')"
-                          (( ${#selncmresults[1]} )) || break
-                          local ncmlrcreply="$(fetch $NCMAPI"/lyric/new?id=$selncmresults")"
-                          local lrcbuf="$(jq -r '.lrc.lyric' <<< $ncmlrcreply | sed -e '/^[{]/d')"
-                          local trcbuf="$(jq -r '.tlyric.lyric' <<< $ncmlrcreply)"
+                          local selncmkugouresult="$({
+                            if (( $#ncmresults ))
+                              printf '%s\0' $ncmresults
+                            if (( $#kugouresults ))
+                              printf '%s\0' $kugouresults
+                            } | gawk -v FS=$'\n' -v dt=5 'BEGIN{OFS=FS;RS="\0";ORS=RS}{if ($1~/^[0-9]+$/) {$(dt)=$(dt)/1000;};re_min=($(dt)%60); if (re_min) {$(dt)=(($(dt)-re_min)/60 ":" sprintf("%02d",re_min))} else {$(dt)=("00:" sprintf("%02d",re_min))}}{print}' | fzf --no-sort --layout=reverse-list -d $'\n' --read0 --wrap --accept-nth=1 -n '2..4' --with-nth=$'{6}#{7}.\t{2}\n\t({4})\n[{5}][@{3}]')"
+                          (( ${#selncmkugouresult} )) || break
+                          local lrcbuf= trcbuf=
+                          if [[ "$selncmkugouresult" = [0-9]## ]]; then
+                            local ncmlrcreply="$(fetch $NCMAPI"/lyric/new?id=$selncmresults")"
+                            lrcbuf="$(jq -r '.lrc.lyric' <<< $ncmlrcreply | sed -e '/^[{]/d')"
+                            trcbuf="$(jq -r '.tlyric.lyric' <<< $ncmlrcreply)"
+                          elif [[ "$selncmkugouresult" == ?*@?* ]] && local kugoulrcresult="$(fetch "http://krcs.kugou.com/search?hash=${selncmkugouresult%@*}&album_id=${selncmkugouresult#*@}&ver=1&client=pc&man=yes" -A Mozilla/5.0 | jq -r '.candidates[0]|(.id+":"+.accesskey)')" && (( $#kugoulrcresult > 3 )) && local kugoulrcreply="$(fetch "http://lyrics.kugou.com/download?ver=1&client=pc&fmt=lrc&charset=utf8&id=${kugoulrcresult%:*}&accesskey=${kugoulrcresult#*:}" -A Mozilla/5.0 | jq -er 'if (.status==200) then .content else empty|halt_error end')"; then
+                            lrcbuf="$(base64 -d <<< $kugoulrcreply)"
+                          fi
                           if ! [[ -n "$lrcbuf" ]]; then
                             .warn 'no lyric data associated with this song!'
                             read
@@ -1537,6 +1552,7 @@ ostrext=(
   wavpack wv
 )
 declare NCMAPI=${${(M)NCMAPI:#http(s|)://?*}:-https://163api.qijieya.cn}
+declare KGMAPI="http://mobilecdn.kugou.com/api/v3"
 
 declare -A fmtstr
 declare -A ostr
