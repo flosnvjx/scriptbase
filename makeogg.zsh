@@ -978,7 +978,7 @@ ${cuedump[d.REM REPLAYGAIN_ALBUM_PEAK]:+--comment=REPLAYGAIN_ALBUM_PEAK=${cuedum
                       REPLAYGAIN_TRACK_GAINs[${seltnums[1]}]=$REPLAYGAIN_TRACK_GAIN
                       REPLAYGAIN_TRACK_PEAKs[${seltnums[1]}]=$REPLAYGAIN_TRACK_PEAK
                     fi
-                    local outfnsuff="${(e)outfnsuff_t}"
+                    local outfnsuff="${(e)outfnsuff_t//\$tn/${seltnums[1]}}"
                     command ${(s. .)rundec} ${${(M)cuedump[${seltnums[1]}.skip]:#<1->}:+--skip=${cuedump[${seltnums[1]}.skip]}} ${${(M)cuedump[${seltnums[1]}.until]:#<1->}:+--until=${cuedump[${seltnums[1]}.until]}} -- $ifile | rw | eval command ${${${${(f)runenc}:#}//\[\$tn./'[${seltnums[1]}.'}//\[\$tn\]/'[${seltnums[1]}]'} "${(@q)ofmtargs}" -
                     shift seltnums
                   done
