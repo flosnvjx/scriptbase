@@ -106,7 +106,7 @@ function .main {
     (( $#cuefiledirectives == $#cuefiles )) || .fatal "specified $#cuefiles cue sheet(s), but found $#cuefiledirectives FILE directive(s)"
     (( $#cuefiledirectives == ${(@)#${(@u)cuefiledirectives}} )) || .fatal "multiple cue sheets referenced same FILE"
 
-    local -a cache_catno_triplets=()
+    local -aU cache_catno_triplets=() cache_aarts_triplets=()
 
     for ((walkcuefiles=1;walkcuefiles<=$#cuefiles;walkcuefiles++)); do
       .msg "${cuefiles[$walkcuefiles]} (${cuefiledirectives[$walkcuefiles]})"
@@ -248,6 +248,9 @@ function .main {
               timeout 0.01 cat > /dev/null||:
               vared -ehp 'aart> ' "aarts[$walkcuefiles]"
             fi
+            if (( ${#aarts[$walkcuefiles]} && totaldiscs[walkcuefiles] )); then
+              cache_aarts_triplets+=(${albumtitles[$walkcuefiles]}$'\n'${discnumbers[$walkcuefiles]}$'\n'${aarts[$walkcuefiles]})
+            fi
 
             if (( totaldiscs[walkcuefiles] > 1 )); then
               ssdlwids[$walkcuefiles]=${ssdlwids[${(@)albumtitles[(ie)${albumtitles[$walkcuefiles]}]}]}
@@ -324,7 +327,7 @@ function .main {
       for ((walkcuefiles=1;walkcuefiles<=$#cuefiles;walkcuefiles++)); do
         match=()
         : ${dates[$walkcuefiles]:#(#b)(<1980-2099>)(#B)(|/(#b)(<1-12>)(#B)(|/(#b)(<1-31>)))}
-        albumtidydirs[$walkcuefiles]="[${match[1]:2:2}${${match[2]:+${${(M)match[2]:#?}:+0}${match[2]}}:-xx}${${match[3]:+${${(M)match[3]:#?}:+0}${match[3]}}:-xx}][${${labels[$walkcuefiles]:+${labels[$walkcuefiles]}${aarts[$walkcuefiles]:+ (${aarts[$walkcuefiles]})}}:-${aarts[${walkcuefiles}]}}] ${albumtitles[$walkcuefiles]} ${${(@j..)catnos}:+[${(@j.,.)${(@nu)catnos}}]}${suris[$walkcuefiles]:+[${suris[$walkcuefiles]}]}[VGMdb${vgmdbids[$walkcuefiles]}]${ssdlwids[$walkcuefiles]:+{${ssdlwids[${walkcuefiles}]}\}}"
+        albumtidydirs[$walkcuefiles]="[${match[1]:2:2}${${match[2]:+${${(M)match[2]:#?}:+0}${match[2]}}:-xx}${${match[3]:+${${(M)match[3]:#?}:+0}${match[3]}}:-xx}][${${labels[$walkcuefiles]:+${labels[$walkcuefiles]}${${:-${aarts[${walkcuefiles}]}${(@j||)${(@Mn)cache_aarts_triplets:#${albumtitles[$walkcuefiles]}$'\n'<1->$'\n'*}##*$'\n'}}:+ (${${(@j|、|)${(@Mn)cache_aarts_triplets:#${albumtitles[$walkcuefiles]}$'\n'<1->$'\n'*}##*$'\n'}:-${aarts[$walkcuefiles]}})}}:-${aarts[${walkcuefiles}]}}] ${albumtitles[$walkcuefiles]} ${${(@j..)catnos}:+[${(@j.,.)${(@nu)catnos}}]}${suris[$walkcuefiles]:+[${suris[$walkcuefiles]}]}[VGMdb${vgmdbids[$walkcuefiles]}]${ssdlwids[$walkcuefiles]:+{${ssdlwids[${walkcuefiles}]}\}}"
         albumtidyfiles[$walkcuefiles]=${${catnos[$walkcuefiles]:+${catnos[$walkcuefiles]}${${totaldiscs[$walkcuefiles]:#${(@)#${(@u)catnos}}}:+.disc${discnumbers[$walkcuefiles]}}}:-VGMdb.album${vgmdbids[$walkcuefiles]}${${(M)totaldiscs[$walkcuefiles]:#<2->}:+.disc${discnumbers[$walkcuefiles]}}}${suris[$walkcuefiles]}
       done
       ## FIXME: improve if-cond
@@ -964,7 +967,7 @@ ${cuedump[d.REM REPLAYGAIN_ALBUM_PEAK]:+--comment=REPLAYGAIN_ALBUM_PEAK=${cuedum
                   fi
                 ;|
                 (*)
-                  local outfnpref="${outdir:-/sdcard/Music/albums}/[${${${${cuedump[d.REM LABEL]:-${cuedump[d.PERFORMER]}}:+${cuedump[d.REM LABEL]:-(${cuedump[d.PERFORMER]})}}:-(no label)}//\//∕}]/${${:-${${${cuedump[d.TITLE]:-(no title)}/#./．}//\//∕} ${cuedump[d.REM CATALOGNUMBER]:+[${cuedump[d.REM CATALOGNUMBER]}]}${cuedump[d.REM DATE]:+[${cuedump[d.REM DATE]//\//.}]}}}"
+                local outfnpref="${outdir:-/sdcard/Music/albums}/[${${${cuedump[d.REM LABEL]}:-(no label)}//\//∕}]/${${:-${${${cuedump[d.TITLE]:-(no title)}/#./．}//\//∕} ${cuedump[d.REM CATALOGNUMBER]:+[${${(@j|,|)${(@M)cache_catno_triplets:#${albumtitles[$walkcuefiles]}$'\n'<1->$'\n'${cuedump[d.REM CATALOGNUMBER]%%-*}*}##*$'\n'}:-${cuedump[d.REM CATALOGNUMBER]}}]}${cuedump[d.REM DATE]:+[${cuedump[d.REM DATE]//\//.}]}}}"
 
                   if [[ ! -d "$outfnpref" ]]; then
                     mkdir -vp -- $outfnpref
