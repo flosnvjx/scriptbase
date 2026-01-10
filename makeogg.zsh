@@ -168,35 +168,23 @@ function .main {
                 : ${(M)${PWD:t}:#*\[(#b)([A-Z][A-Z0-9](#c1,4)(-[A-Z](#c0,3)[0-9](#c1,5)[A-Z](#c0,3)(|[~～][0-9A-Z](#c0,4)))(#c1,2))\]*}
               fi
               catnos[$walkcuefiles]=${match[1]}
-              if [[ "${match[1]}" == [^~～]##[~～][^~～]## ]]; then
-                function {
-                  argv=(${(s.-.)match[1]})
-                  setopt localoptions histsubstpattern
-                  local match=()
-                  argv=(${(@)argv:s/(#b)(?*)(#B)[~～](#b)(?*)(#B)/'${match[1]:0:$(( ${#match[1]} - ${#match[2]} ))}{${match[1][-${#match[2]},-1]}..${match[2]}}'/})
-                  argv=(${(j.-.)argv})
-                  eval "argv=(${argv[1]})"
-                  if ((#==${totaldiscs[$walkcuefiles]})); then
-                    catnos[$walkcuefiles]=${argv[${discnumbers[$walkcuefiles]}]}
-                    if ((${totaldiscs[$walkcuefiles]}>1)); then
-                      local enumcatno=
-                      for ((enumcatno=1;enumcatno<=#;enumcatno++)); do
-                        cache_catno_triplets+=(
-                          ${albumtitles[$walkcuefiles]}$'\n'${enumcatno}$'\n'${argv[$enumcatno]}
-                        )
-                      done
-                    fi
-                  fi
-                }
-              fi
             fi
-            while :;do
-              timeout 0.01 cat > /dev/null||:
-              vared -ehp 'pn> ' "catnos[$walkcuefiles]"
-              if [[ "${catnos[$walkcuefiles]}" = ([A-Z][A-Z0-9]##([-_][A-Z0-9]##)#|) ]]; then
-                break
-              fi
-            done
+            if [[ "${catnos[$walkcuefiles]}" == *[~～]* ]] && intercept_wavedash_catnostr "${catnos[$walkcuefiles]}"; then :; else
+              while :;do
+                timeout 0.01 cat > /dev/null||:
+                vared -ehp 'pn> ' "catnos[$walkcuefiles]"
+                if [[ "${catnos[$walkcuefiles]}" = ([A-Z][A-Z0-9]##([-_][A-Z0-9]##)##|) ]]; then
+                  break
+                elif [[ "${catnos[$walkcuefiles]}" = ([A-Z][A-Z0-9]##([-~～][A-Z0-9]##)##|) ]] && intercept_wavedash_catnostr "${catnos[$walkcuefiles]}"; then
+                  break
+                fi
+              done
+            fi
+          fi
+          if (( ${#catnos[$walkcuefiles]} && totaldiscs[walkcuefiles] > 1 )); then
+            cache_catno_triplets+=(
+              ${albumtitles[$walkcuefiles]}$'\n'${discnumbers[$walkcuefiles]}$'\n'${catnos[$walkcuefiles]}
+            )
           fi
 
           if [[ "$mmode" = tidy ]]; then
@@ -1554,6 +1542,33 @@ ostrext=(
   takc tak
   wavpack wv
 )
+
+function intercept_wavedash_catnostr {
+  if [[ "${argv[1]}" == [^~～]##[~～][^~～]## ]]; then
+      argv=(${(s.-.)argv[1]})
+      setopt localoptions histsubstpattern
+      local match=()
+      argv=(${(@)argv:s/(#b)(?*)(#B)[~～](#b)(?*)(#B)/'${match[1]:0:$(( ${#match[1]} - ${#match[2]} ))}{${match[1][-${#match[2]},-1]}..${match[2]}}'/})
+      argv=(${(j.-.)argv})
+      eval "argv=(${argv[1]})"
+      if ((#==${totaldiscs[$walkcuefiles]})); then
+        catnos[$walkcuefiles]=${argv[${discnumbers[$walkcuefiles]}]}
+        if ((${totaldiscs[$walkcuefiles]}>1)); then
+          local enumcatno=
+          for ((enumcatno=1;enumcatno<=#;enumcatno++)); do
+            cache_catno_triplets+=(
+              ${albumtitles[$walkcuefiles]}$'\n'${enumcatno}$'\n'${argv[$enumcatno]}
+            )
+          done
+        fi
+      else
+        return 1
+      fi
+  else
+    return 1
+  fi
+}
+
 declare NCMAPI=${${(M)NCMAPI:#http(s|)://?*}:-https://163api.qijieya.cn}
 declare KGMAPI="http://mobilecdn.kugou.com/api/v3"
 
