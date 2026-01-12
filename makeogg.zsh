@@ -984,6 +984,8 @@ ${cuedump[d.REM REPLAYGAIN_ALBUM_PEAK]:+--comment=REPLAYGAIN_ALBUM_PEAK=${cuedum
                     ;;
                     (aotuv|fdkaac) runenc+=$'\n--raw\n'
                     ;;
+                    (exhale) runenc=${${:-ffmpeg -loglevel warning -xerror -hide_banner -err_detect explode -f s16le -ac 2 -ar 44100 -i - -f wav - | }// /$'\n'}$runenc
+                    ;;
                   esac
                   if [[ "$mmode" != fifo ]] && ! [[ "$ofmt" == exhale && "$replaygain" == (0|) ]] && [[ "$ofmt" != null ]]; then
                     command ffmpeg -loglevel warning -xerror -hide_banner -err_detect explode -i $ifile -f s16le - | {
@@ -1615,7 +1617,7 @@ function .deps {
   fi
 
   if [[ -v commands[exhale] ]] && [[ -v commands[mp4tagcli] ]]; then
-    ostr[exhale]='ffmpeg -loglevel warning -xerror -hide_banner -err_detect explode -f s16le -ac 2 -ar 44100 -i - -f wav - | exhale '
+    ostr[exhale]='exhale '
   fi
 
   if [[ -v commands[qaac64] ]] && (( ${(@)argv[1,2][(I)qaac]} )) && qaac64 --check 2>&1 | grep -qsEe 'CoreAudioToolbox [0-9.]+'; then
