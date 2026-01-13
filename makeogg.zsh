@@ -551,7 +551,8 @@ function .main {
                   runenc+=$'\n3\n'
                 fi
                 runenc+='"$outfnpref/$outfnsuff".m4a'
-                runenc+=';MP4Box
+                ## comment out MP4Box for now
+                runenc+=';: MP4Box
 $outfnpref/$outfnsuff.m4a
 -inter
 0
