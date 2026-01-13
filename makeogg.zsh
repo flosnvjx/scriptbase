@@ -885,6 +885,10 @@ ${cuedump[d.REM REPLAYGAIN_ALBUM_PEAK]:+--comment=REPLAYGAIN_ALBUM_PEAK=${cuedum
                     .fatal "unsupported tidyconv $tidyconv"
                     ;;
                 esac
+
+                ## do NOT conv .ape: https://trac.ffmpeg.org/ticket/10696
+                ## for flac/wavpack, use official implementation
+                ## only use ffmpeg when conv .tta
                 case "${ffprobe[format.format_name]}.${tidyconv}" in
                   (flac.takc) ;&
                   (wv.takc)
