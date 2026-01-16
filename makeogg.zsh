@@ -60,7 +60,7 @@ function .main {
     esac
   fi
   local -a cuefilecodepages cuebuffers cue{file,discnumber,totaldiscs,filetitle,catno}directives
-  local -a albumtitles albumfiles discnumbers totaldiscs catnos
+  local -a albumtitles albumfiles discnumbers totaldiscs catnos albumsorttitles
   if [[ "$mmode" = tidy ]]; then
     local -a albumtidy{file,dir}s suris vgmdbids cue{performer,label,date}directives dates labels aarts ssdlwids
   fi
@@ -114,7 +114,7 @@ function .main {
           local pat_fileisunderdiscdir='(\[|\(|)(#i)Disc[#. ]#([0-9]##)(\)|\]|)/[^/]##'
           albumtitles[$walkcuefiles]=${cuefiletitledirectives[$walkcuefiles]%[ 　]#([\[\(（<]|)(#i)Disc[＊＃ :：*.#]#(#b)(<1->)(#B)(#I)([\]\)）>]|)}
           if (( ${#albumtitles[$walkcuefiles]} && ${(@)#${(@M)albumtitles:#${albumtitles[$walkcuefiles]}}} > 1 )); then
-            :
+            albumsorttitles[$walkcuefiles]=${albumsorttitles[${albumtitles[(ie)${albumtitles[$walkcuefiles]}]}]}
           else
             if (( ! ${#albumtitles[$walkcuefiles]} )) || [[ "${albumtitles[$walkcuefiles]}" = (Unknown (Album|Title)|不明な(アルバム|タイトル)) ]]; then
               albumtitles[$walkcuefiles]=${${${${cuefiles[$walkcuefiles]:r}%%/[0-9A-Z]##[-0-9A-Z]##(|[#. ]#(\[|\(|)(#i)Disc[#. ]#([0-9]##)(\)|\]|))}%%/${~pat_fileisunderdiscdir%%/*}}:#${~pat_fileisunderdiscdir%%/*}}
@@ -126,6 +126,13 @@ function .main {
             while timeout 0.01 cat >/dev/null || :; do vared -ehp 'album> ' "albumtitles[$walkcuefiles]"
               if (( ${#albumtitles[$walkcuefiles]} )); then break; fi
             done
+
+            albumsorttitles[$walkcuefiles]=${${${${:-$(uconv -x ':: NFKC; [^[:Alphabetic=Yes:]1234567890] > \ ;' <<< ${albumtitles[$walkcuefiles]})}//  #/ }/# ##}/% ##}
+            timeout 0.01 cat >/dev/null || :
+            vared -ehp 'albumsort> ' "albumsorttitles[$walkcuefiles]"
+            if [[ "${albumsorttitles[$walkcuefiles]}" == "${albumtitles[$walkcuefiles]}" ]]; then
+              albumsorttitles[$walkcuefiles]=
+            fi
           fi
           totaldiscs[$walkcuefiles]=${cuetotaldiscsdirectives[$walkcuefiles]}
           if (( ${(@)#${(@M)albumtitles:#${albumtitles[$walkcuefiles]}}} > 1)); then
@@ -578,6 +585,7 @@ ${${${${(s|・|)${(s| / |)${(s|, |)${(s|、|)cuedump[$tn.REM LYRICIST]:-${cuedum
 ${${${${(s|・|)${(s| / |)${(s|, |)${(s|、|)cuedump[$tn.VOCALIST]:-${cuedump[d.VOCALIST]}}}}}/#[	 ]##}/%[	 ]##}:+--comment=VOCALIST=}${^${${(s|・|)${(s| / |)${(s|, |)${(s|、|)cuedump[$tn.VOCALIST]:-${cuedump[d.VOCALIST]}}}}}/#[	 ]##}/%[	 ]##}
 ${${${${(s|・|)${(s| / |)${(s|, |)${(s|、|)cuedump[$tn.PERFORMER]:-${cuedump[d.PERFORMER]}}}}}/#[	 ]##}/%[	 ]##}:+--comment=ARTIST=}${^${${(s|・|)${(s| / |)${(s|, |)${(s|、|)cuedump[$tn.PERFORMER]:-${cuedump[d.PERFORMER]}}}}}/#[	 ]##}/%[	 ]##}
 ${${${cuedump[d.TITLE]/#[    ]#}/%[   ]#}:+--comment=ALBUM=${${cuedump[d.TITLE]/#[    ]#}/%[   ]#}}
+${${${albumsorttitles[$walkcuefiles]/#[    ]#}/%[   ]#}:+--comment=ALBUMSORT=${${albumsorttitles[$walkcuefiles]/#[    ]#}/%[   ]#}}
 ${${${${(s| / |)${(s|, |)${(s|、|)cuedump[d.PERFORMER]}}}//#[	 ]##}//%[	 ]##}:+--comment=ALBUMARTIST=}${^${${(s| / |)${(s|, |)${(s|、|)cuedump[d.PERFORMER]}}}/#[	 ]##}/%[	 ]##}
 '
                 ;|
@@ -1510,6 +1518,7 @@ vorbiscmt2itunes=(
   COMPOSER wrt
   ARTIST ART
   ALBUM alb
+  ALBUMSORT soal
   ALBUMARTIST aART
   COMMENT cmt
   MUSICBRAINZ_ALBUMARTISTID 'MusicBrainz Album Id'
