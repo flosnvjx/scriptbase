@@ -559,7 +559,8 @@ function .main {
                 fi
                 runenc+='"$outfnpref/$outfnsuff".m4a'
                 ## comment out MP4Box for now
-                runenc+=';: MP4Box
+                runenc+=';:
+MP4Box
 $outfnpref/$outfnsuff.m4a
 -inter
 0
@@ -569,7 +570,8 @@ $outfnpref/$outfnsuff.m4a
 ${${${${cuedump[$tn.REM VOCALIST]}:-${cuedump[d.REM VOCALIST]}}:+ja}:-zxx};
 mp4tagcli
 --
-"$outfnpref/$outfnsuff".m4a'
+"$outfnpref/$outfnsuff".m4a
+${commands[rsgain]:+----:com.apple.iTunes:}${(@f)^commands[rsgain]:+$(rsgain custom -t -O -- $outfnpref/$outfnsuff.m4a | awk '\''END{if (NR>1) {printf "REPLAYGAIN_TRACK_GAIN=%s dB\nREPLAYGAIN_TRACK_PEAK=%s\n",$3,$4} else exit(5)}'\'')}'
                 ;|
                 (aotuv|flac)
                 runenc+='
@@ -626,10 +628,10 @@ ${cuedump[$tn.ISRC]:+--comment=ISRC=${cuedump[$tn.ISRC]}}
 ${cuedump[d.REM MUSICBRAINZ_ALBUMID]:+--comment=MUSICBRAINZ_ALBUMID=${cuedump[d.REM MUSICBRAINZ_ALBUMID]}}
 ${cuedump[$tn.REM MUSICBRAINZ_RELEASETRACKID]:+--comment=MUSICBRAINZ_RELEASETRACKID=${cuedump[$tn.REM MUSICBRAINZ_RELEASETRACKID]}}
 ${cuedump[$tn.REM BPM]+--comment=BPM=${cuedump[$tn.REM BPM]}}
-${${${ofmt:#exhale}:-${replaygain:#0}}:+${${cuedump[$tn.REM REPLAYGAIN_TRACK_GAIN]:-${REPLAYGAIN_TRACK_GAINs[$tn]}}:+--comment=REPLAYGAIN_TRACK_GAIN=${cuedump[$tn.REM REPLAYGAIN_TRACK_GAIN]:-${REPLAYGAIN_TRACK_GAINs[$tn]}}}
-${${cuedump[$tn.REM REPLAYGAIN_TRACK_PEAK]:-${REPLAYGAIN_TRACK_PEAKs[$tn]}}:+--comment=REPLAYGAIN_TRACK_PEAK=${cuedump[$tn.REM REPLAYGAIN_TRACK_PEAK]:-${REPLAYGAIN_TRACK_PEAKs[$tn]}}}
+${${ofmt:#exhale}:+${${cuedump[$tn.REM REPLAYGAIN_TRACK_GAIN]:-${REPLAYGAIN_TRACK_GAINs[$tn]}}:+--comment=REPLAYGAIN_TRACK_GAIN=${cuedump[$tn.REM REPLAYGAIN_TRACK_GAIN]:-${REPLAYGAIN_TRACK_GAINs[$tn]}}}
+${${cuedump[$tn.REM REPLAYGAIN_TRACK_PEAK]:-${REPLAYGAIN_TRACK_PEAKs[$tn]}}:+--comment=REPLAYGAIN_TRACK_PEAK=${cuedump[$tn.REM REPLAYGAIN_TRACK_PEAK]:-${REPLAYGAIN_TRACK_PEAKs[$tn]}}}}
 ${cuedump[d.REM REPLAYGAIN_ALBUM_GAIN]:+--comment=REPLAYGAIN_ALBUM_GAIN=${cuedump[d.REM REPLAYGAIN_ALBUM_GAIN]}}
-${cuedump[d.REM REPLAYGAIN_ALBUM_PEAK]:+--comment=REPLAYGAIN_ALBUM_PEAK=${cuedump[d.REM REPLAYGAIN_ALBUM_PEAK]}}}
+${cuedump[d.REM REPLAYGAIN_ALBUM_PEAK]:+--comment=REPLAYGAIN_ALBUM_PEAK=${cuedump[d.REM REPLAYGAIN_ALBUM_PEAK]}}
 '
                 ;|
                 (aotuv|flac|fdkaac|qaac)
@@ -976,7 +978,7 @@ ${cuedump[d.REM REPLAYGAIN_ALBUM_PEAK]:+--comment=REPLAYGAIN_ALBUM_PEAK=${cuedum
                 ;|
                 (flac|wv)
                   while (( $#seltnums )); do
-                    if ! [[ "$ofmt" == exhale && "$replaygain" == (0|) ]] && ! (( ${#cuedump[${seltnums[1]}.REM REPLAYGAIN_TRACK_GAIN]} && ${#cuedump[${seltnums[1]}.REM REPLAYGAIN_TRACK_PEAK]} )) && [[ "$ofmt" != null ]]; then
+                    if ! [[ "$ofmt" == exhale ]] && ! (( ${#cuedump[${seltnums[1]}.REM REPLAYGAIN_TRACK_GAIN]} && ${#cuedump[${seltnums[1]}.REM REPLAYGAIN_TRACK_PEAK]} )) && [[ "$ofmt" != null ]]; then
                       local REPLAYGAIN_TRACK_GAIN= REPLAYGAIN_TRACK_PEAK=
                       command ${(s. .)rundec} ${${(M)cuedump[${seltnums[1]}.skip]:#<1->}:+--skip=${cuedump[${seltnums[1]}.skip]}} ${${(M)cuedump[${seltnums[1]}.until]:#<1->}:+--until=${cuedump[${seltnums[1]}.until]}} -- $ifile | gainstdin
                       REPLAYGAIN_TRACK_GAINs[${seltnums[1]}]=$REPLAYGAIN_TRACK_GAIN
@@ -1000,7 +1002,7 @@ ${cuedump[d.REM REPLAYGAIN_ALBUM_PEAK]:+--comment=REPLAYGAIN_ALBUM_PEAK=${cuedum
                     (exhale) runenc=${${:-ffmpeg -loglevel warning -xerror -hide_banner -err_detect explode -f s16le -ac 2 -ar 44100 -i - -f wav - | }// /$'\n'}$runenc
                     ;;
                   esac
-                  if [[ "$mmode" != fifo ]] && ! [[ "$ofmt" == exhale && "$replaygain" == (0|) ]] && [[ "$ofmt" != null ]]; then
+                  if [[ "$mmode" != fifo ]] && ! [[ "$ofmt" == exhale ]] && [[ "$ofmt" != null ]]; then
                     command ffmpeg -loglevel warning -xerror -hide_banner -err_detect explode -i $ifile -f s16le - | {
                       for ((tn=1;tn<=cuedump[tc];tn++)); do
                         if (( ${seltnums[(I)$tn]} )); then
@@ -1602,6 +1604,7 @@ function .deps {
   ffprobe -version &>/dev/null
   ffmpeg -version &>/dev/null
   rw --help &>/dev/null
+  jq --help &>/dev/null
   bat --version &>/dev/null
   cueprint --version &>/dev/null
   cueconvert --version &>/dev/null
