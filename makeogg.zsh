@@ -570,8 +570,8 @@ $outfnpref/$outfnsuff.m4a
 ${${${${cuedump[$tn.REM VOCALIST]}:-${cuedump[d.REM VOCALIST]}}:+ja}:-zxx};
 mp4tagcli
 --
-"$outfnpref/$outfnsuff".m4a
-${commands[rsgain]:+----:com.apple.iTunes:}"${(@f)^commands[rsgain]:+$(rsgain custom -t -O -- $outfnpref/$outfnsuff.m4a | awk '\''END{if (NR>1) {printf "replaygain_track_gain=%s dB\nreplaygain_track_peak=%s\n",$3,$4} else exit(5)}'\'')}"'
+"$outfnpref/$outfnsuff".m4a'
+#${commands[rsgain]:+----:com.apple.iTunes:}"${(@f)^commands[rsgain]:+$(rsgain custom -t -O -- $outfnpref/$outfnsuff.m4a | awk '\''END{if (NR>1) {printf "replaygain_track_gain=%s dB\nreplaygain_track_peak=%s\n",$3,$4} else exit(5)}'\'')}"
                 ;|
                 (aotuv|flac)
                 runenc+='
