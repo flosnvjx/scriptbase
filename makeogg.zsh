@@ -548,8 +548,7 @@ function .main {
                 (null) runenc=$'pv\n-qX;:\n' ;|
                 (aotuv) runenc=$'oggenc\n-Qq5\n-s\n....\n' ;|
                 (flac) runenc=$'flac\n-V8cs\n' ;|
-                (fdkaac|qaac|exhale) runenc=${ostr[$ofmt]// ##/
-} ;|
+                (fdkaac|qaac|exhale|opus) runenc=${ostr[$ofmt]// ##/$'\n'} ;|
                 (exhale)
                 if [[ "${#ofmtargs}" -ge 1 ]]; then
                   runenc+=$'\n'"${(@pj.\n.)ofmtargs}"$'\n'
@@ -573,12 +572,12 @@ mp4tagcli
 "$outfnpref/$outfnsuff".m4a'
 #${commands[rsgain]:+----:com.apple.iTunes:}"${(@f)^commands[rsgain]:+$(rsgain custom -t -O -- $outfnpref/$outfnsuff.m4a | awk '\''END{if (NR>1) {printf "replaygain_track_gain=%s dB\nreplaygain_track_peak=%s\n",$3,$4} else exit(5)}'\'')}"
                 ;|
-                (aotuv|flac)
+                (aotuv|flac|opus)
                 runenc+='
 --comment=TRACKNUMBER=${cuedump[$tn.tnum]/#0}
 '
                 ;|
-                (aotuv|flac|fdkaac|qaac|exhale)
+                (aotuv|flac|fdkaac|qaac|exhale|opus)
                 runenc+='
 ${${${cuedump[$tn.TITLE]/#[    ]#}/%[   ]#}:+--comment=TITLE=${${cuedump[$tn.TITLE]/#[    ]#}/%[   ]#}}
 ${${${${(s|・|)${(s| / |)${(s|, |)${(s|、|)cuedump[$tn.REM COMPOSER]:-${cuedump[$tn.SONGWRITER]:-${cuedump[d.REM COMPOSER]:-${cuedump[d.SONGWRITER]}}}}}}}/#[	 ]##}/%[	 ]##}:+--comment=COMPOSER=}${^${${(s|・|)${(s| / |)${(s|, |)${(s|、|)cuedump[$tn.REM COMPOSER]:-${cuedump[$tn.SONGWRITER]:-${cuedump[d.REM COMPOSER]:-${cuedump[d.SONGWRITER]}}}}}}}/#[	 ]##}/%[	 ]##}
@@ -591,7 +590,7 @@ ${${${albumsorttitles[$walkcuefiles]/#[    ]#}/%[   ]#}:+--comment=ALBUMSORT=${$
 ${${${${(s| / |)${(s|, |)${(s|、|)cuedump[d.PERFORMER]}}}//#[	 ]##}//%[	 ]##}:+--comment=ALBUMARTIST=}${^${${(s| / |)${(s|, |)${(s|、|)cuedump[d.PERFORMER]}}}/#[	 ]##}/%[	 ]##}
 '
                 ;|
-                (aotuv|flac)
+                (aotuv|flac|opus)
                 runenc+='
 ${cuedump[d.REM DISCNUMBER]:+--comment=DISCNUMBER=${cuedump[d.REM DISCNUMBER]}}
 ${cuedump[date]:+--comment=DATE=${cuedump[date]}}
@@ -602,7 +601,7 @@ ${cuedump[date]:+--comment=DATE=${cuedump[date]}}
 ${${${(M)${#cuedump[date]}:#10}:+--tag=day:${cuedump[date]}T00:00:00Z}:-${cuedump[date]:+--tag=day:${cuedump[date]}}}
 '
                 ;|
-                (aotuv|flac|fdkaac|qaac|exhale)
+                (aotuv|flac|fdkaac|qaac|exhale|opus)
                 runenc+='
 ${${${${(s| / |)${(s|×|)${(s|、|)cuedump[d.REM LABEL]}}}//#[	 ]##}//%[	 ]##}:+--comment=LABEL=}${^${${(s| / |)${(s|×|)${(s|、|)cuedump[d.REM LABEL]}}}/#[	 ]##}/%[	 ]##}
 ${${${${cuedump[$tn.REM COMMENT]:-${cuedump[d.REM COMMENT]}}//#[	 ]#}//%[	 ]#}:+--comment=COMMENT=${${${cuedump[$tn.REM COMMENT]:-${cuedump[d.REM COMMENT]}}/#[	 ]#}/%[	 ]#}}
@@ -610,7 +609,7 @@ ${cuedump[d.REM CATALOGNUMBER]:+--comment=CATALOGNUMBER=${cuedump[d.REM CATALOGN
 ${${cuedump[$tn.REM GENRE]:-${cuedump[d.REM GENRE]}}:+--comment=GENRE=${cuedump[$tn.REM GENRE]:-${cuedump[d.REM GENRE]}}}
 '
                 ;|
-                (aotuv|flac)
+                (aotuv|flac|opus)
                 runenc+='
 ${cuedump[d.REM TOTALDISCS]:+--comment=DISCTOTAL=${cuedump[d.REM TOTALDISCS]}}
 --comment=TRACKTOTAL=${cuedump[tc]}
@@ -622,7 +621,7 @@ ${${${(M)cuedump[d.REM TOTALDISCS]:#1}:+--tag=disk:1/1}:-${cuedump[d.REM DISCNUM
 --tag=trkn:${cuedump[$tn.tnum]/#0}/${cuedump[tc]}
 '
                 ;|
-                (aotuv|flac|fdkaac|qaac|exhale)
+                (aotuv|flac|fdkaac|qaac|exhale|opus)
                 runenc+='
 ${cuedump[$tn.ISRC]:+--comment=ISRC=${cuedump[$tn.ISRC]}}
 ${cuedump[d.REM MUSICBRAINZ_ALBUMID]:+--comment=MUSICBRAINZ_ALBUMID=${cuedump[d.REM MUSICBRAINZ_ALBUMID]}}
@@ -641,6 +640,13 @@ ${cuedump[d.REM REPLAYGAIN_ALBUM_PEAK]:+--comment=REPLAYGAIN_ALBUM_PEAK=${cuedum
                 (aotuv) runenc+=.ogg ;|
                 (flac) runenc+=.flac ;|
                 (fdkaac|qaac) runenc+=.m4a ;|
+                (opus)
+                runenc+=$'\n--discard-comments\n--discard-pictures'
+                if [[ "${#ofmtargs}" -ge 1 ]]; then
+                  runenc+=$'\n'"${(@pj.\n.)ofmtargs}"$'\n'
+                  ofmtargs=()
+                fi
+                ;|
                 ## bypass the trailing `-` in for loop
                 (exhale) runenc+=$';:\n' ;|
                 (fdkaac|qaac)
@@ -977,6 +983,9 @@ ${cuedump[d.REM REPLAYGAIN_ALBUM_PEAK]:+--comment=REPLAYGAIN_ALBUM_PEAK=${cuedum
                   fi
                 ;|
                 (flac|wv)
+                  case "$ofmt" in
+                    (opus) runenc+=$'\n--\n-\n"$outfnpref/$outfnsuff".opus;:\n' ;;
+                  esac
                   while (( $#seltnums )); do
                     if ! [[ "$ofmt" == exhale ]] && ! (( ${#cuedump[${seltnums[1]}.REM REPLAYGAIN_TRACK_GAIN]} && ${#cuedump[${seltnums[1]}.REM REPLAYGAIN_TRACK_PEAK]} )) && [[ "$ofmt" != null ]]; then
                       local REPLAYGAIN_TRACK_GAIN= REPLAYGAIN_TRACK_PEAK=
@@ -997,7 +1006,8 @@ ${cuedump[d.REM REPLAYGAIN_ALBUM_PEAK]:+--comment=REPLAYGAIN_ALBUM_PEAK=${cuedum
                   case "$ofmt" in
                     (flac) runenc+=$'\n--force-raw-format\n--sign=signed\n--endian=little\n--channels=2\n--bps=16\n--sample-rate=44100\n'
                     ;;
-                    (aotuv|fdkaac) runenc+=$'\n--raw\n'
+                    (aotuv|fdkaac|opus) runenc+=$'\n--raw\n' ;|
+                    (opus) runenc+=$'\n--raw-rate=44100\n--\n-\n"$outfnpref/$outfnsuff".opus;:\n'
                     ;;
                     (exhale) runenc=${${:-ffmpeg -loglevel warning -xerror -hide_banner -err_detect explode -f s16le -ac 2 -ar 44100 -i - -f wav - | }// /$'\n'}$runenc
                     ;;
@@ -1639,6 +1649,10 @@ function .deps {
 
   if [[ -v commands[qaac64] ]] && (( ${(@)argv[1,2][(I)qaac]} )) && qaac64 --check 2>&1 | grep -qsEe 'CoreAudioToolbox [0-9.]+'; then
     ostr[qaac]='sox -Dtraw -Lc2 -r44100 -b16 -e signed-integer - -twav - | qaac64 -sV64 --gapless-mode 2 '
+  fi
+
+  if [[ -v commands[opusenc] ]]; then
+    ostr[opus]='opusenc --music '
   fi
 }
 function .uninorm {
