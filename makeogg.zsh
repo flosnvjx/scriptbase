@@ -645,7 +645,6 @@ ${cuedump[d.REM REPLAYGAIN_ALBUM_PEAK]:+--comment=REPLAYGAIN_ALBUM_PEAK=${cuedum
                 (flac) runenc+=.flac ;|
                 (fdkaac|qaac) runenc+=.m4a ;|
                 (opus)
-                runenc+=$'\n--discard-comments\n--discard-pictures'
                 if [[ "${#ofmtargs}" -ge 1 ]]; then
                   runenc+=$'\n'"${(@pj.\n.)ofmtargs}"$'\n'
                   ofmtargs=()
@@ -988,7 +987,9 @@ ${cuedump[d.REM REPLAYGAIN_ALBUM_PEAK]:+--comment=REPLAYGAIN_ALBUM_PEAK=${cuedum
                 ;|
                 (flac|wv)
                   case "$ofmt" in
-                    (opus) runenc+=$'\n--\n-\n"$outfnpref/$outfnsuff".opus;:\n' ;;
+                    (opus)
+                      #runenc+=$'\n--discard-comments\n--discard-pictures'
+                      runenc+=$'\n--\n-\n"$outfnpref/$outfnsuff".opus;:\n' ;;
                   esac
                   while (( $#seltnums )); do
                     if ! [[ "$ofmt" == exhale ]] && ! (( ${#cuedump[${seltnums[1]}.REM REPLAYGAIN_TRACK_GAIN]} && ${#cuedump[${seltnums[1]}.REM REPLAYGAIN_TRACK_PEAK]} )) && [[ "$ofmt" != null ]]; then
