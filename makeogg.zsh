@@ -1510,8 +1510,12 @@ function gainstdin {
   local peak=${${${(M)ffmpegs[${ffmpegs[(i)[	 ]##True peak:]}+1]:#[   ]##Peak:[   ]##[-+0-9.]## dBFS}#*:}% *}
   local i=${${${(M)ffmpegs[${ffmpegs[(i)[	 ]##Integrated loudness:]}+1]:#[   ]##I:[   ]##[-+0-9.]## LUFS}#*:}% *}
   if (( ${#i} && ${#peak} )); then
-  REPLAYGAIN_TRACK_GAIN="$(echo "scale=2; -18-(${i}/1)" | bc -l) dB"
-  REPLAYGAIN_TRACK_PEAK="${${${$(echo "scale=6; e(l(10)*${peak}/20)" | bc -l)/#./0.}/#+./+0.}#-./-0.}"
+    printf -v REPLAYGAIN_TRACK_GAIN '%.2f dB' "$((-18-(i/1)))"
+    if zmodload -F zsh/mathfunc f:log f:exp; then
+      printf -v REPLAYGAIN_TRACK_PEAK '%.6f' "$((exp(log(10)*peak/20)))"
+    else
+      REPLAYGAIN_TRACK_PEAK="${${${$(echo "scale=6; e(l(10)*${peak}/20)" | bc -l)/#./0.}/#+./0.}#-./-0.}"
+    fi
   else
     REPLAYGAIN_TRACK_GAIN=
     REPLAYGAIN_TRACK_PEAK=
