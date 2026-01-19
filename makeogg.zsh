@@ -543,7 +543,7 @@ function .main {
                 .fatal 'unsupported fmt: '${format.format_name}
               esac
               fi ## if [[ "$mmode" != fifo ]]; then
-              local runenc rundec tn
+              local runenc= rundec= tn
               case "$ofmt" in
                 (null) runenc=$'pv\n-qX;:\n' ;|
                 (aotuv) runenc=$'oggenc\n-Qq5\n-s\n....\n' ;|
@@ -866,8 +866,9 @@ ${cuedump[d.REM REPLAYGAIN_ALBUM_PEAK]:+--comment=REPLAYGAIN_ALBUM_PEAK=${cuedum
                   fi
                 ;;
                 (ape)
-                  if [[ -v commands[wine] ]]; then
-                    wine mac $ifile -v
+                  if [[ -v commands[mac] ]]; then
+                    mac $ifile -v
+                    rundec='mac $ifile - -d'
                   fi
                 ;;
               esac
@@ -881,14 +882,14 @@ ${cuedump[d.REM REPLAYGAIN_ALBUM_PEAK]:+--comment=REPLAYGAIN_ALBUM_PEAK=${cuedum
               local oldxxh3=${match[2]:l}
               if ! (( $#oldxxh3 && $#oldsamplecount )); then
                 function {
-                  argv=("${(@f)$({ ffmpeg -loglevel warning -xerror -hide_banner -err_detect explode -i $ifile -f wav -|LC_ALL=C sox -Dtwav - -traw - silence 1 1 0 -1 1 0 stat|xxhsum --tag -H3 -; } 2>&1;)}")
+                  argv=("${(@f)$({ eval command ${(z)rundec:-ffmpeg -loglevel warning -xerror -hide_banner -err_detect explode -i \$ifile -f wav -} ${rundec:+${${rundec:#* \$ifile #*}:+-- \$ifile}}|LC_ALL=C sox -Dtwav - -traw - silence 1 1 0 -1 1 0 stat|xxhsum --tag -H3 -; } 2>&1;)}")
                   oldsamplecount=${argv[(r)Samples read: #[0-9]##]##*: #}
                   oldxxh3=${argv[(r)XXH3 \(?*\) = [0-9a-f](#c16)]##* = }
                   (( $#oldsamplecount && $#oldxxh3==16 ))
                 }
               else
                 function {
-                  argv=("${(@f)$({ ffmpeg -loglevel warning -xerror -hide_banner -err_detect explode -i $ifile -f wav -|LC_ALL=C sox -Dtwav - -traw - silence 1 1 0 -1 1 0 stat|xxhsum --tag -H3 -; } 2>&1;)}")
+                  argv=("${(@f)$({ eval command ${(z)rundec:-ffmpeg -loglevel warning -xerror -hide_banner -err_detect explode -i \$ifile -f wav -} ${rundec:+${${rundec:#* \$ifile #*}:+-- \$ifile}}|LC_ALL=C sox -Dtwav - -traw - silence 1 1 0 -1 1 0 stat|xxhsum --tag -H3 -; } 2>&1;)}")
                   local newsamplecount=${argv[(r)Samples read: #[0-9]##]##*: #}
                   local newxxh3=${argv[(r)XXH3 \(?*\) = [0-9a-f](#c16)]##* = }
                   [[ "$oldsamplecount" == "$newsamplecount" ]]
@@ -964,7 +965,7 @@ ${cuedump[d.REM REPLAYGAIN_ALBUM_PEAK]:+--comment=REPLAYGAIN_ALBUM_PEAK=${cuedum
             if (( $#ofmt )) && [[ "$ofmt" != none ]]; then
               case "${ffprobe[format.format_name]}" in
                 (ape)
-                  if [[ -v commands[wine] ]] && [[ "$ofmt" == null ]]; then
+                  if [[ -v commands[mac] ]] && [[ "$ofmt" == null ]]; then
                     break
                   fi
                 ;|
@@ -1033,7 +1034,7 @@ ${cuedump[d.REM REPLAYGAIN_ALBUM_PEAK]:+--comment=REPLAYGAIN_ALBUM_PEAK=${cuedum
                   elif [[ "$mmode" == fifo ]]; then
                     ifile=$fifo
                   fi
-                  command ffmpeg -loglevel warning -xerror -hide_banner -err_detect explode -i $ifile -f s16le - | (
+                  eval command ${(z)rundec:-ffmpeg -loglevel warning -xerror -hide_banner -err_detect explode -i \$ifile -f s16le -} ${rundec:+${${rundec:#* \$ifile #*}:+-- \$ifile}} ${${(M)ffprobe[format.format_name]:#ape}:+${commands[mac]:+${rundec:+\|ffmpeg -loglevel warning -xerror -hide_banner -err_detect explode -f wav -i - -f s16le -}}} | (
                     for ((tn=1;tn<=cuedump[tc];tn++)); do
                       local outfnsuff="${(e)outfnsuff_t}"
                       if (( ${seltnums[(I)$tn]} )); then
