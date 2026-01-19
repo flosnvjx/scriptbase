@@ -980,7 +980,7 @@ ${cuedump[d.REM REPLAYGAIN_ALBUM_PEAK]:+--comment=REPLAYGAIN_ALBUM_PEAK=${cuedum
                   fi
                 ;|
                 (*)
-                local outfnpref="${outdir:-/sdcard/Music/albums}/[${${${cuedump[d.REM LABEL]}:-(no label)}//\//∕}]/${${:-${${${cuedump[d.TITLE]:-(no title)}/#./．}//\//∕} ${cuedump[d.REM CATALOGNUMBER]:+[${${(@j|,|)${(@M)cache_catno_triplets:#${albumtitles[$walkcuefiles]}$'\n'<1->$'\n'${cuedump[d.REM CATALOGNUMBER]%%-*}*}##*$'\n'}:-${cuedump[d.REM CATALOGNUMBER]}}]}${cuedump[d.REM DATE]:+[${cuedump[d.REM DATE]//\//.}]}}}"
+                local outfnpref="${outdir:-/sdcard/Music/albums}/[${${${cuedump[d.REM LABEL]}:-(no label)}//\//∕}]/${${:-${${${cuedump[d.TITLE]:-(no title)}/#./．}//\//∕} ${cuedump[d.REM CATALOGNUMBER]:+[${${(@j|,|)${(@u)${(@M)cache_catno_triplets:#${albumtitles[$walkcuefiles]}$'\n'<1->$'\n'${cuedump[d.REM CATALOGNUMBER]%%-*}*}##*$'\n'}}:-${cuedump[d.REM CATALOGNUMBER]}}]}${cuedump[d.REM DATE]:+[${cuedump[d.REM DATE]//\//.}]}}}"
 
                   if [[ ! -d "$outfnpref" ]]; then
                     mkdir -vp -- $outfnpref
