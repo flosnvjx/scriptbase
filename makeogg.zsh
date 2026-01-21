@@ -127,11 +127,13 @@ function .main {
               if (( ${#albumtitles[$walkcuefiles]} )); then break; fi
             done
 
-            albumsorttitles[$walkcuefiles]=${${${${:-$(uconv -x ':: NFKC; [^[:Alphabetic=Yes:]1234567890] > \ ;' <<< ${albumtitles[$walkcuefiles]})}//  #/ }/# ##}/% ##}
-            timeout 0.01 cat >/dev/null || :
-            vared -ehp 'albumsort> ' "albumsorttitles[$walkcuefiles]"
-            if [[ "${albumsorttitles[$walkcuefiles]}" == "${albumtitles[$walkcuefiles]}" ]]; then
-              albumsorttitles[$walkcuefiles]=
+            if [[ "$ofmt" != (null|none) ]]; then
+              albumsorttitles[$walkcuefiles]=${${${${:-$(uconv -x ':: NFKC; [^[:Alphabetic=Yes:]1234567890] > \ ;' <<< ${albumtitles[$walkcuefiles]})}//  #/ }/# ##}/% ##}
+              timeout 0.01 cat >/dev/null || :
+              vared -ehp 'albumsort> ' "albumsorttitles[$walkcuefiles]"
+              if [[ "${albumsorttitles[$walkcuefiles]}" == "${albumtitles[$walkcuefiles]}" ]]; then
+                albumsorttitles[$walkcuefiles]=
+              fi
             fi
           fi
           totaldiscs[$walkcuefiles]=${cuetotaldiscsdirectives[$walkcuefiles]}
