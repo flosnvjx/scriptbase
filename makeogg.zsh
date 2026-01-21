@@ -700,7 +700,7 @@ ${cuedump[d.REM REPLAYGAIN_ALBUM_PEAK]:+--comment=REPLAYGAIN_ALBUM_PEAK=${cuedum
               local outfnsuff_t='${${:-${cuedump[d.REM DISCNUMBER]:+${cuedump[d.REM DISCNUMBER]}#}${cuedump[$tn.tnum]}${cuedump[$tn.TITLE]:+.${cuedump[$tn.TITLE]//\//／}}}:0:80}'
 
               if [[ "$mmode" == lrc ]]; then function {
-                  argv=(${cuedump[(I)(d|<1->).REM VOCALIST]})
+                  argv=(${cuedump[(I)(d|<1->).REM (VOCALIST|LYRICIST)]})
                   if ((#)); then while ((#)); do
                       if [[ -z "${cuedump[$1]}" ]]; then
                         .warn "empty $1 field, please either edit or remove it."
@@ -709,7 +709,7 @@ ${cuedump[d.REM REPLAYGAIN_ALBUM_PEAK]:+--comment=REPLAYGAIN_ALBUM_PEAK=${cuedum
                       shift
                     done
                   else
-                    .warn 'no track tagged vocalist'
+                    .warn 'no track tagged vocalist/lyricist'
                     continue
                   fi
                 }
@@ -719,7 +719,7 @@ ${cuedump[d.REM REPLAYGAIN_ALBUM_PEAK]:+--comment=REPLAYGAIN_ALBUM_PEAK=${cuedum
                   if [[ -n "${cuedump[d.REM VOCALIST]}" ]]; then
                     argv=(${(@)^${(@Mn)${(@k)cuedump}:#<1->.tnum}%.*})
                   else
-                    argv=(${(@)^${(@Mn)${(@k)cuedump}:#<1->.REM VOCALIST}%.*})
+                    argv=(${(@u)^${(@Mn)${(@k)cuedump}:#<1->.REM (VOCALIST|LYRICIST)}%.*})
                   fi
                   setopt localoptions histsubstpattern
                   local match=()
@@ -733,7 +733,7 @@ ${cuedump[d.REM REPLAYGAIN_ALBUM_PEAK]:+--comment=REPLAYGAIN_ALBUM_PEAK=${cuedum
                         printf "%-8s" ''
                       fi
                     } ${${(M)cuefiles[$walkcuefiles]:#*/*}:+${cuefiles[$walkcuefiles]%/*}/}${(e)outfnsuff_t//\$tn/\$1}.(#i)(|(zh|cn|ja|jp).)lrc(#qN.L+10:s/#%*(#b)(#i)((.(zh|cn|ja|jp|n)|).lrc)/'${match[1]}'/:l)
-                    printf ' %s[%s]\n' "${cuedump[$1.TITLE]}		[@${${cuedump[$1.REM VOCALIST]}:-${cuedump[d.REM VOCALIST]}}]" ${$(TZ=UTC date +%H:%M:%S -d @$(( ${cuedump[$1.plen]:-0} / 44100))):#00:}
+                    printf ' %s[%s]\n' "${cuedump[$1.TITLE]}		[@${cuedump[$1.REM VOCALIST]:-${cuedump[d.REM VOCALIST]:-${cuedump[$1.PERFORMER]:-${cuedump[d.PERFORMER]}}}}]" ${$(TZ=UTC date +%H:%M:%S -d @$(( ${cuedump[$1.plen]:-0} / 44100))):#00:}
                     shift
                   done
                   printf '%s\n' 'done [done]'
@@ -749,7 +749,7 @@ ${cuedump[d.REM REPLAYGAIN_ALBUM_PEAK]:+--comment=REPLAYGAIN_ALBUM_PEAK=${cuedum
                     while :; do read -k 1 "lrckey?${(e)outfnsuff_t//\$tn/\$seltnums}?lrc.action [ypq]"
                       case "$lrckey" in
                         (y)
-                          local lrcquery="${cuedump[$seltnums.TITLE]} ${${cuedump[$seltnums.REM VOCALIST]}:-${cuedump[d.REM VOCALIST]}} ${cuedump[d.TITLE]}"
+                          local lrcquery="${cuedump[$seltnums.TITLE]} ${cuedump[$seltnums.REM VOCALIST]:-${cuedump[d.REM VOCALIST]:-${cuedump[$seltnums.PERFORMER]:-${cuedump[d.PERFORMER]}}}} ${cuedump[d.TITLE]}"
                           vared -chp 'keyword> ' lrcquery || continue
                           local ncmresult="$(fetch "$NCMAPI/cloudsearch?keywords=$( printf %s $lrcquery|uconv -x ':: NFKC; [^[:Alphabetic=Yes:]1234567890] > \ ;'|basenc --base16 -w0|sed -Ee 's@(..)@%\1@g')" )" || :
                           ## kugou.rs at erasin/lyrics-next - https://github.com/erasin/lyrics-next/blob/main/src/client/kugou.rs
