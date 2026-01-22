@@ -571,8 +571,8 @@ $outfnpref/$outfnsuff.m4a
 ${${${${cuedump[$tn.REM VOCALIST]}:-${cuedump[d.REM VOCALIST]}}:+ja}:-zxx};
 mp4tagcli
 --
-"$outfnpref/$outfnsuff".m4a'
-#${commands[rsgain]:+----:com.apple.iTunes:}"${(@f)^commands[rsgain]:+$(rsgain custom -t -O -- $outfnpref/$outfnsuff.m4a | awk '\''END{if (NR>1) {printf "replaygain_track_gain=%s dB\nreplaygain_track_peak=%s\n",$3,$4} else exit(5)}'\'')}"
+"$outfnpref/$outfnsuff".m4a
+${commands[rsgain]:+----:com.apple.iTunes:}"${(@f)^commands[rsgain]:+$(rsgain custom -t -O -- $outfnpref/$outfnsuff.m4a | awk '\''END{if (NR>1) {printf "replaygain_track_gain=%s dB\nreplaygain_track_peak=%s\n",$3,$4} else exit(5)}'\'')}"'
                 ;|
                 (aotuv|flac|opus)
                 runenc+='
@@ -982,7 +982,7 @@ ${cuedump[d.REM REPLAYGAIN_ALBUM_PEAK]:+--comment=REPLAYGAIN_ALBUM_PEAK=${cuedum
                   fi
                 ;|
                 (*)
-                local outfnpref="${outdir:-/sdcard/Music/albums}/[${${${cuedump[d.REM LABEL]}:-(no label)}//\//∕}]/${${:-${${${cuedump[d.TITLE]:-(no title)}/#./．}//\//∕} ${cuedump[d.REM CATALOGNUMBER]:+[${${(@j|,|)${(@u)${(@M)cache_catno_triplets:#${albumtitles[$walkcuefiles]}$'\n'<1->$'\n'${cuedump[d.REM CATALOGNUMBER]%%-*}*}##*$'\n'}}:-${cuedump[d.REM CATALOGNUMBER]}}]}${cuedump[d.REM DATE]:+[${cuedump[d.REM DATE]//\//.}]}}}"
+                local outfnpref="${outdir:-$HOME/pub/mpd-pool/albums}/[${${${cuedump[d.REM LABEL]}:-(no label)}//\//∕}]/${${:-${${${cuedump[d.TITLE]:-(no title)}/#./．}//\//∕} ${cuedump[d.REM CATALOGNUMBER]:+[${${(@j|,|)${(@u)${(@M)cache_catno_triplets:#${albumtitles[$walkcuefiles]}$'\n'<1->$'\n'${cuedump[d.REM CATALOGNUMBER]%%-*}*}##*$'\n'}}:-${cuedump[d.REM CATALOGNUMBER]}}]}${cuedump[d.REM DATE]:+[${cuedump[d.REM DATE]//\//.}]}}}"
 
                   if [[ ! -d "$outfnpref" ]]; then
                     mkdir -vp -- $outfnpref
