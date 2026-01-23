@@ -68,7 +68,7 @@ function .main {
       gc_files=($agc_files)
     fi
     local gc_outfn=
-    until (( $#gc_outfn )); do
+    until (( $#gc_outfn )) && [[ ! -e $gc_outfn.cue ]]; do
       timeout 0.1 cat &>/dev/null || :
       vared -chp 'gencue> ' gc_outfn
     done
@@ -97,7 +97,7 @@ function .main {
     if ((#cueprep)); then
       gawk -E <(printf '%s' $awkcuemput) <(while ((#cueprep)); do printf '%s\n%s\n' "${cueprep[1]}" "${cueprep[2]}"; shift 2 cueprep; done) <(printf '%s' $mbuf) | readeof mbuf
     fi
-    rw -- $gc_outfn <<< ${mbuf%$'\n'}
+    rw -- $gc_outfn.cue <<< ${mbuf%$'\n'}
     exit
   else
     case $#acuefiles in
