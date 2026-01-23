@@ -7,7 +7,7 @@ setopt extendedglob pipefail errexit xtrace
 function .main {
   local ofmt= mmode= fifo= tidyconv=
   local match=()
-  if [[ "$1" = ((#b)(cue|tidy(#B)(|.(#b)(none|wavpack)(#B))|lrc|fifo[.:=](#b)(/?*))(#B)) ]]; then
+  if [[ "$1" = ((#b)(cue|gencue|tidy(#B)(|.(#b)(none|wavpack)(#B))|lrc|fifo[.:=](#b)(/?*))(#B)) ]]; then
     mmode=${match[1]}
     case "$mmode" in
       (tidy*) mmode=tidy
@@ -24,7 +24,7 @@ function .main {
     ofmt=$1
     shift
   elif (( !$#1 )); then
-    if [[ "$mmode" == cue ]]; then
+    if [[ "$mmode" == (gen|)cue ]]; then
       ofmt=none
     elif [[ "$mmode" == lrc ]]; then
       ofmt=null
@@ -51,6 +51,17 @@ function .main {
       1) cuefiles=($acuefiles) ;;
       *) cuefiles=("${(@f)$(printf %s\\n $acuefiles | fzf --layout=reverse-list --prompt="Select a cuesheet for later operations> ")}") ;;
     esac
+  elif [[ "$mmode" == gencue ]]; then
+    if (( $#acuefiles )); then
+      .fatal '.cue file found within this directory tree, aborting gencue'
+    fi
+    local -a gc_exts=(wav flac)
+    local -a agc_files=(*.(#i)${(@)^gc_exts)}(.N))
+    if (( ! $#agc_files )); then
+      .fatal "no .${(j./.)gc_exts} found in this directory"
+    elif (( ${(@)#${(@u)${(@M)${(@)agc_files:l}:#*.(${(@j.|.)~gc_exts})}##*.}} > 1 )); then
+      .fatal "audio files in this directory are not in an unique format, abort."
+    fi
   else
     case $#acuefiles in
       0) return 44 ;;
