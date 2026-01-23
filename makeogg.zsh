@@ -1626,7 +1626,7 @@ vorbiscmt2itunes=(
   ALBUMSORT soal
   ALBUMARTIST aART
   COMMENT cmt
-  MUSICBRAINZ_ALBUMARTISTID 'MusicBrainz Album Id'
+  MUSICBRAINZ_ALBUMID 'MusicBrainz Album Id'
   MUSICBRAINZ_RELEASETRACKID 'MusicBrainz Release Track Id'
   BPM tmpo
   GENRE gen
