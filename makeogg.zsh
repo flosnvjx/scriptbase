@@ -549,12 +549,23 @@ function .main {
                   if (( ffprobe[streams.stream.0.duration_ts] - cuedump[${cuedump[tc]}.pskip] < 44100*3 )); then
                     .warn 'last track only last '$(( (ffprobe[streams.stream.0.duration_ts] - cuedump[${cuedump[tc]}.pskip]) / 44100 ))' seconds'
                   elif (( ffprobe[streams.stream.0.duration_ts] < cuedump[${cuedump[tc]}.pskip]+588 )); then
+                    if ! (( cuedump[tc] > 1 && ${(@)#${(@)cuedump[(I)*.FILE]}} > 1 )); then
                     .fatal 'cuesheet specified a timestamp beyond the duration of FILE (mismatched FILE?)'
+                    fi
                   fi
                 ;;
                 (*)
                 .fatal 'unsupported fmt: '${format.format_name}
               esac
+
+                if (( cuedump[tc] > 1 && ${(@)#${(@)cuedump[(I)*.FILE]}} > 1 )); then function {
+                  argv=(${(@u)${(@)${(@e)argv}:e:l}})
+                  if ((#!=1)); then
+                    .fatal unimplemented
+                  fi
+                  } '${cuedump['${(@)^cuedump[(I)*.FILE]}']}'
+                fi
+
               fi ## if [[ "$mmode" != fifo ]]; then
               local runenc= rundec= tn
               case "$ofmt" in
@@ -890,6 +901,9 @@ ${cuedump[d.REM REPLAYGAIN_ALBUM_PEAK]:+--comment=REPLAYGAIN_ALBUM_PEAK=${cuedum
           (y)
             if [[ "$mmode" == tidy && "$ofmt" != none ]]; then
               match=()
+              if (( cuedump[tc] > 1 && ${(@)#${(@)cuedump[(I)*.FILE]}} > 1 )); then
+                .fatal 'cannot tidy split-track cuesheet'
+              fi
               : ${(M)${ifile:t:r}:#?*\#soxStatExclNull.Samples(#b)([0-9]##)(#B)(|.XXH3_(#b)([0-9a-fA-F](#c16))(#B))(|\#*)}
               local oldsamplecount=${match[1]}
               local oldxxh3=${match[2]:l}
@@ -1005,15 +1019,30 @@ ${cuedump[d.REM REPLAYGAIN_ALBUM_PEAK]:+--comment=REPLAYGAIN_ALBUM_PEAK=${cuedum
                       #runenc+=$'\n--discard-comments\n--discard-pictures'
                       runenc+=$'\n--\n-\n"$outfnpref/$outfnsuff".opus;:\n' ;;
                   esac
+
+                  if (( cuedump[tc] > 1 && ${(@)#${(@)cuedump[(I)*.FILE]}} > 1 )); then
+                    [[ -z "$mmode" ]]
+                    for ((tn=1;tn<=cuedump[tc];tn++)); do
+                      function {
+                        argv=(${(@n)cuedump[(I)<1->.FILE]%%.*})
+                        if (( tn>1 && ${argv[(I)$(( tn - 1 ))]})); then
+                          cuedump[$tn.file]=${cuedump[$(( tn - 1 )).FILE]}
+                        else
+                          cuedump[$tn.file]=${cuedump[$(( tn - 1 )).file]:-$ifile}
+                        fi
+                      }
+                    done
+                  fi
+
                   while (( $#seltnums )); do
                     if ! [[ "$ofmt" == exhale ]] && ! (( ${#cuedump[${seltnums[1]}.REM REPLAYGAIN_TRACK_GAIN]} && ${#cuedump[${seltnums[1]}.REM REPLAYGAIN_TRACK_PEAK]} )) && [[ "$ofmt" != null ]]; then
                       local REPLAYGAIN_TRACK_GAIN= REPLAYGAIN_TRACK_PEAK=
-                      command ${(s. .)rundec} ${${(M)cuedump[${seltnums[1]}.skip]:#<1->}:+--skip=${cuedump[${seltnums[1]}.skip]}} ${${(M)cuedump[${seltnums[1]}.until]:#<1->}:+--until=${cuedump[${seltnums[1]}.until]}} -- $ifile | gainstdin
+                      command ${(s. .)rundec} ${${(M)cuedump[${seltnums[1]}.skip]:#<1->}:+--skip=${cuedump[${seltnums[1]}.skip]}} ${${(M)cuedump[${seltnums[1]}.until]:#<1->}:+--until=${cuedump[${seltnums[1]}.until]}} -- ${cuedump[${seltnums[1]}.file]:-$ifile} | gainstdin
                       REPLAYGAIN_TRACK_GAINs[${seltnums[1]}]=$REPLAYGAIN_TRACK_GAIN
                       REPLAYGAIN_TRACK_PEAKs[${seltnums[1]}]=$REPLAYGAIN_TRACK_PEAK
                     fi
                     local outfnsuff="${(e)outfnsuff_t//\$tn/${seltnums[1]}}"
-                    command ${(s. .)rundec} ${${(M)cuedump[${seltnums[1]}.skip]:#<1->}:+--skip=${cuedump[${seltnums[1]}.skip]}} ${${(M)cuedump[${seltnums[1]}.until]:#<1->}:+--until=${cuedump[${seltnums[1]}.until]}} -- $ifile | rw | eval command ${${${${(f)runenc}:#}//\[\$tn./'[${seltnums[1]}.'}//\[\$tn\]/'[${seltnums[1]}]'} "${(@q)ofmtargs}" -
+                    command ${(s. .)rundec} ${${(M)cuedump[${seltnums[1]}.skip]:#<1->}:+--skip=${cuedump[${seltnums[1]}.skip]}} ${${(M)cuedump[${seltnums[1]}.until]:#<1->}:+--until=${cuedump[${seltnums[1]}.until]}} -- ${cuedump[${seltnums[1]}.file]:-$ifile} | rw | eval command ${${${${(f)runenc}:#}//\[\$tn./'[${seltnums[1]}.'}//\[\$tn\]/'[${seltnums[1]}]'} "${(@q)ofmtargs}" -
                     if [[ -f "${${(M)cuefiles[$walkcuefiles]:#*/*}:+${cuefiles[$walkcuefiles]:h}/}${outfnsuff:t}.lrc" ]] && [[ ! -e "$outfnpref/$outfnsuff.lrc" ]]; then
                       cp -- "${${(M)cuefiles[$walkcuefiles]:#*/*}:+${cuefiles[$walkcuefiles]:h}/}${outfnsuff:t}.lrc" "$outfnpref/$outfnsuff.lrc"
                     fi
@@ -1022,6 +1051,9 @@ ${cuedump[d.REM REPLAYGAIN_ALBUM_PEAK]:+--comment=REPLAYGAIN_ALBUM_PEAK=${cuedum
                 ;|
                 (wav|tak|tta|ape|)
                   ## match empty fmt in case of fifo mmode
+
+                  (( cuedump[tc] > 1 && ${(@)#${(@)cuedump[(I)*.FILE]}} > 1 )) || .fatal 'not implemented'
+
                   case "$ofmt" in
                     (flac) runenc+=$'\n--force-raw-format\n--sign=signed\n--endian=little\n--channels=2\n--bps=16\n--sample-rate=44100\n'
                     ;;
