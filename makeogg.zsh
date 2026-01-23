@@ -20,11 +20,14 @@ function .main {
     esac
     shift
   fi
+
+  if [[ "$mmode" != gencue ]]; then
+
   if (( $#1 )) && [[ ${(@)${(@k)ostr}[(I)(#i)${(q)1}]} -gt 0 || "$1" == (none|null) ]]; then
     ofmt=$1
     shift
   elif (( !$#1 )); then
-    if [[ "$mmode" == (gen|)cue ]]; then
+    if [[ "$mmode" == cue ]]; then
       ofmt=none
     elif [[ "$mmode" == lrc ]]; then
       ofmt=null
@@ -43,6 +46,7 @@ function .main {
   fi
 
   local ofmtargs=("${(@)argv}")
+  fi
 
   local -a acuefiles=(**/?*.(#i)cue(.N)) cuefiles=()
   if [[ "$mmode" = fifo ]]; then
@@ -52,16 +56,49 @@ function .main {
       *) cuefiles=("${(@f)$(printf %s\\n $acuefiles | fzf --layout=reverse-list --prompt="Select a cuesheet for later operations> ")}") ;;
     esac
   elif [[ "$mmode" == gencue ]]; then
-    if (( $#acuefiles )); then
-      .fatal '.cue file found within this directory tree, aborting gencue'
-    fi
-    local -a gc_exts=(wav flac)
-    local -a agc_files=(*.(#i)${(@)^gc_exts)}(.N))
+    local -a gc_exts=(flac)
+    local -a agc_files=(*.(#i)${(@)^gc_exts}(.N))
+    local -a gc_files=(${(@M)argv:#*.(#i)(${(@j.|.)~gc_exts})})
     if (( ! $#agc_files )); then
       .fatal "no .${(j./.)gc_exts} found in this directory"
     elif (( ${(@)#${(@u)${(@M)${(@)agc_files:l}:#*.(${(@j.|.)~gc_exts})}##*.}} > 1 )); then
       .fatal "audio files in this directory are not in an unique format, abort."
+    elif (( !$#gc_files )); then
+      .warn "no vaild file specified, fallback to *.flac"
+      gc_files=($agc_files)
     fi
+    local gc_outfn=
+    until (( $#gc_outfn )); do
+      timeout 0.1 cat &>/dev/null || :
+      vared -chp 'gencue> ' gc_outfn
+    done
+    local mbuf=
+    gawk -e 'BEGIN{ARGC=1;for (i=1;i<=(length(ARGV)-1);i++) {printf "FILE \"%s\" WAVE\n  TRACK %02d AUDIO\n    TITLE "Unknown Title"\n    PERFORMER "Unknown Artist"\n    INDEX 01 00:00:00\n",ARGV[i],i}}' ${(@n)gc_files} | readeof mbuf
+    local -a cueprep=()
+    function {
+      local -a metaflac=()
+      local -i counter=0
+      while ((#)); do
+        counter+=1
+        metaflac=("${(@Mn)${(@f)$(metaflac --show-all-tags -- $1)}:#[_A-Za-z]##=?*}")
+        while ((#metaflac)); do
+          if [[ "${${metaflac[1]%%=*}:u}" == (${(@j.|.)~${(@)vorbiscmt2cue:#*:-}%%:*}) ]]; then
+            cueprep+=(${${${vorbiscmt2cue[(r)${${metaflac[1]%%=*}:u}:*]#*:}:#d.*}:+$counter.}${vorbiscmt2cue[(r)${${metaflac[1]%%=*}:u}:*]#*:} "${metaflac[1]#*=}")
+          elif [[ "${${metaflac[1]%%=*}:u}" == (${(@j.|.)~${(@M)vorbiscmt2cue:#*:-}%%:*}) ]]; then
+            :
+          else
+            cueprep+=("$counter.REM ${${metaflac[1]%%=*}:u}" "${metaflac[1]#*=}")
+          fi
+          shift metaflac
+        done
+        shift
+      done
+    } ${(@n)gc_files}
+    if ((#cueprep)); then
+      gawk -E <(printf '%s' $awkcuemput) <(while ((#cueprep)); do printf '%s\n%s\n' "${cueprep[1]}" "${cueprep[2]}"; shift 2 cueprep; done) <(printf '%s' $mbuf) | readeof mbuf
+    fi
+    rw -- $gc_outfn <<< ${mbuf%$'\n'}
+    exit
   else
     case $#acuefiles in
       0) return 44 ;;
@@ -1593,6 +1630,31 @@ vorbiscmt2itunes=(
   MUSICBRAINZ_RELEASETRACKID 'MusicBrainz Release Track Id'
   BPM tmpo
   GENRE gen
+)
+
+declare -a vorbiscmt2cue
+vorbiscmt2cue=(
+  TITLE:TITLE
+  ARTIST:PERFORMER
+  WRITER:SONGWRITER
+  ALBUM:d.TITLE
+  ALBUMARTIST:d.PERFORMER
+  \*SORT:-
+  ENCODE\*:-
+  TRACKNUMBER:-
+  TRACKTOTAL:-
+  TOTALTRACKS:-
+  CATALOGNUMBER:'d.REM CATALOGNUMBER'
+  DISCNUMBER:'d.REM DISCNUMBER'
+  DISCTOTAL:'d.REM TOTALDISCS'
+  TOTALDISCS:'d.REM TOTALDISCS'
+  DATE:'d.REM DATE'
+  LABEL:'d.REM LABEL'
+  RELEASECOUNTRY:'d.REM RELEASECOUNTRY'
+  REPLAYGAIN_ALBUM_GAIN:'d.REM REPLAYGAIN_ALBUM_GAIN'
+  REPLAYGAIN_ALBUM_PEAK:'d.REM REPLAYGAIN_ALBUM_PEAK'
+  REPLAYGAIN_ALBUM_RANGE:'d.REM REPLAYGAIN_ALBUM_RANGE'
+  MUSICBRAINZ_ALBUMID:'d.REM MUSICBRAINZ_ALBUMID'
 )
 
 declare -A commontags
