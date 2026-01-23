@@ -460,7 +460,7 @@ function .main {
             delete d[tr][k]
         }
       }
-      ARGIND==2&&/^[ \t]*(TRACK|ISRC|FLAGS|INDEX)/ {
+      ARGIND==2&&/^[ \t]*(TRACK|ISRC|FLAGS|INDEX|FILE)/ {
         if (nt && nt in d && length(d[nt])) {
           for (k in d[nt])
             pd(k, nt, matches[1])
@@ -1286,7 +1286,7 @@ nt==""&&nt==0&&/[^\t ]/{
    Map("^[\t ]*(REM [A-Z_]+) ([^ \"\t]*) *$",m) || \
    Map("^[\t ]*(CATALOG|CDTEXTFILE|PERFORMER|TITLE|SONGWRITER) \"(.*)\" *$",m) || \
    Map("^[\t ]*(CATALOG) ([^ \"\t]*) *$",m) || \
-   Map("^[\t ]*(FILE) \"(.*)\" *(WAVE|FLAC) *$",m)))
+   Map("^[\t ]*(FILE) \"(.*)\" (WAVE|FLAC) *$",m)))
     next;
   else {
     print ("FATAL: unrecognized cuesheet command specification found: " shell_quote($0)) > "/dev/stderr"
@@ -1299,7 +1299,8 @@ nt>=0&&nt!=""&&/[^\t ]/{
    Map("^[\t ]*(PERFORMER|TITLE|SONGWRITER) \"(.*)\" *$",m) || \
    Map("^[\t ]*(ISRC) ([^ \"\t]*) *$",m) || \
    Map("^[\t ]*(INDEX [0-9][0-9]|POSTGAP|PREGAP) ([0-9][0-9]:[0-9][0-9]:[0-9][0-9]) *$",m) || \
-   Map("^[\t ]*(FLAGS) ((DCP|PRE|4CH|SCMS|DATA)( (DCP|PRE|4CH|SCMS|DATA))*) *$",m))) {
+   Map("^[\t ]*(FLAGS) ((DCP|PRE|4CH|SCMS|DATA)( (DCP|PRE|4CH|SCMS|DATA))*) *$",m) || \
+   Map("^[\t ]*(FILE) \"(.*)\" (WAVE|FLAC) *$",m))) {
     next
   } else {
     print ("FATAL: unrecognized cuesheet command specification found on TRACK " d[nt]["tnum"] (0+d[nt]["tnum"]!=nt ? " (i.e. " nt "th TRACK)" : "") ": " shell_quote($0)) > "/dev/stderr"
@@ -1326,7 +1327,7 @@ END {
         }
 
         if (walknt>1) {
-          if (msfts(d[walknt]["INDEX 00"]) <= msfts(d[walknt-1]["INDEX 01"])) {
+          if ((msfts(d[walknt]["INDEX 00"]) <= msfts(d[walknt-1]["INDEX 01"])) && !("FILE" in d[walknt-1])) {
             print ("ERROR: bogus INDEX 00 position specified on TRACK " d[walknt]["tnum"] (0+d[walknt]["tnum"]!=walknt ? " (i.e. " walknt "th TRACK)" : "")) > "/dev/stderr"
             exit(2)
           }
@@ -1337,7 +1338,7 @@ END {
           print ("NOTE: [HTOA] found " hinthtoa/44100 " secs pregap") > "/dev/stderr"
         }
       } else if (walknt>1) {
-        if (msfts(d[walknt]["INDEX 01"]) <= msfts(d[walknt-1]["INDEX 01"])) {
+        if ((msfts(d[walknt]["INDEX 01"]) <= msfts(d[walknt-1]["INDEX 01"])) && !("FILE" in d[walknt-1])) {
           print ("ERROR: bogus INDEX 01 position specified on TRACK " d[walknt]["tnum"] (0+d[walknt]["tnum"]!=walknt ? " (i.e. " walknt "th TRACK)" : "")) > "/dev/stderr"
           exit(3)
         }
@@ -1417,7 +1418,7 @@ function pd(k,  tr, pad) {
       delete d["t" tr][k]
   }
 }
-/^[ \t]*(TRACK|ISRC|FLAGS|INDEX)/ {
+/^[ \t]*(TRACK|ISRC|FLAGS|INDEX|FILE)/ {
   if (nt && ("t" nt) in d && length(d["t" nt])) {
     for (k in d["t" nt])
       pd(k, nt, matches[1])
