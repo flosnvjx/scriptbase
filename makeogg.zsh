@@ -73,7 +73,7 @@ function .main {
       vared -chp 'gencue> ' gc_outfn
     done
     local mbuf=
-    gawk -e 'BEGIN{ARGC=1;for (i=1;i<=(length(ARGV)-1);i++) {printf "FILE \"%s\" WAVE\n  TRACK %02d AUDIO\n    TITLE "Unknown Title"\n    PERFORMER "Unknown Artist"\n    INDEX 01 00:00:00\n",ARGV[i],i}}' ${(@n)gc_files} | readeof mbuf
+    gawk -e 'BEGIN{ARGC=1;for (i=1;i<=(length(ARGV)-1);i++) {printf "FILE \"%s\" WAVE\n  TRACK %02d AUDIO\n    TITLE \"Unknown Title\"\n    PERFORMER \"Unknown Artist\"\n    INDEX 01 00:00:00\n",ARGV[i],i}}' ${(@n)gc_files} | readeof mbuf
     local -a cueprep=()
     function {
       local -a metaflac=()
