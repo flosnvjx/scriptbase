@@ -518,27 +518,44 @@ function .main {
                 fi
 
               fi ## if [[ "$mmode" != fifo ]]; then
-              local runenc= rundec= tn
+              local rundec= tn
+              runenc=()
+              local -a wa_ofmt=($ofmt)
+              function {
+                local o_ofmt=$ofmt
+                if [[ "$ofmt" = exhale ]]; then
+                  function {
+                    while ((#)); do if [[ -v ostr[$1] ]]; then
+                      wa_ofmt+=($1)
+                      break
+                    fi; done
+                  } qaac fdkaac aotuv flac
+                fi
+                argv=(${(@u)wa_ofmt})
+                while ((#)); do
+                  ofmt=$1
               case "$ofmt" in
-                (null) runenc=$'pv\n-qX;:\n' ;|
-                (aotuv) runenc=$'oggenc\n-Qq5\n-s\n....\n' ;|
-                (flac) runenc=$'flac\n-V8cs\n' ;|
-                (fdkaac|qaac|exhale|opus) runenc=${ostr[$ofmt]// ##/$'\n'} ;|
+                (null) runenc[$ofmt]=$'pv\n-qX;:\n' ;|
+                (aotuv) runenc[$ofmt]=$'oggenc\n-Qq5\n-s\n....\n' ;|
+                (flac) runenc[$ofmt]=$'flac\n-V8cs\n' ;|
+                (fdkaac|qaac|exhale|opus)
+                  runenc[$ofmt]=${ostr[$ofmt]// ##/$'\n'}
+                ;|
                 (qaac)
-                if ! [[ "${#ofmtargs}" -ge 1 ]]; then
-                  runenc+=$'\n-v\n128\n'
+                if ! [[ "${#ofmtargs}" -ge 1 ]] && [[ "$ofmt" == "$o_ofmt" ]]; then
+                  runenc[$ofmt]+=$'\n-v\n128\n'
                 fi
                 ;|
                 (exhale)
                 if [[ "${#ofmtargs}" -ge 1 ]]; then
-                  runenc+=$'\n'"${(@pj.\n.)ofmtargs}"$'\n'
+                  runenc[$ofmt]+=$'\n'"${(@pj.\n.)ofmtargs}"$'\n'
                   ofmtargs=()
                 else
-                  runenc+=$'\n3\n'
+                  runenc[$ofmt]+=$'\n3\n'
                 fi
-                runenc+='"$outfnpref/$outfnsuff".m4a'
+                runenc[$ofmt]+='"$outfnpref/$outfnsuff".m4a'
                 ## comment out MP4Box for now
-                runenc+=';:
+                runenc[$ofmt]+=';:
 MP4Box
 $outfnpref/$outfnsuff.m4a
 -inter
@@ -553,12 +570,12 @@ mp4tagcli
 ${commands[rsgain]:+----:com.apple.iTunes:}"${(@f)^commands[rsgain]:+$(rsgain custom -t -O -- $outfnpref/$outfnsuff.m4a | awk '\''END{if (NR>1) {printf "replaygain_track_gain=%s dB\nreplaygain_track_peak=%s\n",$3,$4} else exit(5)}'\'')}"'
                 ;|
                 (aotuv|flac|opus)
-                runenc+='
+                runenc[$ofmt]+='
 --comment=TRACKNUMBER=${cuedump[$tn.tnum]/#0}
 '
                 ;|
                 (aotuv|flac|fdkaac|qaac|exhale|opus)
-                runenc+='
+                runenc[$ofmt]+='
 ${${${cuedump[$tn.TITLE]/#[    ]#}/%[   ]#}:+--comment=TITLE=${${cuedump[$tn.TITLE]/#[    ]#}/%[   ]#}}
 ${${${${(s|・|)${(s| / |)${(s|, |)${(s|、|)cuedump[$tn.REM COMPOSER]:-${cuedump[$tn.SONGWRITER]:-${cuedump[d.REM COMPOSER]:-${cuedump[d.SONGWRITER]}}}}}}}/#[	 ]##}/%[	 ]##}:+--comment=COMPOSER=}${^${${(s|・|)${(s| / |)${(s|, |)${(s|、|)cuedump[$tn.REM COMPOSER]:-${cuedump[$tn.SONGWRITER]:-${cuedump[d.REM COMPOSER]:-${cuedump[d.SONGWRITER]}}}}}}}/#[	 ]##}/%[	 ]##}
 ${${${${(s|・|)${(s| / |)${(s|, |)${(s|、|)cuedump[$tn.REM ARRANGER]:-${cuedump[d.REM ARRANGER]}}}}}/#[	 ]##}/%[	 ]##}:+--comment=ARRANGER=}${^${${(s|・|)${(s| / |)${(s|, |)${(s|、|)cuedump[$tn.REM ARRANGER]:-${cuedump[d.REM ARRANGER]}}}}}/#[	 ]##}/%[	 ]##}
@@ -571,18 +588,18 @@ ${${${${(s| / |)${(s|, |)${(s|、|)cuedump[d.PERFORMER]}}}//#[	 ]##}//%[	 ]##}:+
 '
                 ;|
                 (aotuv|flac|opus)
-                runenc+='
+                runenc[$ofmt]+='
 ${cuedump[d.REM DISCNUMBER]:+--comment=DISCNUMBER=${cuedump[d.REM DISCNUMBER]}}
 ${cuedump[date]:+--comment=DATE=${cuedump[date]}}
 '
                 ;|
                 (fdkaac|qaac|exhale)
-                runenc+='
+                runenc[$ofmt]+='
 ${${${(M)${#cuedump[date]}:#10}:+--tag=day:${cuedump[date]}T00:00:00Z}:-${cuedump[date]:+--tag=day:${cuedump[date]}}}
 '
                 ;|
                 (aotuv|flac|fdkaac|qaac|exhale|opus)
-                runenc+='
+                runenc[$ofmt]+='
 ${${${${(s| / |)${(s|×|)${(s|、|)cuedump[d.REM LABEL]}}}//#[	 ]##}//%[	 ]##}:+--comment=LABEL=}${^${${(s| / |)${(s|×|)${(s|、|)cuedump[d.REM LABEL]}}}/#[	 ]##}/%[	 ]##}
 ${${${${cuedump[$tn.REM COMMENT]:-${cuedump[d.REM COMMENT]}}//#[	 ]#}//%[	 ]#}:+--comment=COMMENT=${${${cuedump[$tn.REM COMMENT]:-${cuedump[d.REM COMMENT]}}/#[	 ]#}/%[	 ]#}}
 ${cuedump[d.REM CATALOGNUMBER]:+--comment=CATALOGNUMBER=${cuedump[d.REM CATALOGNUMBER]}}
@@ -590,19 +607,19 @@ ${${cuedump[$tn.REM GENRE]:-${cuedump[d.REM GENRE]}}:+--comment=GENRE=${cuedump[
 '
                 ;|
                 (aotuv|flac|opus)
-                runenc+='
+                runenc[$ofmt]+='
 ${cuedump[d.REM TOTALDISCS]:+--comment=DISCTOTAL=${cuedump[d.REM TOTALDISCS]}}
 --comment=TRACKTOTAL=${cuedump[tc]}
 '
                 ;|
                 (fdkaac|qaac|exhale)
-                runenc+='
+                runenc[$ofmt]+='
 ${${${(M)cuedump[d.REM TOTALDISCS]:#1}:+--tag=disk:1/1}:-${cuedump[d.REM DISCNUMBER]:+--tag=disk:${cuedump[d.REM DISCNUMBER]}${cuedump[d.REM TOTALDISCS]:+/${cuedump[d.REM TOTALDISCS]}}}}
 --tag=trkn:${cuedump[$tn.tnum]/#0}/${cuedump[tc]}
 '
                 ;|
                 (aotuv|flac|fdkaac|qaac|exhale|opus)
-                runenc+='
+                runenc[$ofmt]+='
 ${cuedump[$tn.ISRC]:+--comment=ISRC=${cuedump[$tn.ISRC]}}
 ${cuedump[d.REM MUSICBRAINZ_ALBUMID]:+--comment=MUSICBRAINZ_ALBUMID=${cuedump[d.REM MUSICBRAINZ_ALBUMID]}}
 ${cuedump[$tn.REM MUSICBRAINZ_RELEASETRACKID]:+--comment=MUSICBRAINZ_RELEASETRACKID=${cuedump[$tn.REM MUSICBRAINZ_RELEASETRACKID]}}
@@ -610,7 +627,7 @@ ${cuedump[$tn.REM BPM]+--comment=BPM=${cuedump[$tn.REM BPM]}}
 '
                 ;|
                 (aotuv|flac|fdkaac|qaac|opus)
-                runenc+='
+                runenc[$ofmt]+='
 ${${cuedump[$tn.REM REPLAYGAIN_TRACK_GAIN]:-${REPLAYGAIN_TRACK_GAINs[$tn]}}:+--comment=REPLAYGAIN_TRACK_GAIN=${cuedump[$tn.REM REPLAYGAIN_TRACK_GAIN]:-${REPLAYGAIN_TRACK_GAINs[$tn]}}}
 ${${cuedump[$tn.REM REPLAYGAIN_TRACK_PEAK]:-${REPLAYGAIN_TRACK_PEAKs[$tn]}}:+--comment=REPLAYGAIN_TRACK_PEAK=${cuedump[$tn.REM REPLAYGAIN_TRACK_PEAK]:-${REPLAYGAIN_TRACK_PEAKs[$tn]}}}
 ${cuedump[d.REM REPLAYGAIN_ALBUM_GAIN]:+--comment=REPLAYGAIN_ALBUM_GAIN=${cuedump[d.REM REPLAYGAIN_ALBUM_GAIN]}}
@@ -618,35 +635,35 @@ ${cuedump[d.REM REPLAYGAIN_ALBUM_PEAK]:+--comment=REPLAYGAIN_ALBUM_PEAK=${cuedum
 '
                 ;|
                 (aotuv|flac|fdkaac|qaac)
-                runenc+='-o
+                runenc[$ofmt]+='-o
 "$outfnpref/$outfnsuff"'
                 ;|
-                (aotuv) runenc+=.ogg ;|
-                (flac) runenc+=.flac ;|
-                (fdkaac|qaac) runenc+=.m4a ;|
+                (aotuv) runenc[$ofmt]+=.ogg ;|
+                (flac) runenc[$ofmt]+=.flac ;|
+                (fdkaac|qaac) runenc[$ofmt]+=.m4a ;|
                 (opus)
                 if [[ "${#ofmtargs}" -ge 1 ]]; then
-                  runenc+=$'\n'"${(@pj.\n.)ofmtargs}"$'\n'
+                  runenc[$ofmt]+=$'\n'"${(@pj.\n.)ofmtargs}"$'\n'
                   ofmtargs=()
                 fi
                 ;|
                 ## bypass the trailing `-` in for loop
-                (exhale) runenc+=$';:\n' ;|
+                (exhale) runenc[$ofmt]+=$';:\n' ;|
                 (fdkaac|qaac)
                 function {
                   while ((#)); do
                     if (( ${#vorbiscmt2itunes[$1]} <= 4 )); then
-                      runenc="${(@pj.\n.)${(@f)runenc}//--comment=$1=/--tag=${vorbiscmt2itunes[$1]}:}"
+                      runenc[$ofmt]="${(@pj.\n.)${(@f)runenc[$ofmt]}//--comment=$1=/--tag=${vorbiscmt2itunes[$1]}:}"
                     else
-                      runenc="${(@pj.\n.)${(@f)runenc}//--comment=$1=/--long-tag=${vorbiscmt2itunes[$1]}:}"
+                      runenc[$ofmt]="${(@pj.\n.)${(@f)runenc[$ofmt]}//--comment=$1=/--long-tag=${vorbiscmt2itunes[$1]}:}"
                     fi
                     shift
                   done
                   local match=()
                   if (( ${(M)#runenc:#*--comment=*} )); then
-                    runenc=${runenc//\(s\|[^|]##\|\)}
+                    runenc[$ofmt]=${runenc[$ofmt]//\(s\|[^|]##\|\)}
                     setopt localoptions histsubstpattern
-                    runenc=${runenc:gs/--comment=(#b)([^=]##)(#B)=/--long-tag='${match[1]}:'/}
+                    runenc[$ofmt]=${runenc[$ofmt]:gs/--comment=(#b)([^=]##)(#B)=/--long-tag='${match[1]}:'/}
                   fi
                 } ${(k)vorbiscmt2itunes}
                 ;|
@@ -654,24 +671,27 @@ ${cuedump[d.REM REPLAYGAIN_ALBUM_PEAK]:+--comment=REPLAYGAIN_ALBUM_PEAK=${cuedum
                 function {
                   while ((#)); do
                     if (( ${#vorbiscmt2itunes[$1]} <= 4 )); then
-                      runenc="${(@pj.\n.)${(@f)runenc}//--(comment|tag)=$1[=:]/${vorbiscmt2itunes[$1]}=}"
+                      runenc[$ofmt]="${(@pj.\n.)${(@f)runenc[$ofmt]}//--(comment|tag)=$1[=:]/${vorbiscmt2itunes[$1]}=}"
                     else
-                      runenc="${(@pj.\n.)${(@f)runenc}//--(comment|long-tag)=$1[=:]/----:com.apple.iTunes:${vorbiscmt2itunes[$1]}=}"
+                      runenc[$ofmt]="${(@pj.\n.)${(@f)runenc[$ofmt]}//--(comment|long-tag)=$1[=:]/----:com.apple.iTunes:${vorbiscmt2itunes[$1]}=}"
                     fi
                     shift
                   done
                   local match=()
                   if (( ${(M)#runenc:#*--comment=*} )); then
-                    runenc=${runenc//\(s\|[^|]##\|\)}
+                    runenc[$ofmt]=${runenc[$ofmt]//\(s\|[^|]##\|\)}
                     setopt localoptions histsubstpattern
-                    runenc=${runenc:gs/--comment=(#b)([^=]##)(#B)=/----:com.apple.iTunes:'${match[1]}='/}
+                    runenc[$ofmt]=${runenc[$ofmt]:gs/--comment=(#b)([^=]##)(#B)=/----:com.apple.iTunes:'${match[1]}='/}
                     match=()
-                    runenc=${runenc:gs/--tag=(#b)([^=](#c3,4))(#B):/'${match[1]}='/}
+                    runenc[$ofmt]=${runenc[$ofmt]:gs/--tag=(#b)([^=](#c3,4))(#B):/'${match[1]}='/}
                   fi
                 } ${(k)vorbiscmt2itunes}
                 ;|
-                (flac) runenc=${runenc//--comment=/--tag=} ;|
+                (flac) runenc[$ofmt]=${runenc[$ofmt]//--comment=/--tag=} ;|
               esac
+                done
+                ofmt=$o_ofmt
+              }
               local -a seltnums=()
               timeout 0.01 cat >/dev/null||:
 
@@ -972,9 +992,9 @@ ${cuedump[d.REM REPLAYGAIN_ALBUM_PEAK]:+--comment=REPLAYGAIN_ALBUM_PEAK=${cuedum
                 (flac|wv)
                   case "$ofmt" in
                     (opus)
-                      #runenc+=$'\n--discard-comments\n--discard-pictures'
-                      runenc+=$'\n--\n-\n"$outfnpref/$outfnsuff".opus;:\n'
-                      runenc=$'sox\n-D\n-t\nwav\n-\n-t\nwav\n-\nrate\n-v\n-I\n48k|'"$runenc" ;;
+                      #runenc[$ofmt]+=$'\n--discard-comments\n--discard-pictures'
+                      runenc[$ofmt]+=$'\n--\n-\n"$outfnpref/$outfnsuff".opus;:\n'
+                      runenc[$ofmt]=$'sox\n-D\n-t\nwav\n-\n-t\nwav\n-\nrate\n-v\n-I\n48k|'${runenc[$ofmt]} ;;
                   esac
 
                   if (( cuedump[tc] > 1 && ${(@)#${(@)cuedump[(I)*.FILE]}} > 1 )); then
@@ -999,7 +1019,11 @@ ${cuedump[d.REM REPLAYGAIN_ALBUM_PEAK]:+--comment=REPLAYGAIN_ALBUM_PEAK=${cuedum
                       REPLAYGAIN_TRACK_PEAKs[${seltnums[1]}]=$REPLAYGAIN_TRACK_PEAK
                     fi
                     local outfnsuff="${(e)outfnsuff_t//\$tn/${seltnums[1]}}"
-                    command ${(s. .)rundec} ${${(M)cuedump[${seltnums[1]}.skip]:#<1->}:+--skip=${cuedump[${seltnums[1]}.skip]}} ${${(M)cuedump[${seltnums[1]}.until]:#<1->}:+--until=${cuedump[${seltnums[1]}.until]}} -- ${cuedump[${seltnums[1]}.file]:-$ifile} | rw | eval command ${${${${(f)runenc}:#}//\[\$tn./'[${seltnums[1]}.'}//\[\$tn\]/'[${seltnums[1]}]'} "${(@q)ofmtargs}" -
+                    command ${(s. .)rundec} ${${(M)cuedump[${seltnums[1]}.skip]:#<1->}:+--skip=${cuedump[${seltnums[1]}.skip]}} ${${(M)cuedump[${seltnums[1]}.until]:#<1->}:+--until=${cuedump[${seltnums[1]}.until]}} -- ${cuedump[${seltnums[1]}.file]:-$ifile} | rw | eval command ${${${${(f)runenc[$ofmt]}:#}//\[\$tn./'[${seltnums[1]}.'}//\[\$tn\]/'[${seltnums[1]}]'} "${(@q)ofmtargs}" -
+                    if [[ "$ofmt" = exhale ]] && ! ffmpeg -loglevel fatal -xerror -hide_banner -err_detect explode -i "$outfnpref/$outfnsuff.m4a" -f null - >/dev/null; then
+                      truncate -s 0 -- "$outfnpref/$outfnsuff.m4a"
+                      command ${(s. .)rundec} ${${(M)cuedump[${seltnums[1]}.skip]:#<1->}:+--skip=${cuedump[${seltnums[1]}.skip]}} ${${(M)cuedump[${seltnums[1]}.until]:#<1->}:+--until=${cuedump[${seltnums[1]}.until]}} -- ${cuedump[${seltnums[1]}.file]:-$ifile} | rw | eval command ${${${${(f)runenc[${(@)${(@)wa_ofmt:#$ofmt}[1]}]}:#}//\[\$tn./'[${seltnums[1]}.'}//\[\$tn\]/'[${seltnums[1]}]'} -
+                    fi
                     if [[ -f "${${(M)cuefiles[$walkcuefiles]:#*/*}:+${cuefiles[$walkcuefiles]:h}/}${outfnsuff:t}.lrc" ]] && [[ ! -e "$outfnpref/$outfnsuff.lrc" ]]; then
                       cp -- "${${(M)cuefiles[$walkcuefiles]:#*/*}:+${cuefiles[$walkcuefiles]:h}/}${outfnsuff:t}.lrc" "$outfnpref/$outfnsuff.lrc"
                     fi
@@ -1011,17 +1035,25 @@ ${cuedump[d.REM REPLAYGAIN_ALBUM_PEAK]:+--comment=REPLAYGAIN_ALBUM_PEAK=${cuedum
 
                   (( cuedump[tc] > 1 && ${(@)#${(@)cuedump[(I)*.FILE]}} > 1 )) || .fatal 'not implemented'
 
+                  function {
+                    local o_ofmt=$ofmt
+                    argv=(${(@u)wa_ofmt})
+                    while ((#)); do
+                      ofmt=$1
                   case "$ofmt" in
-                    (flac) runenc+=$'\n--force-raw-format\n--sign=signed\n--endian=little\n--channels=2\n--bps=16\n--sample-rate=44100\n'
+                    (flac) runenc[$ofmt]+=$'\n--force-raw-format\n--sign=signed\n--endian=little\n--channels=2\n--bps=16\n--sample-rate=44100\n'
                     ;;
-                    (aotuv|fdkaac|opus) runenc+=$'\n--raw\n' ;|
+                    (aotuv|fdkaac|opus) runenc[$ofmt]+=$'\n--raw\n' ;|
                     (opus)
-                      runenc+=$'\n--raw-rate=44100\n--\n-\n"$outfnpref/$outfnsuff".opus;:\n'
-                      runenc=$'sox\n-D\n-t\nraw\n-c\n2\n-b\n16\n-e\nsigned-integer\n-r\n44100\n-\n-t\nraw\n-\nrate\n-v\n-I\n48000|'"$runenc"
+                      runenc[$ofmt]+=$'\n--raw-rate=44100\n--\n-\n"$outfnpref/$outfnsuff".opus;:\n'
+                      runenc[$ofmt]=$'sox\n-D\n-t\nraw\n-c\n2\n-b\n16\n-e\nsigned-integer\n-r\n44100\n-\n-t\nraw\n-\nrate\n-v\n-I\n48000|'${runenc[$ofmt]}
                     ;;
-                    (exhale|qaac) runenc=${${:-ffmpeg -loglevel warning -xerror -hide_banner -err_detect explode -f s16le -ac 2 -ar 44100 -i - -f wav - | }// /$'\n'}$runenc
+                    (exhale|qaac) runenc[$ofmt]=${${:-ffmpeg -loglevel warning -xerror -hide_banner -err_detect explode -f s16le -ac 2 -ar 44100 -i - -f wav - | }// /$'\n'}${runenc[$ofmt]}
                     ;;
                   esac
+                    ofmt=$o_ofmt
+                    done
+                  }
                   if [[ "$mmode" != fifo ]] && ! [[ "$ofmt" == exhale ]] && [[ "$ofmt" != null ]]; then
                     command ffmpeg -loglevel warning -xerror -hide_banner -err_detect explode -i $ifile -f s16le - | {
                       for ((tn=1;tn<=cuedump[tc];tn++)); do
@@ -1040,9 +1072,24 @@ ${cuedump[d.REM REPLAYGAIN_ALBUM_PEAK]:+--comment=REPLAYGAIN_ALBUM_PEAK=${cuedum
                   fi
                   eval command ${(z)rundec:-ffmpeg -loglevel warning -xerror -hide_banner -err_detect explode -i \$ifile -f s16le -} ${rundec:+${${rundec:#* \$ifile #*}:+-- \$ifile}} ${${(M)ffprobe[format.format_name]:#ape}:+${commands[mac]:+${rundec:+\|ffmpeg -loglevel warning -xerror -hide_banner -err_detect explode -f wav -i - -f s16le -}}} | (
                     for ((tn=1;tn<=cuedump[tc];tn++)); do
-                      local outfnsuff="${(e)outfnsuff_t}"
+                      local outfnsuff="${(e)outfnsuff_t}" bufstdin=
                       if (( ${seltnums[(I)$tn]} )); then
-                        dd bs=128K ${${(M)cuedump[$tn.pskip]:#<1->}:+skip=$(( 4 * ${cuedump[$tn.pskip]} ))B} ${${(M)cuedump[$tn.plen]}:+count=$(( 4 * ${cuedump[$tn.plen]} ))B} iflag=fullblock status=none | rw | eval command ${${(f)runenc}:#} "${(@q)ofmtargs}" -
+                        if [[ "$ofmt" = exhale ]]; then
+                          dd bs=128K ${${(M)cuedump[$tn.pskip]:#<1->}:+skip=$(( 4 * ${cuedump[$tn.pskip]} ))B} ${${(M)cuedump[$tn.plen]}:+count=$(( 4 * ${cuedump[$tn.plen]} ))B} iflag=fullblock status=none | readeof bufstdin
+                          function {
+                            setopt noxtrace
+                            print -rn -- $bufstdin | eval command ${${(f)runenc[$ofmt]}:#} "${(@q)ofmtargs}" -
+                          }
+                          if ! ffmpeg -loglevel fatal -xerror -hide_banner -err_detect explode -i "$outfnpref/$outfnsuff.m4a" -f null - >/dev/null; then
+                            truncate -s 0 -- "$outfnpref/$outfnsuff.m4a"
+                            function {
+                              setopt noxtrace
+                              print -rn -- $bufstdin | eval command ${${(f)runenc[${(@)${(@)wa_ofmt:#$ofmt}[1]}]}:#} -
+                            }
+                          fi
+                        else
+                          dd bs=128K ${${(M)cuedump[$tn.pskip]:#<1->}:+skip=$(( 4 * ${cuedump[$tn.pskip]} ))B} ${${(M)cuedump[$tn.plen]}:+count=$(( 4 * ${cuedump[$tn.plen]} ))B} iflag=fullblock status=none | rw | eval command ${${(f)runenc[$ofmt]}:#} "${(@q)ofmtargs}" -
+                        fi
                         if [[ -f "${${(M)cuefiles[$walkcuefiles]:#*/*}:+${cuefiles[$walkcuefiles]:h}/}${outfnsuff:t}.lrc" ]] && [[ ! -e "$outfnpref/$outfnsuff.lrc" ]]; then
                           cp -- "${${(M)cuefiles[$walkcuefiles]:#*/*}:+${cuefiles[$walkcuefiles]:h}/}${outfnsuff:t}.lrc" "$outfnpref/$outfnsuff.lrc"
                         fi
@@ -1734,6 +1781,7 @@ declare KGMAPI="http://mobilecdn.kugou.com/api/v3"
 
 declare -A fmtstr
 declare -A ostr
+declare -A runenc
 function .deps {
   fzf --version &>/dev/null
   aconv --version &>/dev/null
