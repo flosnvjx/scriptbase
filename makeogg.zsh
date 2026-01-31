@@ -524,6 +524,11 @@ function .main {
                 (aotuv) runenc=$'oggenc\n-Qq5\n-s\n....\n' ;|
                 (flac) runenc=$'flac\n-V8cs\n' ;|
                 (fdkaac|qaac|exhale|opus) runenc=${ostr[$ofmt]// ##/$'\n'} ;|
+                (qaac)
+                if ! [[ "${#ofmtargs}" -ge 1 ]]; then
+                  runenc+=$'\n-v\n128\n'
+                fi
+                ;|
                 (exhale)
                 if [[ "${#ofmtargs}" -ge 1 ]]; then
                   runenc+=$'\n'"${(@pj.\n.)ofmtargs}"$'\n'
@@ -968,7 +973,8 @@ ${cuedump[d.REM REPLAYGAIN_ALBUM_PEAK]:+--comment=REPLAYGAIN_ALBUM_PEAK=${cuedum
                   case "$ofmt" in
                     (opus)
                       #runenc+=$'\n--discard-comments\n--discard-pictures'
-                      runenc+=$'\n--\n-\n"$outfnpref/$outfnsuff".opus;:\n' ;;
+                      runenc+=$'\n--\n-\n"$outfnpref/$outfnsuff".opus;:\n'
+                      runenc=$'sox\n-D\n-t\nwav\n-\n-t\nwav\n-\nrate\n-v\n-I\n48k|'"$runenc" ;;
                   esac
 
                   if (( cuedump[tc] > 1 && ${(@)#${(@)cuedump[(I)*.FILE]}} > 1 )); then
@@ -1009,9 +1015,11 @@ ${cuedump[d.REM REPLAYGAIN_ALBUM_PEAK]:+--comment=REPLAYGAIN_ALBUM_PEAK=${cuedum
                     (flac) runenc+=$'\n--force-raw-format\n--sign=signed\n--endian=little\n--channels=2\n--bps=16\n--sample-rate=44100\n'
                     ;;
                     (aotuv|fdkaac|opus) runenc+=$'\n--raw\n' ;|
-                    (opus) runenc+=$'\n--raw-rate=44100\n--\n-\n"$outfnpref/$outfnsuff".opus;:\n'
+                    (opus)
+                      runenc+=$'\n--raw-rate=44100\n--\n-\n"$outfnpref/$outfnsuff".opus;:\n'
+                      runenc=$'sox\n-D\n-t\nraw\n-c\n2\n-b\n16\n-e\nsigned-integer\n-r\n44100\n-\n-t\nraw\n-\nrate\n-v\n-I\n48000|'"$runenc"
                     ;;
-                    (exhale) runenc=${${:-ffmpeg -loglevel warning -xerror -hide_banner -err_detect explode -f s16le -ac 2 -ar 44100 -i - -f wav - | }// /$'\n'}$runenc
+                    (exhale|qaac) runenc=${${:-ffmpeg -loglevel warning -xerror -hide_banner -err_detect explode -f s16le -ac 2 -ar 44100 -i - -f wav - | }// /$'\n'}$runenc
                     ;;
                   esac
                   if [[ "$mmode" != fifo ]] && ! [[ "$ofmt" == exhale ]] && [[ "$ofmt" != null ]]; then
@@ -1766,7 +1774,7 @@ function .deps {
   fi
 
   if [[ -v commands[qaac64] ]] && (( ${(@)argv[1,2][(I)qaac]} )) && qaac64 --check 2>&1 | grep -qsEe 'CoreAudioToolbox [0-9.]+'; then
-    ostr[qaac]='sox -Dtraw -Lc2 -r44100 -b16 -e signed-integer - -twav - | qaac64 -sV64 --gapless-mode 2 '
+    ostr[qaac]='qaac64 --gapless-mode 2 -s '
   fi
 
   if [[ -v commands[opusenc] ]]; then
