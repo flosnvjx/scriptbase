@@ -528,6 +528,7 @@ function .main {
                     while ((#)); do if [[ -v ostr[$1] ]]; then
                       wa_ofmt+=($1)
                       break
+                    else shift
                     fi; done
                   } qaac fdkaac aotuv flac
                 fi
@@ -553,11 +554,11 @@ function .main {
                 else
                   runenc[$ofmt]+=$'\n3\n'
                 fi
-                runenc[$ofmt]+='"$outfnpref/$outfnsuff".m4a'
+                runenc[$ofmt]+='"$outfnpref/$outfnsuff".${ostrext[$ofmt]}'
                 ## comment out MP4Box for now
                 runenc[$ofmt]+=';:
 MP4Box
-$outfnpref/$outfnsuff.m4a
+$outfnpref/$outfnsuff.${ostrext[$ofmt]}
 -inter
 0
 -keep-utc
@@ -566,8 +567,8 @@ $outfnpref/$outfnsuff.m4a
 ${${${${cuedump[$tn.REM VOCALIST]}:-${cuedump[d.REM VOCALIST]}}:+ja}:-zxx};
 mp4tagcli
 --
-"$outfnpref/$outfnsuff".m4a
-${commands[rsgain]:+----:com.apple.iTunes:}"${(@f)^commands[rsgain]:+$(rsgain custom -t -O -- $outfnpref/$outfnsuff.m4a | awk '\''END{if (NR>1) {printf "replaygain_track_gain=%s dB\nreplaygain_track_peak=%s\n",$3,$4} else exit(5)}'\'')}"'
+"$outfnpref/$outfnsuff".${ostrext[$ofmt]}
+${commands[rsgain]:+----:com.apple.iTunes:}"${(@f)^commands[rsgain]:+$(rsgain custom -t -O -S -- $outfnpref/$outfnsuff.${ostrext[$ofmt]} | awk '\''END{if (NR>1) {printf "REPLAYGAIN_TRACK_GAIN=%s dB\nREPLAYGAIN_TRACK_PEAK=%s\n",$3,$4} else exit(5)}'\'')}"'
                 ;|
                 (aotuv|flac|opus)
                 runenc[$ofmt]+='
@@ -638,9 +639,9 @@ ${cuedump[d.REM REPLAYGAIN_ALBUM_PEAK]:+--comment=REPLAYGAIN_ALBUM_PEAK=${cuedum
                 runenc[$ofmt]+='-o
 "$outfnpref/$outfnsuff"'
                 ;|
-                (aotuv) runenc[$ofmt]+=.ogg ;|
-                (flac) runenc[$ofmt]+=.flac ;|
-                (fdkaac|qaac) runenc[$ofmt]+=.m4a ;|
+                (aotuv) runenc[$ofmt]+=.${ostrext[$ofmt]} ;|
+                (flac) runenc[$ofmt]+=.${ostrext[$ofmt]} ;|
+                (fdkaac|qaac) runenc[$ofmt]+=.${ostrext[$ofmt]} ;|
                 (opus)
                 if [[ "${#ofmtargs}" -ge 1 ]]; then
                   runenc[$ofmt]+=$'\n'"${(@pj.\n.)ofmtargs}"$'\n'
@@ -689,6 +690,7 @@ ${cuedump[d.REM REPLAYGAIN_ALBUM_PEAK]:+--comment=REPLAYGAIN_ALBUM_PEAK=${cuedum
                 ;|
                 (flac) runenc[$ofmt]=${runenc[$ofmt]//--comment=/--tag=} ;|
               esac
+                  shift
                 done
                 ofmt=$o_ofmt
               }
@@ -993,7 +995,7 @@ ${cuedump[d.REM REPLAYGAIN_ALBUM_PEAK]:+--comment=REPLAYGAIN_ALBUM_PEAK=${cuedum
                   case "$ofmt" in
                     (opus)
                       #runenc[$ofmt]+=$'\n--discard-comments\n--discard-pictures'
-                      runenc[$ofmt]+=$'\n--\n-\n"$outfnpref/$outfnsuff".opus;:\n'
+                      runenc[$ofmt]+=$'\n--\n-\n"$outfnpref/$outfnsuff".${ostrext[$ofmt]};:\n'
                       runenc[$ofmt]=$'sox\n-D\n-t\nwav\n-\n-t\nwav\n-\nrate\n-v\n-I\n48k|'${runenc[$ofmt]} ;;
                   esac
 
@@ -1020,9 +1022,12 @@ ${cuedump[d.REM REPLAYGAIN_ALBUM_PEAK]:+--comment=REPLAYGAIN_ALBUM_PEAK=${cuedum
                     fi
                     local outfnsuff="${(e)outfnsuff_t//\$tn/${seltnums[1]}}"
                     command ${(s. .)rundec} ${${(M)cuedump[${seltnums[1]}.skip]:#<1->}:+--skip=${cuedump[${seltnums[1]}.skip]}} ${${(M)cuedump[${seltnums[1]}.until]:#<1->}:+--until=${cuedump[${seltnums[1]}.until]}} -- ${cuedump[${seltnums[1]}.file]:-$ifile} | rw | eval command ${${${${(f)runenc[$ofmt]}:#}//\[\$tn./'[${seltnums[1]}.'}//\[\$tn\]/'[${seltnums[1]}]'} "${(@q)ofmtargs}" -
-                    if [[ "$ofmt" = exhale ]] && ! ffmpeg -loglevel fatal -xerror -hide_banner -err_detect explode -i "$outfnpref/$outfnsuff.m4a" -f null - >/dev/null; then
-                      truncate -s 0 -- "$outfnpref/$outfnsuff.m4a"
+                    if [[ "$ofmt" = exhale ]] && ! ffmpeg -loglevel fatal -xerror -hide_banner -err_detect explode -i "$outfnpref/$outfnsuff.${ostrext[$ofmt]}" -f null - >/dev/null; then
+                      truncate -s 0 -- "$outfnpref/$outfnsuff.${ostrext[$ofmt]}"
                       command ${(s. .)rundec} ${${(M)cuedump[${seltnums[1]}.skip]:#<1->}:+--skip=${cuedump[${seltnums[1]}.skip]}} ${${(M)cuedump[${seltnums[1]}.until]:#<1->}:+--until=${cuedump[${seltnums[1]}.until]}} -- ${cuedump[${seltnums[1]}.file]:-$ifile} | rw | eval command ${${${${(f)runenc[${(@)${(@)wa_ofmt:#$ofmt}[1]}]}:#}//\[\$tn./'[${seltnums[1]}.'}//\[\$tn\]/'[${seltnums[1]}]'} -
+                      if [[ -v comments[rsgain] ]]; then
+                        rsgain custom -s i -S -t -q -- "$outfnpref/$outfnsuff.${ostrext[${(@)${(@)wa_ofmt:#$ofmt}[1]}]}"
+                      fi
                     fi
                     if [[ -f "${${(M)cuefiles[$walkcuefiles]:#*/*}:+${cuefiles[$walkcuefiles]:h}/}${outfnsuff:t}.lrc" ]] && [[ ! -e "$outfnpref/$outfnsuff.lrc" ]]; then
                       cp -- "${${(M)cuefiles[$walkcuefiles]:#*/*}:+${cuefiles[$walkcuefiles]:h}/}${outfnsuff:t}.lrc" "$outfnpref/$outfnsuff.lrc"
@@ -1051,8 +1056,9 @@ ${cuedump[d.REM REPLAYGAIN_ALBUM_PEAK]:+--comment=REPLAYGAIN_ALBUM_PEAK=${cuedum
                     (exhale|qaac) runenc[$ofmt]=${${:-ffmpeg -loglevel warning -xerror -hide_banner -err_detect explode -f s16le -ac 2 -ar 44100 -i - -f wav - | }// /$'\n'}${runenc[$ofmt]}
                     ;;
                   esac
-                    ofmt=$o_ofmt
+                      shift
                     done
+                    ofmt=$o_ofmt
                   }
                   if [[ "$mmode" != fifo ]] && ! [[ "$ofmt" == exhale ]] && [[ "$ofmt" != null ]]; then
                     command ffmpeg -loglevel warning -xerror -hide_banner -err_detect explode -i $ifile -f s16le - | {
@@ -1080,12 +1086,15 @@ ${cuedump[d.REM REPLAYGAIN_ALBUM_PEAK]:+--comment=REPLAYGAIN_ALBUM_PEAK=${cuedum
                             setopt noxtrace
                             print -rn -- $bufstdin | eval command ${${(f)runenc[$ofmt]}:#} "${(@q)ofmtargs}" -
                           }
-                          if ! ffmpeg -loglevel fatal -xerror -hide_banner -err_detect explode -i "$outfnpref/$outfnsuff.m4a" -f null - >/dev/null; then
-                            truncate -s 0 -- "$outfnpref/$outfnsuff.m4a"
+                          if ! ffmpeg -loglevel fatal -xerror -hide_banner -err_detect explode -i "$outfnpref/$outfnsuff.${ostrext[$ofmt]}" -f null - >/dev/null; then
+                            truncate -s 0 -- "$outfnpref/$outfnsuff.${ostrext[$ofmt]}"
                             function {
                               setopt noxtrace
                               print -rn -- $bufstdin | eval command ${${(f)runenc[${(@)${(@)wa_ofmt:#$ofmt}[1]}]}:#} -
                             }
+                            if [[ -v comments[rsgain] ]]; then
+                              rsgain custom -s i -S -t -q -- "$outfnpref/$outfnsuff.${ostrext[${(@)${(@)wa_ofmt:#$ofmt}[1]}]}"
+                            fi
                           fi
                         else
                           dd bs=128K ${${(M)cuedump[$tn.pskip]:#<1->}:+skip=$(( 4 * ${cuedump[$tn.pskip]} ))B} ${${(M)cuedump[$tn.plen]}:+count=$(( 4 * ${cuedump[$tn.plen]} ))B} iflag=fullblock status=none | rw | eval command ${${(f)runenc[$ofmt]}:#} "${(@q)ofmtargs}" -
@@ -1742,13 +1751,6 @@ declare -a genres=(
   'National Folk'
   Other
 )
-declare -a exts=(wav flac tta ape tak wv)
-
-declare -A ostrext
-ostrext=(
-  takc tak
-  wavpack wv
-)
 
 function intercept_wavedash_catnostr {
   if [[ "${argv[1]}" == [^~～]##[~～][^~～]## ]]; then
@@ -1781,6 +1783,20 @@ declare KGMAPI="http://mobilecdn.kugou.com/api/v3"
 
 declare -A fmtstr
 declare -A ostr
+declare -A ostrext
+ostrext=(
+  takc tak
+  wavpack wv
+  flac flac
+
+  exhale m4a
+  qaac m4a
+  fdkaac m4a
+
+  aotuv ogg
+
+  opus opus
+)
 declare -A runenc
 function .deps {
   fzf --version &>/dev/null
