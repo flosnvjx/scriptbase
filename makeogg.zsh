@@ -7,17 +7,21 @@ setopt extendedglob pipefail errexit xtrace
 function .main {
   local ofmt= mmode= fifo= tidyconv= evalpipe=
   local match=()
-  if [[ "$1" = ((#b)(cue|gencue|tidy(#B)(|.(#b)(none|wavpack)(#B))|lrc|e(val|)pipe:(#b)(?*)(#B)|fifo[.:=](#b)(/?*))(#B)) ]]; then
+  if [[ "$1" = ((#b)(cue|gencue|tidy(#B)(|.(#b)(?*)(#B))|lrc|e(val|)pipe:(#b)(?*)(#B)|fifo[.:=](#b)(/?*))(#B)) ]]; then
     mmode=${match[1]}
     case "$mmode" in
-      (tidy*) mmode=tidy
+      (tidy|tidy.?*) mmode=tidy
               match[2]=${match[2]:-${ostr[takc]:+takc}}
               if [[ -n "${match[2]:#none}" ]]; then
                 [[ -v ostr[${match[2]}] ]]
               fi
-              tidyconv=${${(M)match[2]:#^(none)}:+${match[2]}} ;;
-      (evalpipe*|epipe*) mmode=evalpipe; evalpipe=${match[3]} ;;
-      (fifo*) mmode=fifo; fifo=${match[4]} ;;
+              tidyconv=${${(M)match[2]:#^(none)}:+${match[2]}}
+                if [[ -n "$tidyconv" && "$tidyconv" != (takc|wavpack) ]]; then
+                  .fatal "unsupported tidyconv fmt"
+                fi
+              ;;
+      (evalpipe:?*|epipe:?*) mmode=evalpipe; evalpipe=${match[3]} ;;
+      (fifo[.:=]/?*) mmode=fifo; fifo=${match[4]} ;;
     esac
     shift
   fi
