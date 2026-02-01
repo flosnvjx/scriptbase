@@ -5,9 +5,9 @@
 
 setopt extendedglob pipefail errexit xtrace
 function .main {
-  local ofmt= mmode= fifo= tidyconv=
+  local ofmt= mmode= fifo= tidyconv= evalpipe=
   local match=()
-  if [[ "$1" = ((#b)(cue|gencue|tidy(#B)(|.(#b)(none|wavpack)(#B))|lrc|fifo[.:=](#b)(/?*))(#B)) ]]; then
+  if [[ "$1" = ((#b)(cue|gencue|tidy(#B)(|.(#b)(none|wavpack)(#B))|lrc|e(val|)pipe:(#b)(?*)(#B)|fifo[.:=](#b)(/?*))(#B)) ]]; then
     mmode=${match[1]}
     case "$mmode" in
       (tidy*) mmode=tidy
@@ -16,7 +16,8 @@ function .main {
                 [[ -v ostr[${match[2]}] ]]
               fi
               tidyconv=${${(M)match[2]:#^(none)}:+${match[2]}} ;;
-      (fifo*) mmode=fifo; fifo=${match[3]} ;;
+      (evalpipe*|epipe*) mmode=evalpipe; evalpipe=${match[3]} ;;
+      (fifo*) mmode=fifo; fifo=${match[4]} ;;
     esac
     shift
   fi
@@ -26,6 +27,9 @@ function .main {
   if (( $#1 )) && [[ ${(@)${(@k)ostr}[(I)(#i)${(q)1}]} -gt 0 || "$1" == (none|null) ]]; then
     ofmt=$1
     shift
+    if [[ "$mmode" == evalpipe && "$ofmt" == (qaac|fdkaac|exhale) ]]; then
+      .fatal 'specified ofmt does not support pipe output'
+    fi
   elif (( !$#1 )); then
     if [[ "$mmode" == cue ]]; then
       ofmt=none
@@ -33,13 +37,16 @@ function .main {
       ofmt=null
     else
       function {
+        if [[ "$mmode" != evalpipe ]]; then
+          argv[1]+=(fdkaac)
+        fi
         while ((#)); do if [[ -v ostr[$1] ]]; then
           ofmt=$1
           break
           fi
           shift
         done
-      } aotuv fdkaac flac
+      } aotuv flac
     fi
   else
     .fatal "unsupported output fmt: $1"
@@ -636,12 +643,13 @@ ${cuedump[d.REM REPLAYGAIN_ALBUM_PEAK]:+--comment=REPLAYGAIN_ALBUM_PEAK=${cuedum
 '
                 ;|
                 (aotuv|flac|fdkaac|qaac)
-                runenc[$ofmt]+='-o
-"$outfnpref/$outfnsuff"'
+                runenc[$ofmt]+=$'-o\n'
+                if [[ "$mmode" != evalpipe ]]; then
+                  runenc[$ofmt]+='"$outfnpref/$outfnsuff"'.${ostrext[$ofmt]}
+                else
+                  runenc[$ofmt]+="-"
+                fi
                 ;|
-                (aotuv) runenc[$ofmt]+=.${ostrext[$ofmt]} ;|
-                (flac) runenc[$ofmt]+=.${ostrext[$ofmt]} ;|
-                (fdkaac|qaac) runenc[$ofmt]+=.${ostrext[$ofmt]} ;|
                 (opus)
                 if [[ "${#ofmtargs}" -ge 1 ]]; then
                   runenc[$ofmt]+=$'\n'"${(@pj.\n.)ofmtargs}"$'\n'
@@ -987,7 +995,7 @@ ${cuedump[d.REM REPLAYGAIN_ALBUM_PEAK]:+--comment=REPLAYGAIN_ALBUM_PEAK=${cuedum
                 (*)
                 local outfnpref="${outdir:-$HOME/pub/mpd-pool/albums}/[${${${cuedump[d.REM LABEL]}:-(no label)}//\//∕}]/${${:-${${${cuedump[d.TITLE]:-(no title)}/#./．}//\//∕} ${cuedump[d.REM CATALOGNUMBER]:+[${${(@j|,|)${(@u)${(@M)cache_catno_triplets:#${albumtitles[$walkcuefiles]}$'\n'<1->$'\n'${cuedump[d.REM CATALOGNUMBER]%%-*}*}##*$'\n'}}:-${cuedump[d.REM CATALOGNUMBER]}}]}${cuedump[d.REM DATE]:+[${cuedump[d.REM DATE]//\//.}]}}}"
 
-                  if [[ ! -d "$outfnpref" ]]; then
+                  if [[ "$mmode" != evalpipe ]] && [[ ! -d "$outfnpref" ]]; then
                     mkdir -vp -- $outfnpref
                   fi
                 ;|
@@ -995,7 +1003,10 @@ ${cuedump[d.REM REPLAYGAIN_ALBUM_PEAK]:+--comment=REPLAYGAIN_ALBUM_PEAK=${cuedum
                   case "$ofmt" in
                     (opus)
                       #runenc[$ofmt]+=$'\n--discard-comments\n--discard-pictures'
-                      runenc[$ofmt]+=$'\n--\n-\n"$outfnpref/$outfnsuff".${ostrext[$ofmt]};:\n'
+                      runenc[$ofmt]+=$'\n--\n-'
+                      if [[ "$mmode" != evalpipe ]]; then
+                        runenc[$ofmt]+=$'\n"$outfnpref/$outfnsuff".${ostrext[$ofmt]};:\n'
+                      fi
                       runenc[$ofmt]=$'sox\n-D\n-t\nwav\n-\n-t\nwav\n-\nrate\n-v\n-I\n48k|'${runenc[$ofmt]} ;;
                   esac
 
@@ -1021,7 +1032,7 @@ ${cuedump[d.REM REPLAYGAIN_ALBUM_PEAK]:+--comment=REPLAYGAIN_ALBUM_PEAK=${cuedum
                       REPLAYGAIN_TRACK_PEAKs[${seltnums[1]}]=$REPLAYGAIN_TRACK_PEAK
                     fi
                     local outfnsuff="${(e)outfnsuff_t//\$tn/${seltnums[1]}}"
-                    command ${(s. .)rundec} ${${(M)cuedump[${seltnums[1]}.skip]:#<1->}:+--skip=${cuedump[${seltnums[1]}.skip]}} ${${(M)cuedump[${seltnums[1]}.until]:#<1->}:+--until=${cuedump[${seltnums[1]}.until]}} -- ${cuedump[${seltnums[1]}.file]:-$ifile} | rw | eval command ${${${${(f)runenc[$ofmt]}:#}//\[\$tn./'[${seltnums[1]}.'}//\[\$tn\]/'[${seltnums[1]}]'} "${(@q)ofmtargs}" -
+                    command ${(s. .)rundec} ${${(M)cuedump[${seltnums[1]}.skip]:#<1->}:+--skip=${cuedump[${seltnums[1]}.skip]}} ${${(M)cuedump[${seltnums[1]}.until]:#<1->}:+--until=${cuedump[${seltnums[1]}.until]}} -- ${cuedump[${seltnums[1]}.file]:-$ifile} | rw | eval command ${${${${(f)runenc[$ofmt]}:#}//\[\$tn./'[${seltnums[1]}.'}//\[\$tn\]/'[${seltnums[1]}]'} "${(@q)ofmtargs}" - ${${(M)mmode:#evalpipe}:+| $evalpipe}
                     if [[ "$ofmt" = exhale ]] && ! ffmpeg -loglevel fatal -xerror -hide_banner -err_detect explode -i "$outfnpref/$outfnsuff.${ostrext[$ofmt]}" -f null - >/dev/null; then
                       truncate -s 0 -- "$outfnpref/$outfnsuff.${ostrext[$ofmt]}"
                       command ${(s. .)rundec} ${${(M)cuedump[${seltnums[1]}.skip]:#<1->}:+--skip=${cuedump[${seltnums[1]}.skip]}} ${${(M)cuedump[${seltnums[1]}.until]:#<1->}:+--until=${cuedump[${seltnums[1]}.until]}} -- ${cuedump[${seltnums[1]}.file]:-$ifile} | rw | eval command ${${${${(f)runenc[${(@)${(@)wa_ofmt:#$ofmt}[1]}]}:#}//\[\$tn./'[${seltnums[1]}.'}//\[\$tn\]/'[${seltnums[1]}]'} -
@@ -1029,7 +1040,7 @@ ${cuedump[d.REM REPLAYGAIN_ALBUM_PEAK]:+--comment=REPLAYGAIN_ALBUM_PEAK=${cuedum
                         rsgain custom -s i -S -t -q -- "$outfnpref/$outfnsuff.${ostrext[${(@)${(@)wa_ofmt:#$ofmt}[1]}]}"
                       fi
                     fi
-                    if [[ -f "${${(M)cuefiles[$walkcuefiles]:#*/*}:+${cuefiles[$walkcuefiles]:h}/}${outfnsuff:t}.lrc" ]] && [[ ! -e "$outfnpref/$outfnsuff.lrc" ]]; then
+                    if [[ "$mmode" != evalpipe ]] && [[ -f "${${(M)cuefiles[$walkcuefiles]:#*/*}:+${cuefiles[$walkcuefiles]:h}/}${outfnsuff:t}.lrc" ]] && [[ ! -e "$outfnpref/$outfnsuff.lrc" ]]; then
                       cp -- "${${(M)cuefiles[$walkcuefiles]:#*/*}:+${cuefiles[$walkcuefiles]:h}/}${outfnsuff:t}.lrc" "$outfnpref/$outfnsuff.lrc"
                     fi
                     shift seltnums
@@ -1050,7 +1061,10 @@ ${cuedump[d.REM REPLAYGAIN_ALBUM_PEAK]:+--comment=REPLAYGAIN_ALBUM_PEAK=${cuedum
                     ;;
                     (aotuv|fdkaac|opus) runenc[$ofmt]+=$'\n--raw\n' ;|
                     (opus)
-                      runenc[$ofmt]+=$'\n--raw-rate=44100\n--\n-\n"$outfnpref/$outfnsuff".opus;:\n'
+                      runenc[$ofmt]+=$'\n--raw-rate=44100\n--\n-'
+                      if [[ "$mmode" != evalpipe ]]; then
+                        runenc[$ofmt]+=$'\n"$outfnpref/$outfnsuff".${ostrext[$ofmt]};:\n'
+                      fi
                       runenc[$ofmt]=$'sox\n-D\n-t\nraw\n-c\n2\n-b\n16\n-e\nsigned-integer\n-r\n44100\n-\n-t\nraw\n-\nrate\n-v\n-I\n48000|'${runenc[$ofmt]}
                     ;;
                     (exhale|qaac) runenc[$ofmt]=${${:-ffmpeg -loglevel warning -xerror -hide_banner -err_detect explode -f s16le -ac 2 -ar 44100 -i - -f wav - | }// /$'\n'}${runenc[$ofmt]}
@@ -1097,9 +1111,9 @@ ${cuedump[d.REM REPLAYGAIN_ALBUM_PEAK]:+--comment=REPLAYGAIN_ALBUM_PEAK=${cuedum
                             fi
                           fi
                         else
-                          dd bs=128K ${${(M)cuedump[$tn.pskip]:#<1->}:+skip=$(( 4 * ${cuedump[$tn.pskip]} ))B} ${${(M)cuedump[$tn.plen]}:+count=$(( 4 * ${cuedump[$tn.plen]} ))B} iflag=fullblock status=none | rw | eval command ${${(f)runenc[$ofmt]}:#} "${(@q)ofmtargs}" -
+                          dd bs=128K ${${(M)cuedump[$tn.pskip]:#<1->}:+skip=$(( 4 * ${cuedump[$tn.pskip]} ))B} ${${(M)cuedump[$tn.plen]}:+count=$(( 4 * ${cuedump[$tn.plen]} ))B} iflag=fullblock status=none | rw | eval command ${${(f)runenc[$ofmt]}:#} "${(@q)ofmtargs}" - ${${(M)mmode:#evalpipe}:+| $evalpipe}
                         fi
-                        if [[ -f "${${(M)cuefiles[$walkcuefiles]:#*/*}:+${cuefiles[$walkcuefiles]:h}/}${outfnsuff:t}.lrc" ]] && [[ ! -e "$outfnpref/$outfnsuff.lrc" ]]; then
+                        if [[ "$mmode" != evalpipe ]] && [[ -f "${${(M)cuefiles[$walkcuefiles]:#*/*}:+${cuefiles[$walkcuefiles]:h}/}${outfnsuff:t}.lrc" ]] && [[ ! -e "$outfnpref/$outfnsuff.lrc" ]]; then
                           cp -- "${${(M)cuefiles[$walkcuefiles]:#*/*}:+${cuefiles[$walkcuefiles]:h}/}${outfnsuff:t}.lrc" "$outfnpref/$outfnsuff.lrc"
                         fi
                       else
