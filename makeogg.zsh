@@ -1011,7 +1011,7 @@ ${cuedump[d.REM REPLAYGAIN_ALBUM_PEAK]:+--comment=REPLAYGAIN_ALBUM_PEAK=${cuedum
                       if [[ "$mmode" != evalpipe ]]; then
                         runenc[$ofmt]+=$'\n"$outfnpref/$outfnsuff".${ostrext[$ofmt]};:\n'
                       fi
-                      runenc[$ofmt]=$'sox\n-D\n-t\nwav\n-\n-t\nwav\n-\nrate\n-v\n-I\n48k|'${runenc[$ofmt]} ;;
+                      #runenc[$ofmt]=$'sox\n-D\n-t\nwav\n-\n-t\nwav\n-\nrate\n-v\n-I\n48k|'${runenc[$ofmt]} ;;
                   esac
 
                   if (( cuedump[tc] > 1 && ${(@)#${(@)cuedump[(I)*.FILE]}} > 1 )); then
@@ -1029,7 +1029,7 @@ ${cuedump[d.REM REPLAYGAIN_ALBUM_PEAK]:+--comment=REPLAYGAIN_ALBUM_PEAK=${cuedum
                   fi
 
                   while (( $#seltnums )); do
-                    if ! [[ "$ofmt" == exhale ]] && ! (( ${#cuedump[${seltnums[1]}.REM REPLAYGAIN_TRACK_GAIN]} && ${#cuedump[${seltnums[1]}.REM REPLAYGAIN_TRACK_PEAK]} )) && [[ "$ofmt" != null ]]; then
+                    if [[ "$mmode" == evalpipe ]] && ! [[ "$ofmt" == exhale ]] && ! (( ${#cuedump[${seltnums[1]}.REM REPLAYGAIN_TRACK_GAIN]} && ${#cuedump[${seltnums[1]}.REM REPLAYGAIN_TRACK_PEAK]} )) && [[ "$ofmt" != null ]]; then
                       local REPLAYGAIN_TRACK_GAIN= REPLAYGAIN_TRACK_PEAK=
                       command ${(s. .)rundec} ${${(M)cuedump[${seltnums[1]}.skip]:#<1->}:+--skip=${cuedump[${seltnums[1]}.skip]}} ${${(M)cuedump[${seltnums[1]}.until]:#<1->}:+--until=${cuedump[${seltnums[1]}.until]}} -- ${cuedump[${seltnums[1]}.file]:-$ifile} | gainstdin
                       REPLAYGAIN_TRACK_GAINs[${seltnums[1]}]=$REPLAYGAIN_TRACK_GAIN
@@ -1069,7 +1069,7 @@ ${cuedump[d.REM REPLAYGAIN_ALBUM_PEAK]:+--comment=REPLAYGAIN_ALBUM_PEAK=${cuedum
                       if [[ "$mmode" != evalpipe ]]; then
                         runenc[$ofmt]+=$'\n"$outfnpref/$outfnsuff".${ostrext[$ofmt]};:\n'
                       fi
-                      runenc[$ofmt]=$'sox\n-D\n-t\nraw\n-c\n2\n-b\n16\n-e\nsigned-integer\n-r\n44100\n-\n-t\nraw\n-\nrate\n-v\n-I\n48000|'${runenc[$ofmt]}
+                      #runenc[$ofmt]=$'sox\n-D\n-t\nraw\n-c\n2\n-b\n16\n-e\nsigned-integer\n-r\n44100\n-\n-t\nraw\n-\nrate\n-v\n-I\n48000|'${runenc[$ofmt]}
                     ;;
                     (exhale|qaac) runenc[$ofmt]=${${:-ffmpeg -loglevel warning -xerror -hide_banner -err_detect explode -f s16le -ac 2 -ar 44100 -i - -f wav - | }// /$'\n'}${runenc[$ofmt]}
                     ;;
@@ -1078,7 +1078,7 @@ ${cuedump[d.REM REPLAYGAIN_ALBUM_PEAK]:+--comment=REPLAYGAIN_ALBUM_PEAK=${cuedum
                     done
                     ofmt=$o_ofmt
                   }
-                  if [[ "$mmode" != fifo ]] && ! [[ "$ofmt" == exhale ]] && [[ "$ofmt" != null ]]; then
+                  if [[ "$mmode" != (fifo|evalpipe) ]] && ! [[ "$ofmt" == exhale ]] && [[ "$ofmt" != null ]]; then
                     command ffmpeg -loglevel warning -xerror -hide_banner -err_detect explode -i $ifile -f s16le - | {
                       for ((tn=1;tn<=cuedump[tc];tn++)); do
                         if (( ${seltnums[(I)$tn]} )); then
