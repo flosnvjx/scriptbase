@@ -1015,7 +1015,7 @@ ${cuedump[d.REM REPLAYGAIN_ALBUM_PEAK]:+--comment=REPLAYGAIN_ALBUM_PEAK=${cuedum
                   esac
 
                   if (( cuedump[tc] > 1 && ${(@)#${(@)cuedump[(I)*.FILE]}} > 1 )); then
-                    [[ -z "$mmode" ]]
+                    [[ -z "$mmode" || "$mmode" == evalpipe ]]
                     for ((tn=1;tn<=cuedump[tc];tn++)); do
                       function {
                         argv=(${(@n)cuedump[(I)<1->.FILE]%%.*})
