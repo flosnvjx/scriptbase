@@ -1,6 +1,8 @@
 #!/usr/bin/env shorthandzsh
 
+setopt pipefail errexit
 set -x
+
 declare +x idlpaste=
 vared -chp idlpaste: idlpaste
 
@@ -12,7 +14,6 @@ env -v true "${(@)idlargv}"
 declare -a idltriplet=() urls=() outfns=()
 while ((#idlargv)); do
   idltriplet=("${(@z)idlargv[1]## #idman #}")
-  ((#idltriplet%2==0))
   local url= outfn=
   while ((#idltriplet)); do
     case "${idltriplet[1]}" in
@@ -41,13 +42,15 @@ while ((#urls)); do
   function {
     setopt localoptions histsubstpattern extendedglob
     local match=()
-    pgrep=${pgrep:gs/[.*+?^$]|\(|\{|\\|\[|\|/'\\${match[1]}'/}
+    pgrep=${pgrep:gs/(#b)([.+^[|$]|\{|[\(])(#B)/'\\${match[1]}'/}
   }
-  if pgrep -xcn -- $pgrep >/dev/null; then
+  if pgrep -fxcn -- $pgrep' .*' >/dev/null; then
     : running
+  elif [[ -e "$outdir/${outfns[1]}" ]]; then
+    : downloaded
   else
     if [[ -e "$outdir/${outfns[1]}.ing" ]]; then
-      already_existing_outfn_sz+=("${outfns[1]}" "$(stat -c %s -- "${outfns[1]}")")
+      already_existing_outfn_sz+=("${outfns[1]}" "$(stat -c %s -- "$outdir/${outfns[1]}.ing")")
     fi
     ( <&- >>"$outdir/${outfns[1]}.ing" stdbuf -o 32M env -a "curl.idlman:${outfns[1]}" curl -q --no-progress-meter -gfL"${${already_existing_outfn_sz[${outfns[1]}]:#0}:+C${already_existing_outfn_sz[${outfns[1]}]}}" -y 185 -Y 10240 --retry 0 --url "${urls[1]}" && mv -vT -- "$outdir/${outfns[1]}"{".ing",} )& disown
   fi
