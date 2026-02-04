@@ -3,6 +3,21 @@
 setopt pipefail errexit
 set -x
 
+declare -A already_existing_outfn_sz
+if [[ "$1" = get && $# = 3 ]]; then
+  if [[ -e "$3.ing" ]]; then
+    already_existing_outfn_sz+=("$3" "$(stat -c %s -- "$3")")
+  fi
+  until stdbuf -o 32M env -a "curl.idlman:$3" curl -q --no-progress-meter -gfL"${${already_existing_outfn_sz[$3]:#0}:+C${already_existing_outfn_sz[$3]}}" -y 185 -Y 10240 --retry 0 --url "$2" && mv -vT -- "$3"{".ing",} <&- >>"$3.ing"; do
+    case "$?" in
+     (*)
+       eval "echo return:$? >>/dev/stderr; exit $?"
+     ;|
+    esac
+  done
+  exit
+fi
+
 declare +x idlpaste=
 vared -chp idlpaste: idlpaste
 
@@ -34,25 +49,22 @@ if [[ -n "$1" && -d "$1/" ]]; then
 else
   declare +x outdir=.
 fi
+outdir="$(readlink -e -- $outdir/)"
 
 #builtin zmodload -Fa zsh/stat b:zstat
-declare -A already_existing_outfn_sz
 while ((#urls)); do
-  local pgrep="curl.idlman:${outfns[1]}"
+  local pgrep="$outdir/${outfns[1]}"
   function {
     setopt localoptions histsubstpattern extendedglob
     local match=()
     pgrep=${pgrep:gs/(#b)([.+^[|$]|\{|[\(])(#B)/'\\${match[1]}'/}
   }
-  if pgrep -fcn -- '^'$pgrep' .*' >/dev/null; then
+  if pgrep -fcn -- '(^curl\.idlman:| +)'$pgrep' .*' >/dev/null; then
     : running
   elif [[ -e "$outdir/${outfns[1]}" ]]; then
     : downloaded
   else
-    if [[ -e "$outdir/${outfns[1]}.ing" ]]; then
-      already_existing_outfn_sz+=("${outfns[1]}" "$(stat -c %s -- "$outdir/${outfns[1]}.ing")")
-    fi
-    ( <&- >>"$outdir/${outfns[1]}.ing" stdbuf -o 32M env -a "curl.idlman:${outfns[1]}" curl -q --no-progress-meter -gfL"${${already_existing_outfn_sz[${outfns[1]}]:#0}:+C${already_existing_outfn_sz[${outfns[1]}]}}" -y 185 -Y 10240 --retry 0 --url "${urls[1]}" && mv -vT -- "$outdir/${outfns[1]}"{".ing",} )& disown
+    $0 get "${urls[1]}" "$outdir/${outfns[1]}" & disown
   fi
   shift urls outfns
 done
