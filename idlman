@@ -44,7 +44,7 @@ while ((#urls)); do
     local match=()
     pgrep=${pgrep:gs/(#b)([.+^[|$]|\{|[\(])(#B)/'\\${match[1]}'/}
   }
-  if pgrep -fxcn -- $pgrep' .*' >/dev/null; then
+  if pgrep -fcn -- '^'$pgrep' .*' >/dev/null; then
     : running
   elif [[ -e "$outdir/${outfns[1]}" ]]; then
     : downloaded
