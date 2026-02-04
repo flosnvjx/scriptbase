@@ -70,5 +70,6 @@ while ((#urls)); do
   else
     $0 get "${urls[1]}" "$outdir/${outfns[1]}" & disown
   fi
+  sleep $((RANDOM%10+10))
   shift urls outfns
 done
