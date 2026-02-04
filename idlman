@@ -14,7 +14,7 @@ if [[ "$1" = get && $# = 3 ]]; then
      sleep $((RANDOM%30+60))
      ;|
      (*)
-       eval "echo return:$? $@ >&2; exit $?"
+       eval "echo return:$? ${(q@)argv} >&2; exit $?"
      ;|
     esac
   done
