@@ -10,8 +10,11 @@ if [[ "$1" = get && $# = 3 ]]; then
   fi
   until stdbuf -o 32M env -a "curl.idlman:$3" curl -q --no-progress-meter -gfL"${${already_existing_outfn_sz[$3]:#0}:+C${already_existing_outfn_sz[$3]}}" -y 185 -Y 10240 --retry 0 --url "$2" && mv -vT -- "$3"{".ing",} <&- >>"$3.ing"; do
     case "$?" in
+     (52)
+     sleep 60
+     ;|
      (*)
-       eval "echo return:$? >>/dev/stderr; exit $?"
+       eval "echo return:$? >&2; exit $?"
      ;|
     esac
   done
