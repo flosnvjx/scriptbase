@@ -8,16 +8,17 @@ if [[ "$1" = get && $# = 3 ]]; then
   if [[ -e "$3.ing" ]]; then
     already_existing_outfn_sz+=("$3" "$(stat -c %s -- "$3")")
   fi
-  until stdbuf -o 32M env -a "curl.idlman:$3" curl -q --no-progress-meter -gfL"${${already_existing_outfn_sz[$3]:#0}:+C${already_existing_outfn_sz[$3]}}" -y 185 -Y 10240 --retry 0 --url "$2" <&- >>"$3.ing" && mv -vT -- "$3"{".ing",}; do
+  until stdbuf -o 32M curl -q --no-progress-meter -gfL"${${already_existing_outfn_sz[$3]:#0}:+C${already_existing_outfn_sz[$3]}}" -y 185 -Y 10240 --retry 0 --url "$2" <&- >>"$3.ing"; do
     case "$?" in
      (52)
-     sleep 60
+     sleep $((RANDOM%30+60))
      ;|
      (*)
        eval "echo return:$? >&2; exit $?"
      ;|
     esac
   done
+  mv -vT -- "$3"{".ing",}
   exit
 fi
 
