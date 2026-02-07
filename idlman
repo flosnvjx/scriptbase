@@ -5,12 +5,18 @@ set -x
 
 declare -A already_existing_outfn_sz
 if [[ "$1" = get && $# = 3 ]]; then
+  declare i=1
+  if [[ "$SLEEP" -gt 0 ]]; then
+    sleep $((SLEEP))
+  fi
   until {
     if [[ -e "$3.ing" ]]; then already_existing_outfn_sz+=("$3" "$(stat -c %s -- "$3.ing")"); fi
     stdbuf -o 32M curl -q --no-progress-meter -gfL"${${already_existing_outfn_sz[$3]:#0}:+C${already_existing_outfn_sz[$3]}}" -y 185 -Y 10240 --retry 0 --url "$2" <&- >>"$3.ing"
   }; do
     case "$?" in
-     (52) sleep $((RANDOM%30+60)) ;;
+     (52) sleep $((RANDOM%30+60*i))
+     : $((i++))
+     ;;
      (*) exit $? ;;
     esac
   done
@@ -59,13 +65,12 @@ while ((#urls)); do
     local match=()
     pgrep=${pgrep:gs/(#b)([.+^[|$]|\{|[\(])(#B)/'\\${match[1]}'/}
   }
-  if pgrep -fcn -- '(^curl\.idlman:| +)'$pgrep' .*' >/dev/null; then
+  if pgrep -fcn -- '(^curl\.idlman:| +)'$pgrep'( .+|$)' >/dev/null; then
     : running
   elif [[ -e "$outdir/${outfns[1]}" ]]; then
     : downloaded
   else
-    $0 get "${urls[1]}" "$outdir/${outfns[1]}" & disown
+    SLEEP=$((RANDOM%10+10)) $0 get "${urls[1]}" "$outdir/${outfns[1]}" & disown
   fi
-  sleep $((RANDOM%10+10))
   shift urls outfns
 done
