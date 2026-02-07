@@ -58,6 +58,7 @@ outdir="$(readlink -e -- $outdir/)"
 
 #builtin zmodload -Fa zsh/stat b:zstat
 while ((#urls)); do
+  declare k=0
   local pgrep="$outdir/${outfns[1]}"
   function {
     setopt localoptions histsubstpattern extendedglob
