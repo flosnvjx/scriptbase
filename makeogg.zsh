@@ -1040,7 +1040,7 @@ ${cuedump[d.REM REPLAYGAIN_ALBUM_PEAK]:+--comment=REPLAYGAIN_ALBUM_PEAK=${cuedum
                     if [[ "$ofmt" = exhale ]] && ! ffmpeg -loglevel fatal -xerror -hide_banner -err_detect explode -i "$outfnpref/$outfnsuff.${ostrext[$ofmt]}" -f null - >/dev/null; then
                       truncate -s 0 -- "$outfnpref/$outfnsuff.${ostrext[$ofmt]}"
                       command ${(s. .)rundec} ${${(M)cuedump[${seltnums[1]}.skip]:#<1->}:+--skip=${cuedump[${seltnums[1]}.skip]}} ${${(M)cuedump[${seltnums[1]}.until]:#<1->}:+--until=${cuedump[${seltnums[1]}.until]}} -- ${cuedump[${seltnums[1]}.file]:-$ifile} | rw | eval command ${${${${(f)runenc[${(@)${(@)wa_ofmt:#$ofmt}[1]}]}:#}//\[\$tn./'[${seltnums[1]}.'}//\[\$tn\]/'[${seltnums[1]}]'} -
-                      if [[ -v comments[rsgain] ]]; then
+                      if [[ -v commands[rsgain] ]]; then
                         rsgain custom -s i -S -t -q -- "$outfnpref/$outfnsuff.${ostrext[${(@)${(@)wa_ofmt:#$ofmt}[1]}]}"
                       fi
                     fi
@@ -1110,7 +1110,7 @@ ${cuedump[d.REM REPLAYGAIN_ALBUM_PEAK]:+--comment=REPLAYGAIN_ALBUM_PEAK=${cuedum
                               setopt noxtrace
                               print -rn -- $bufstdin | eval command ${${(f)runenc[${(@)${(@)wa_ofmt:#$ofmt}[1]}]}:#} -
                             }
-                            if [[ -v comments[rsgain] ]]; then
+                            if [[ -v commands[rsgain] ]]; then
                               rsgain custom -s i -S -t -q -- "$outfnpref/$outfnsuff.${ostrext[${(@)${(@)wa_ofmt:#$ofmt}[1]}]}"
                             fi
                           fi
