@@ -1029,7 +1029,7 @@ ${cuedump[d.REM REPLAYGAIN_ALBUM_PEAK]:+--comment=REPLAYGAIN_ALBUM_PEAK=${cuedum
                   fi
 
                   while (( $#seltnums )); do
-                    if [[ "$mmode" != evalpipe ]] && ! [[ "$ofmt" == exhale ]] && ! (( ${#cuedump[${seltnums[1]}.REM REPLAYGAIN_TRACK_GAIN]} && ${#cuedump[${seltnums[1]}.REM REPLAYGAIN_TRACK_PEAK]} )) && [[ "$ofmt" != null ]]; then
+                    if [[ "$mmode" != evalpipe ]] && [[ "$ofmt" == (flac|wavpack|takc) ]] && ! (( ${#cuedump[${seltnums[1]}.REM REPLAYGAIN_TRACK_GAIN]} && ${#cuedump[${seltnums[1]}.REM REPLAYGAIN_TRACK_PEAK]} )) && [[ "$ofmt" != null ]]; then
                       local REPLAYGAIN_TRACK_GAIN= REPLAYGAIN_TRACK_PEAK=
                       command ${(s. .)rundec} ${${(M)cuedump[${seltnums[1]}.skip]:#<1->}:+--skip=${cuedump[${seltnums[1]}.skip]}} ${${(M)cuedump[${seltnums[1]}.until]:#<1->}:+--until=${cuedump[${seltnums[1]}.until]}} -- ${cuedump[${seltnums[1]}.file]:-$ifile} | gainstdin
                       REPLAYGAIN_TRACK_GAINs[${seltnums[1]}]=$REPLAYGAIN_TRACK_GAIN
@@ -1040,12 +1040,14 @@ ${cuedump[d.REM REPLAYGAIN_ALBUM_PEAK]:+--comment=REPLAYGAIN_ALBUM_PEAK=${cuedum
                     if [[ "$ofmt" = exhale ]] && ! ffmpeg -loglevel fatal -xerror -hide_banner -err_detect explode -i "$outfnpref/$outfnsuff.${ostrext[$ofmt]}" -f null - >/dev/null; then
                       truncate -s 0 -- "$outfnpref/$outfnsuff.${ostrext[$ofmt]}"
                       command ${(s. .)rundec} ${${(M)cuedump[${seltnums[1]}.skip]:#<1->}:+--skip=${cuedump[${seltnums[1]}.skip]}} ${${(M)cuedump[${seltnums[1]}.until]:#<1->}:+--until=${cuedump[${seltnums[1]}.until]}} -- ${cuedump[${seltnums[1]}.file]:-$ifile} | rw | eval command ${${${${(f)runenc[${(@)${(@)wa_ofmt:#$ofmt}[1]}]}:#}//\[\$tn./'[${seltnums[1]}.'}//\[\$tn\]/'[${seltnums[1]}]'} -
-                      if [[ -v commands[rsgain] ]]; then
-                        rsgain custom -s i -S -t -q -- "$outfnpref/$outfnsuff.${ostrext[${(@)${(@)wa_ofmt:#$ofmt}[1]}]}"
-                      fi
                     fi
                     if [[ "$mmode" != evalpipe ]] && [[ -f "${${(M)cuefiles[$walkcuefiles]:#*/*}:+${cuefiles[$walkcuefiles]:h}/}${outfnsuff:t}.lrc" ]] && [[ ! -e "$outfnpref/$outfnsuff.lrc" ]]; then
                       cp -- "${${(M)cuefiles[$walkcuefiles]:#*/*}:+${cuefiles[$walkcuefiles]:h}/}${outfnsuff:t}.lrc" "$outfnpref/$outfnsuff.lrc"
+                    fi
+                    if [[ "$ofmt" != (flac|wavpack|takc|null) ]] && (( $#seltnums == 1 )) && ! (( ${#cuedump[${seltnums[1]}.REM REPLAYGAIN_TRACK_GAIN]} && ${#cuedump[${seltnums[1]}.REM REPLAYGAIN_TRACK_PEAK]} )); then
+                      if [[ -v commands[rsgain] ]]; then
+                        rsgain custom -s i -S -t -a -- $outfnpref/*.(#i)${^ostrext}(.N)
+                      fi
                     fi
                     shift seltnums
                   done
@@ -1078,7 +1080,7 @@ ${cuedump[d.REM REPLAYGAIN_ALBUM_PEAK]:+--comment=REPLAYGAIN_ALBUM_PEAK=${cuedum
                     done
                     ofmt=$o_ofmt
                   }
-                  if [[ "$mmode" != (fifo|evalpipe) ]] && ! [[ "$ofmt" == exhale ]] && [[ "$ofmt" != null ]]; then
+                  if [[ "$mmode" != (fifo|evalpipe) ]] && [[ "$ofmt" == (flac|wavpack|takc) ]] && [[ "$ofmt" != null ]]; then
                     command ffmpeg -loglevel warning -xerror -hide_banner -err_detect explode -i $ifile -f s16le - | {
                       for ((tn=1;tn<=cuedump[tc];tn++)); do
                         if (( ${seltnums[(I)$tn]} )); then
@@ -1110,9 +1112,6 @@ ${cuedump[d.REM REPLAYGAIN_ALBUM_PEAK]:+--comment=REPLAYGAIN_ALBUM_PEAK=${cuedum
                               setopt noxtrace
                               print -rn -- $bufstdin | eval command ${${(f)runenc[${(@)${(@)wa_ofmt:#$ofmt}[1]}]}:#} -
                             }
-                            if [[ -v commands[rsgain] ]]; then
-                              rsgain custom -s i -S -t -q -- "$outfnpref/$outfnsuff.${ostrext[${(@)${(@)wa_ofmt:#$ofmt}[1]}]}"
-                            fi
                           fi
                         else
                           dd bs=128K ${${(M)cuedump[$tn.pskip]:#<1->}:+skip=$(( 4 * ${cuedump[$tn.pskip]} ))B} ${${(M)cuedump[$tn.plen]}:+count=$(( 4 * ${cuedump[$tn.plen]} ))B} iflag=fullblock status=none | rw | eval command ${${(f)runenc[$ofmt]}:#} "${(@q)ofmtargs}" - "${${(M)mmode:#evalpipe}:+ | $evalpipe}"
@@ -1124,6 +1123,11 @@ ${cuedump[d.REM REPLAYGAIN_ALBUM_PEAK]:+--comment=REPLAYGAIN_ALBUM_PEAK=${cuedum
                         pv -qX${cuedump[$tn.plen]:+Ss$((4*cuedump[$tn.plen]+4*cuedump[$tn.pskip]))}
                       fi
                     done
+                    if [[ "$ofmt" != (flac|wavpack|takc|null) ]] && ! (( ${#cuedump[${cuedump[tc]}.REM REPLAYGAIN_TRACK_GAIN]} && ${#cuedump[${cuedump[tc]}.REM REPLAYGAIN_TRACK_PEAK]} )); then
+                      if [[ -v commands[rsgain] ]]; then
+                        rsgain custom -s i -S -t -a -- $outfnpref/*.(#i)${^ostrext}(.N)
+                      fi
+                    fi
                   )
                 ;|
               esac
