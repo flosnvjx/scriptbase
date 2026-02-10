@@ -578,8 +578,8 @@ $outfnpref/$outfnsuff.${ostrext[$ofmt]}
 ${${${${cuedump[$tn.REM VOCALIST]}:-${cuedump[d.REM VOCALIST]}}:+ja}:-zxx};
 mp4tagcli
 --
-"$outfnpref/$outfnsuff".${ostrext[$ofmt]}
-${commands[rsgain]:+----:com.apple.iTunes:}"${(@f)^commands[rsgain]:+$(rsgain custom -t -O -S -- $outfnpref/$outfnsuff.${ostrext[$ofmt]} | awk '\''END{if (NR>1) {printf "REPLAYGAIN_TRACK_GAIN=%s dB\nREPLAYGAIN_TRACK_PEAK=%s\n",$3,$4} else exit(5)}'\'')}"'
+"$outfnpref/$outfnsuff".${ostrext[$ofmt]}'
+#${commands[rsgain]:+----:com.apple.iTunes:}"${(@f)^commands[rsgain]:+$(rsgain custom -t -O -S -- $outfnpref/$outfnsuff.${ostrext[$ofmt]} | awk '\''END{if (NR>1) {printf "REPLAYGAIN_TRACK_GAIN=%s dB\nREPLAYGAIN_TRACK_PEAK=%s\n",$3,$4} else exit(5)}'\'')}"
                 ;|
                 (aotuv|flac|opus)
                 runenc[$ofmt]+='
@@ -1046,7 +1046,7 @@ ${cuedump[d.REM REPLAYGAIN_ALBUM_PEAK]:+--comment=REPLAYGAIN_ALBUM_PEAK=${cuedum
                     fi
                     if [[ "$ofmt" != (flac|wavpack|takc|null) ]] && (( $#seltnums == 1 )) && ! (( ${#cuedump[${seltnums[1]}.REM REPLAYGAIN_TRACK_GAIN]} && ${#cuedump[${seltnums[1]}.REM REPLAYGAIN_TRACK_PEAK]} )); then
                       if [[ -v commands[rsgain] ]]; then
-                        rsgain custom -s i -S -t -a -- $outfnpref/*.(#i)${^ostrext}(.N)
+                        rsgain custom -s i -S -t -a -- $outfnpref/*.(#i)${(u)^ostrext}(.N)
                       fi
                     fi
                     shift seltnums
@@ -1125,7 +1125,7 @@ ${cuedump[d.REM REPLAYGAIN_ALBUM_PEAK]:+--comment=REPLAYGAIN_ALBUM_PEAK=${cuedum
                     done
                     if [[ "$ofmt" != (flac|wavpack|takc|null) ]] && ! (( ${#cuedump[${cuedump[tc]}.REM REPLAYGAIN_TRACK_GAIN]} && ${#cuedump[${cuedump[tc]}.REM REPLAYGAIN_TRACK_PEAK]} )); then
                       if [[ -v commands[rsgain] ]]; then
-                        rsgain custom -s i -S -t -a -- $outfnpref/*.(#i)${^ostrext}(.N)
+                        rsgain custom -s i -S -t -a -- $outfnpref/*.(#i)${(u)^ostrext}(.N)
                       fi
                     fi
                   )
