@@ -13,8 +13,8 @@ if [[ "$1" = get && $# = 3 ]]; then
     stdbuf -o 32M curl -q --no-progress-meter -gfL"${${already_existing_outfn_sz[$3]:#0}:+C${already_existing_outfn_sz[$3]}}" -y 185 -Y 10240 --retry 0 --url "$2" <&- >>"$3.ing"
   }; do
     case "$?" in
-     (52) sleep $((RANDOM%30+60*i))
-     : $((i++))
+     (52|35|18) sleep $((RANDOM%30+60*i))
+     let i++
      ;;
      (*) exit $? ;;
     esac
@@ -54,7 +54,6 @@ if [[ -n "$1" && -d "$1/" ]]; then
 else
   declare +x outdir=.
 fi
-outdir="$(readlink -e -- $outdir/)"
 
 #builtin zmodload -Fa zsh/stat b:zstat
 while ((#urls)); do
