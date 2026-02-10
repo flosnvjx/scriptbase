@@ -467,7 +467,7 @@ function .main {
           '"${${(M)mmode:#tidy}:+d[\"d\"][\"REM DATE\"]=\"${${dates[$walkcuefiles]//\"/＂}//\\/\\\\}\"}"'
           '"${${(M)mmode:#tidy}:+d[\"d\"][\"PERFORMER\"]=\"${${aarts[$walkcuefiles]//\"/＂}//\\/\\\\}\"}"'
         }
-      '$awkcueput) <(print -rn -- ${cuebuffers[$walkcuefiles]}) | readeof mbuf
+      '$awkcueput <&-) <<<${cuebuffers[$walkcuefiles]%$'\n'} | readeof mbuf
       print -rn -- ${mbuf} | delta --paging never <(print -rn -- ${cuebuffers[$walkcuefiles]}) - || :
       local REPLY=
       mbufs+=($mbuf)
