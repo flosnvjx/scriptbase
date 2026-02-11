@@ -1719,6 +1719,25 @@ vorbiscmt2itunes=(
   GENRE gen
 )
 
+declare -a vorbiscmt2ape
+vorbiscmt2ape=(
+  ALBUM Album
+  ALBUMARTIST 'Album Artist'
+  ARRANGER Arranger
+  ARTIST Artist
+  CATALOGNUMBER CatalogNumber
+  COMMENT Comment
+  COMPOSER Composer
+  GENRE Genre
+  GROUPING Grouping
+  LANGUAGE Language
+  LYRICIST Lyricist
+  LYRICS Lyrics
+  LABEL Label
+
+  DATE Year
+)
+
 declare -a vorbiscmt2cue
 vorbiscmt2cue=(
   TITLE:TITLE
