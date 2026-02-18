@@ -108,7 +108,7 @@ function .main {
     if ((#cueprep)); then
       gawk -E <(printf '%s' $awkcuemput) <(while ((#cueprep)); do printf '%s\n%s\n' "${cueprep[1]}" "${cueprep[2]}"; shift 2 cueprep; done) <(printf '%s' $mbuf) | readeof mbuf
     fi
-    rw -- $gc_outfn.cue <<< ${mbuf%$'\n'}
+    rw -- $gc_outfn.gen4play.cue <<< ${mbuf%$'\n'}
     exit
   else
     case $#acuefiles in
