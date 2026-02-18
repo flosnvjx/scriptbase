@@ -1361,6 +1361,8 @@ function Map(re, arr) {
 nt==""&&nt==0&&/[^\t ]/{
   if ((Map("^[\t ]*(REM [A-Z_]+) \"(.*)\" *$",m) || \
    Map("^[\t ]*(REM [A-Z_]+) ([^ \"\t]*) *$",m) || \
+   Map("^[\t ]*(REM REPLAYGAIN_ALBUM_GAIN|REM REPLAYGAIN_TRACK_GAIN) ((-|)[0-9].[0-9][0-9] dB)$",m) || \
+   Map("^[\t ]*(REM REPLAYGAIN_ALBUM_PEAK|REM REPLAYGAIN_TRACK_PEAK) ([0-9].[0-9][0-9][0-9][0-9][0-9][0-9])$",m) || \
    Map("^[\t ]*(CATALOG|CDTEXTFILE|PERFORMER|TITLE|SONGWRITER) \"(.*)\" *$",m) || \
    Map("^[\t ]*(CATALOG) ([^ \"\t]*) *$",m) || \
    Map("^[\t ]*(FILE) \"(.*)\" (WAVE|FLAC) *$",m)))
@@ -1373,6 +1375,8 @@ nt==""&&nt==0&&/[^\t ]/{
 nt>=0&&nt!=""&&/[^\t ]/{
   if ((Map("^[\t ]*(REM [A-Z_]+) \"(.*)\" *$",m) || \
    Map("^[\t ]*(REM [A-Z_]+) ([^ \"\t]*) *$",m) || \
+   Map("^[\t ]*(REM REPLAYGAIN_ALBUM_GAIN|REM REPLAYGAIN_TRACK_GAIN) ((-|)[0-9].[0-9][0-9] dB)$",m) || \
+   Map("^[\t ]*(REM REPLAYGAIN_ALBUM_PEAK|REM REPLAYGAIN_TRACK_PEAK) ([0-9].[0-9][0-9][0-9][0-9][0-9][0-9])$",m) || \
    Map("^[\t ]*(PERFORMER|TITLE|SONGWRITER) \"(.*)\" *$",m) || \
    Map("^[\t ]*(ISRC) ([^ \"\t]*) *$",m) || \
    Map("^[\t ]*(INDEX [0-9][0-9]|POSTGAP|PREGAP) ([0-9][0-9]:[0-9][0-9]:[0-9][0-9]) *$",m) || \
@@ -1567,6 +1571,10 @@ function pd(k,  tr, pad) {
         case "REM TOTALDISCS" :
         case "REM DATE" :
         case "REM CATALOGNUMBER" :
+        case "REM REPLAYGAIN_ALBUM_GAIN" :
+        case "REM REPLAYGAIN_TRACK_GAIN" :
+        case "REM REPLAYGAIN_ALBUM_PEAK" :
+        case "REM REPLAYGAIN_TRACK_PEAK" :
         case "ISRC" :
           print k " " (tr==""&&tr==0 ? d["d"][k] : d[tr][k]);
           break;
