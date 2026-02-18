@@ -384,6 +384,14 @@ function .main {
         match=()
         : ${dates[$walkcuefiles]:#(#b)(<1980-2099>)(#B)(|/(#b)(<1-12>)(#B)(|/(#b)(<1-31>)))}
         albumtidydirs[$walkcuefiles]="[${match[1]:2:2}${${match[2]:+${${(M)match[2]:#?}:+0}${match[2]}}:-xx}${${match[3]:+${${(M)match[3]:#?}:+0}${match[3]}}:-xx}][${${labels[$walkcuefiles]:+${labels[$walkcuefiles]}${${:-${aarts[${walkcuefiles}]}${(@j||)${(@Mn)cache_aarts_triplets:#${albumtitles[$walkcuefiles]}$'\n'<1->$'\n'*}##*$'\n'}}:+ (${${(@j|、|)${(@Mn)cache_aarts_triplets:#${albumtitles[$walkcuefiles]}$'\n'<1->$'\n'*}##*$'\n'}:-${aarts[$walkcuefiles]}})}}:-${aarts[${walkcuefiles}]}}] ${albumtitles[$walkcuefiles]} ${${(@j..)catnos}:+[${(@j.,.)${(@nu)catnos}}]}${suris[$walkcuefiles]:+[${suris[$walkcuefiles]}]}[VGMdb${vgmdbids[$walkcuefiles]}]${ssdlwids[$walkcuefiles]:+{${ssdlwids[${walkcuefiles}]}\}}"
+        until function {
+          setopt localoptions nomultibyte noxtrace
+          if (( ${#albumtidydirs[$walkcuefiles]} > 255 )); then
+            return 1
+          fi
+        }; do
+          vared -chp "tidy.albumdir[$walkcuefiles]> " "albumtidydirs[$walkcuefiles]"
+        done
         albumtidyfiles[$walkcuefiles]=${${catnos[$walkcuefiles]:+${catnos[$walkcuefiles]}${${totaldiscs[$walkcuefiles]:#${(@)#${(@u)catnos}}}:+.disc${discnumbers[$walkcuefiles]}}}:-VGMdb.album${vgmdbids[$walkcuefiles]}${${(M)totaldiscs[$walkcuefiles]:#<2->}:+.disc${discnumbers[$walkcuefiles]}}}${suris[$walkcuefiles]}
       done
       ## FIXME: improve if-cond
