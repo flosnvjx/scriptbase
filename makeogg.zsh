@@ -434,7 +434,7 @@ function .main {
           .msg "${cuefiles[$walkcuefiles]} (${cuefiledirectives[$walkcuefiles]})"
           if ! [[ -f "$ifile" ]]; then
             function {
-              argv=({${${(M)cuefiles[$walkcuefiles]:#*/*}:+${cuefiles[$walkcuefiles]%/*}/}${cuefiledirectives[$walkcuefiles]:r},${cuefiles[$walkcuefiles]:r}}.(#i)(flac|wav|tak|tta|ape)(.N))
+              argv=({${${(M)cuefiles[$walkcuefiles]:#*/*}:+${cuefiles[$walkcuefiles]%/*}/}${cuefiledirectives[$walkcuefiles]:r},${cuefiles[$walkcuefiles]:r}}.(#i)(flac|wv|wav|tak|tta|ape)(.N))
               if ((#)); then
                 ifile=$1
                 albumfiles[$walkcuefiles]=${${${(M)cuefiles[$walkcuefiles]:#*/*}:+${ifile#${cuefiles[$walkcuefiles]%/*}/}}:-$ifile}
@@ -873,7 +873,7 @@ ${cuedump[d.REM REPLAYGAIN_ALBUM_PEAK]:+--comment=REPLAYGAIN_ALBUM_PEAK=${cuedum
               local -a testmusicalkeys=()
               local -a REPLAYGAIN_TRACK_GAINs=() REPLAYGAIN_TRACK_PEAKs=()
               case "${ffprobe[format.format_name]}" in
-                (wv) wvunpack -qmvz0 -- $ifile
+                (wv) wvunpack -qvmz0 ${${(M)ifile:#-*}:+./}$ifile
                 rundec='wvunpack -q -z0 -o -'
                 ;;
                 (flac) flac -ts -- $ifile
@@ -907,14 +907,14 @@ ${cuedump[d.REM REPLAYGAIN_ALBUM_PEAK]:+--comment=REPLAYGAIN_ALBUM_PEAK=${cuedum
               local oldxxh3=${match[2]:l}
               if ! (( $#oldxxh3 && $#oldsamplecount )); then
                 function {
-                  argv=("${(@f)$({ eval command ${(z)rundec:-ffmpeg -loglevel warning -xerror -hide_banner -err_detect explode -i \$ifile -f wav -} ${rundec:+${${rundec:#* \$ifile #*}:+-- \$ifile}}|LC_ALL=C sox -Dtwav - -traw - silence 1 1 0 -1 1 0 stat|xxhsum --tag -H3 -; } 2>&1;)}")
+                  argv=("${(@f)$({ eval command ${(z)rundec:-ffmpeg -loglevel warning -xerror -hide_banner -err_detect explode -i \$ifile -f wav -} ${rundec:+${${rundec:#* \$ifile #*}:+${${(M)ifile:#-*}:+./}\$ifile}}|LC_ALL=C sox -Dtwav - -traw - silence 1 1 0 -1 1 0 stat|xxhsum --tag -H3 -; } 2>&1;)}")
                   oldsamplecount=${argv[(r)Samples read: #[0-9]##]##*: #}
                   oldxxh3=${argv[(r)XXH3 \(?*\) = [0-9a-f](#c16)]##* = }
                   (( $#oldsamplecount && $#oldxxh3==16 ))
                 }
               else
                 function {
-                  argv=("${(@f)$({ eval command ${(z)rundec:-ffmpeg -loglevel warning -xerror -hide_banner -err_detect explode -i \$ifile -f wav -} ${rundec:+${${rundec:#* \$ifile #*}:+-- \$ifile}}|LC_ALL=C sox -Dtwav - -traw - silence 1 1 0 -1 1 0 stat|xxhsum --tag -H3 -; } 2>&1;)}")
+                  argv=("${(@f)$({ eval command ${(z)rundec:-ffmpeg -loglevel warning -xerror -hide_banner -err_detect explode -i \$ifile -f wav -} ${rundec:+${${rundec:#* \$ifile #*}:+${${(M)ifile:#-*}:+./}\$ifile}}|LC_ALL=C sox -Dtwav - -traw - silence 1 1 0 -1 1 0 stat|xxhsum --tag -H3 -; } 2>&1;)}")
                   local newsamplecount=${argv[(r)Samples read: #[0-9]##]##*: #}
                   local newxxh3=${argv[(r)XXH3 \(?*\) = [0-9a-f](#c16)]##* = }
                   [[ "$oldsamplecount" == "$newsamplecount" ]]
@@ -938,7 +938,7 @@ ${cuedump[d.REM REPLAYGAIN_ALBUM_PEAK]:+--comment=REPLAYGAIN_ALBUM_PEAK=${cuedum
                 case "${ffprobe[format.format_name]}.${tidyconv}" in
                   (flac.takc) ;&
                   (wv.takc)
-                    command ${(z)rundec} -- $ifile | command ${(ze)tidyconv_cmd//@f/-}
+                    command ${(z)rundec} ${${(M)ifile:#-*}:+./}$ifile | command ${(ze)tidyconv_cmd//@f/-}
                   ;|
                   (wav.takc) ;&
                   (wav.wavpack)
@@ -1039,12 +1039,12 @@ ${cuedump[d.REM REPLAYGAIN_ALBUM_PEAK]:+--comment=REPLAYGAIN_ALBUM_PEAK=${cuedum
                   while (( $#seltnums )); do
                     if [[ "$mmode" != evalpipe ]] && [[ "$ofmt" == (flac|wavpack|takc) ]] && ! (( ${#cuedump[${seltnums[1]}.REM REPLAYGAIN_TRACK_GAIN]} && ${#cuedump[${seltnums[1]}.REM REPLAYGAIN_TRACK_PEAK]} )) && [[ "$ofmt" != null ]]; then
                       local REPLAYGAIN_TRACK_GAIN= REPLAYGAIN_TRACK_PEAK=
-                      command ${(s. .)rundec} ${${(M)cuedump[${seltnums[1]}.skip]:#<1->}:+--skip=${cuedump[${seltnums[1]}.skip]}} ${${(M)cuedump[${seltnums[1]}.until]:#<1->}:+--until=${cuedump[${seltnums[1]}.until]}} -- ${cuedump[${seltnums[1]}.file]:-$ifile} | gainstdin
+                      command ${(s. .)rundec} ${${(M)cuedump[${seltnums[1]}.skip]:#<1->}:+--skip=${cuedump[${seltnums[1]}.skip]}} ${${(M)cuedump[${seltnums[1]}.until]:#<1->}:+--until=${cuedump[${seltnums[1]}.until]}} ${${(M)ifile:#-*}:+./}${cuedump[${seltnums[1]}.file]:-$ifile} | gainstdin
                       REPLAYGAIN_TRACK_GAINs[${seltnums[1]}]=$REPLAYGAIN_TRACK_GAIN
                       REPLAYGAIN_TRACK_PEAKs[${seltnums[1]}]=$REPLAYGAIN_TRACK_PEAK
                     fi
                     local outfnsuff="${(e)outfnsuff_t//\$tn/${seltnums[1]}}"
-                    command ${(s. .)rundec} ${${(M)cuedump[${seltnums[1]}.skip]:#<1->}:+--skip=${cuedump[${seltnums[1]}.skip]}} ${${(M)cuedump[${seltnums[1]}.until]:#<1->}:+--until=${cuedump[${seltnums[1]}.until]}} -- ${cuedump[${seltnums[1]}.file]:-$ifile} | rw | eval "${rundecpipe:+$rundecpipe | }" command ${${${${(f)runenc[$ofmt]}:#}//\[\$tn./'[${seltnums[1]}.'}//\[\$tn\]/'[${seltnums[1]}]'} "${(@q)ofmtargs}" - "${${(M)mmode:#evalpipe}:+ | $evalpipe}"
+                    command ${(s. .)rundec} ${${(M)cuedump[${seltnums[1]}.skip]:#<1->}:+--skip=${cuedump[${seltnums[1]}.skip]}} ${${(M)cuedump[${seltnums[1]}.until]:#<1->}:+--until=${cuedump[${seltnums[1]}.until]}} ${${(M)${cuedump[${seltnums[1]}.file]:-$ifile}:#-*}:+./}${cuedump[${seltnums[1]}.file]:-$ifile} | rw | eval "${rundecpipe:+$rundecpipe | }" command ${${${${(f)runenc[$ofmt]}:#}//\[\$tn./'[${seltnums[1]}.'}//\[\$tn\]/'[${seltnums[1]}]'} "${(@q)ofmtargs}" - "${${(M)mmode:#evalpipe}:+ | $evalpipe}"
                     if [[ "$mmode" != evalpipe ]] && [[ -f "${${(M)cuefiles[$walkcuefiles]:#*/*}:+${cuefiles[$walkcuefiles]:h}/}${outfnsuff:t}.lrc" ]] && [[ ! -e "$outfnpref/$outfnsuff.lrc" ]]; then
                       cp -- "${${(M)cuefiles[$walkcuefiles]:#*/*}:+${cuefiles[$walkcuefiles]:h}/}${outfnsuff:t}.lrc" "$outfnpref/$outfnsuff.lrc"
                     fi
