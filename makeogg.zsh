@@ -1045,14 +1045,10 @@ ${cuedump[d.REM REPLAYGAIN_ALBUM_PEAK]:+--comment=REPLAYGAIN_ALBUM_PEAK=${cuedum
                     fi
                     local outfnsuff="${(e)outfnsuff_t//\$tn/${seltnums[1]}}"
                     command ${(s. .)rundec} ${${(M)cuedump[${seltnums[1]}.skip]:#<1->}:+--skip=${cuedump[${seltnums[1]}.skip]}} ${${(M)cuedump[${seltnums[1]}.until]:#<1->}:+--until=${cuedump[${seltnums[1]}.until]}} -- ${cuedump[${seltnums[1]}.file]:-$ifile} | rw | eval "${rundecpipe:+$rundecpipe | }" command ${${${${(f)runenc[$ofmt]}:#}//\[\$tn./'[${seltnums[1]}.'}//\[\$tn\]/'[${seltnums[1]}]'} "${(@q)ofmtargs}" - "${${(M)mmode:#evalpipe}:+ | $evalpipe}"
-                    if [[ "$ofmt" = exhale ]] && ! ffmpeg -loglevel fatal -xerror -hide_banner -err_detect explode -i "$outfnpref/$outfnsuff.${ostrext[$ofmt]}" -f null - >/dev/null; then
-                      truncate -s 0 -- "$outfnpref/$outfnsuff.${ostrext[$ofmt]}"
-                      command ${(s. .)rundec} ${${(M)cuedump[${seltnums[1]}.skip]:#<1->}:+--skip=${cuedump[${seltnums[1]}.skip]}} ${${(M)cuedump[${seltnums[1]}.until]:#<1->}:+--until=${cuedump[${seltnums[1]}.until]}} -- ${cuedump[${seltnums[1]}.file]:-$ifile} | rw | eval command ${${${${(f)runenc[${(@)${(@)wa_ofmt:#$ofmt}[1]}]}:#}//\[\$tn./'[${seltnums[1]}.'}//\[\$tn\]/'[${seltnums[1]}]'} -
-                    fi
                     if [[ "$mmode" != evalpipe ]] && [[ -f "${${(M)cuefiles[$walkcuefiles]:#*/*}:+${cuefiles[$walkcuefiles]:h}/}${outfnsuff:t}.lrc" ]] && [[ ! -e "$outfnpref/$outfnsuff.lrc" ]]; then
                       cp -- "${${(M)cuefiles[$walkcuefiles]:#*/*}:+${cuefiles[$walkcuefiles]:h}/}${outfnsuff:t}.lrc" "$outfnpref/$outfnsuff.lrc"
                     fi
-                    if [[ "$ofmt" != (flac|wavpack|takc|null) ]] && (( $#seltnums == 1 )) && ! (( ${#cuedump[${seltnums[1]}.REM REPLAYGAIN_TRACK_GAIN]} && ${#cuedump[${seltnums[1]}.REM REPLAYGAIN_TRACK_PEAK]} )); then
+                    if [[ "$ofmt" != (flac|wavpack|takc|exhale|null) ]] && (( $#seltnums == 1 )) && ! (( ${#cuedump[${seltnums[1]}.REM REPLAYGAIN_TRACK_GAIN]} && ${#cuedump[${seltnums[1]}.REM REPLAYGAIN_TRACK_PEAK]} )); then
                       if [[ -v commands[rsgain] ]]; then
                         rsgain custom -s i -S -t -a -- $outfnpref/*.(#i)${(u)^ostrext}(.N)
                       fi
@@ -1114,13 +1110,6 @@ ${cuedump[d.REM REPLAYGAIN_ALBUM_PEAK]:+--comment=REPLAYGAIN_ALBUM_PEAK=${cuedum
                             setopt noxtrace
                             print -rn -- $bufstdin | eval command ${${(f)runenc[$ofmt]}:#} "${(@q)ofmtargs}" -
                           }
-                          if ! ffmpeg -loglevel fatal -xerror -hide_banner -err_detect explode -i "$outfnpref/$outfnsuff.${ostrext[$ofmt]}" -f null - >/dev/null; then
-                            truncate -s 0 -- "$outfnpref/$outfnsuff.${ostrext[$ofmt]}"
-                            function {
-                              setopt noxtrace
-                              print -rn -- $bufstdin | eval command ${${(f)runenc[${(@)${(@)wa_ofmt:#$ofmt}[1]}]}:#} -
-                            }
-                          fi
                         else
                           dd bs=128K ${${(M)cuedump[$tn.pskip]:#<1->}:+skip=$(( 4 * ${cuedump[$tn.pskip]} ))B} ${${(M)cuedump[$tn.plen]}:+count=$(( 4 * ${cuedump[$tn.plen]} ))B} iflag=fullblock status=none | rw | eval command ${${(f)runenc[$ofmt]}:#} "${(@q)ofmtargs}" - "${${(M)mmode:#evalpipe}:+ | $evalpipe}"
                         fi
@@ -1131,7 +1120,7 @@ ${cuedump[d.REM REPLAYGAIN_ALBUM_PEAK]:+--comment=REPLAYGAIN_ALBUM_PEAK=${cuedum
                         pv -qX${cuedump[$tn.plen]:+Ss$((4*cuedump[$tn.plen]+4*cuedump[$tn.pskip]))}
                       fi
                     done
-                    if [[ "$ofmt" != (flac|wavpack|takc|null) ]] && ! (( ${#cuedump[${cuedump[tc]}.REM REPLAYGAIN_TRACK_GAIN]} && ${#cuedump[${cuedump[tc]}.REM REPLAYGAIN_TRACK_PEAK]} )); then
+                    if [[ "$ofmt" != (flac|wavpack|takc|exhale|null) ]] && ! (( ${#cuedump[${cuedump[tc]}.REM REPLAYGAIN_TRACK_GAIN]} && ${#cuedump[${cuedump[tc]}.REM REPLAYGAIN_TRACK_PEAK]} )); then
                       if [[ -v commands[rsgain] ]]; then
                         rsgain custom -s i -S -t -a -- $outfnpref/*.(#i)${(u)^ostrext}(.N)
                       fi
