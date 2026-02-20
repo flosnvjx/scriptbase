@@ -429,7 +429,7 @@ function .main {
       local ifmtstr= ifile=
       if [[ "$mmode" != fifo ]]; then
       case "${match[1]}" in
-        ((#i)(flac|wav|tak|tta|ape))
+        ((#i)(flac|wv|wav|tak|tta|ape))
           ifile=${${(M)cuefiles[$walkcuefiles]:#*/*}:+${cuefiles[$walkcuefiles]%/*}/}${cuefiledirectives[$walkcuefiles]}
           .msg "${cuefiles[$walkcuefiles]} (${cuefiledirectives[$walkcuefiles]})"
           if ! [[ -f "$ifile" ]]; then
