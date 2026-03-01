@@ -1059,7 +1059,7 @@ ${cuedump[d.REM REPLAYGAIN_ALBUM_PEAK]:+--comment=REPLAYGAIN_ALBUM_PEAK=${cuedum
                 (wav|tak|tta|ape|)
                   ## match empty fmt in case of fifo mmode
 
-                  (( cuedump[tc] > 1 && ${(@)#${(@)cuedump[(I)*.FILE]}} > 1 )) || .fatal 'not implemented'
+                  (( ${(@)#${(@)cuedump[(I)*.FILE]}} == 1 )) || .fatal 'not implemented'
 
                   function {
                     local o_ofmt=$ofmt
