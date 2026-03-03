@@ -1,15 +1,16 @@
 #!/usr/bin/env shorthandzsh
 
+function main {
 declare +x key=$$.$RANDOM
 declare +x rate=${${(M)argv[1]:#<44100->}:-44100}
 declare +x gain=0 gaine=
 ! test -t 0
 ! test -t 1
-declare +x port=45555
-printf -v port '%04d' $$
+declare +x port=$$
+printf -v port '%04d' ${port[1,4]}
 port=4$port
 MemDAV -listen-http 127.0.0.2:$port -username a -password a >/dev/null &
-trap 'local abr=$?; pkill -INT MemDAV >/dev/null; exit $abr' ZERR EXIT
+trap 'local abr=$?; pkill -INT MemDAV >/dev/null; exit $abr' ZERR TERM INT
 sleep 0.2 >/dev/null
 curl -fsT - -u a:a http://127.0.0.2:$port/$key >/dev/null
 
@@ -27,3 +28,7 @@ if (( ffprobe[streams.stream.0.sample_rate] % rate )) || [[ "${ffprobe[streams.s
 else
   ffmpeg -loglevel warning -xerror -err_detect explode -i http://a:a@127.0.0.2:$port/$key -f wav -
 fi
+
+}
+
+main "${(@)argv}"
