@@ -564,6 +564,11 @@ function .main {
                 (fdkaac|qaac|exhale|opus)
                   runenc[$ofmt]=${ostr[$ofmt]// ##/$'\n'}
                 ;|
+                (qaac)
+                  if ! [[ "${#ofmtargs}" -ge 1 ]] && [[ "$ofmt" == "$o_ofmt" ]] && [[ "$mmode" != taste ]]; then
+                    runenc[$ofmt]+=$'\n-v128\n'
+                  fi
+                ;|
                 (exhale)
                 if [[ "${#ofmtargs}" -ge 1 ]]; then
                   runenc[$ofmt]+=$'\n'"${(@pj.\n.)ofmtargs}"$'\n'
@@ -1051,7 +1056,7 @@ ${cuedump[d.REM REPLAYGAIN_ALBUM_PEAK]:+--comment=REPLAYGAIN_ALBUM_PEAK=${cuedum
                     if [[ "$mmode" == taste ]]; then
                       asktaste+=("$(function {
                         argv=(${wa_ofmt})
-                        while ((#)); do printf '%s\n' $1 ${(@n)${(@)runencspinsadd[(I)$1.*]}}; shift; done
+                        while ((#)); do printf '%s\n' ${argv[1]:#qaac} ${(@n)${(@)runencspinsadd[(I)$1.*]}}; shift; done
                         printf '%s\n' cancel next ${asktaste[-1]:+submit} play
                       } | fzf --prompt="$ifile:${seltnums[1]}.${cuedump[${seltnums[1]}.TITLE]}@${cuedump[d.TITLE]} ")")
                       case "${asktaste[-1]}" in
@@ -1900,6 +1905,7 @@ runencspinsadd=(
   fdkaac.m4w "-m4 -w20000"
   fdkaac.m5   -m5
   qaac.v96    -v96
+  qaac.v128   -v128
   qaac.v144   -v144
   opus.64    "--bitrate=64"
   opus.128   "--bitrate=128"
@@ -1944,7 +1950,7 @@ function .deps {
   fi
 
   if [[ -v commands[qaac64] ]] && (( ${(@)argv[1,2][(I)qaac]} )) && qaac64 --check 2>&1 | grep -qsEe 'CoreAudioToolbox [0-9.]+'; then
-    ostr[qaac]='qaac64 --gapless-mode 2 -sv128 '
+    ostr[qaac]='qaac64 --gapless-mode 2 -s '
   fi
 
   if [[ -v commands[opusenc] ]]; then

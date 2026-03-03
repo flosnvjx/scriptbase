@@ -32,3 +32,4 @@ fi
 }
 
 main "${(@)argv}"
+pkill -INT MemDAV >/dev/null
