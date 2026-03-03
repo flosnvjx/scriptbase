@@ -6,6 +6,8 @@ declare +x gain=0 gaine=
 ! test -t 0
 ! test -t 1
 MemDAV -listen-http 127.0.0.2:45555 -username a -password a >/dev/null &
+trap ZERR 'local abr=$?; pkill -INT MemDAV >/dev/null; exit $abr'
+trap EXIT 'local abr=$?; pkill -INT MemDAV >/dev/null; exit $abr'
 sleep 0.2 >/dev/null
 curl -fsT - -u a:a 'http://127.0.0.2:45555/'$key >/dev/null
 
@@ -19,9 +21,7 @@ if (( ffprobe[streams.stream.0.sample_rate] % rate )) || [[ "${ffprobe[streams.s
     gain=$((gain+0.1))
     printf -v gaine '%.1f' $((gain))
   done
-  ffmpeg -loglevel warning -xerror -err_detect explode -i http://a:a@127.0.0.2:45555/$key -f wav - | sox -V3 -Dtwav --ignore-length - ${${ffprobe[streams.stream.0.sample_fmt]:#s16(|p)}:+-b16} ${${ffprobe[streams.stream.0.sample_rate]:#$rate}:+-r$rate} -t${(z)${${(M)ffprobe[streams.stream.0.codec_name]:#flac}:+flac -C8}:-wav} - ${(z)${gain:#0}:+vol -${gaine}dB} ${${ffprobe[streams.stream.0.sample_fmt]:#s16(|p)}:+dither}
+  ffmpeg -loglevel warning -xerror -err_detect explode -i http://a:a@127.0.0.2:45555/$key -f wav - | sox -Dtwav --ignore-length - ${${ffprobe[streams.stream.0.sample_fmt]:#s16(|p)}:+-b16} ${${ffprobe[streams.stream.0.sample_rate]:#$rate}:+-r$rate} -twav - ${(z)${gain:#0}:+vol -${gaine}dB} ${${ffprobe[streams.stream.0.sample_fmt]:#s16(|p)}:+dither}
 else
-  curl -fsu a:a 'http://127.0.0.2:45555/'$key
+  ffmpeg -loglevel warning -xerror -err_detect explode -i http://a:a@127.0.0.2:45555/$key -f wav -
 fi
-
-pkill -INT MemDAV >/dev/null
