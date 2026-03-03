@@ -31,7 +31,7 @@ function .main {
   if (( $#1 )) && [[ ${(@)${(@k)ostr}[(I)(#i)${(q)1}]} -gt 0 || "$1" == (none|null) ]]; then
     ofmt=$1
     shift
-    if [[ "$mmode" == evalpipe && "$ofmt" == (qaac|fdkaac|exhale) ]]; then
+    if [[ "$mmode" == evalpipe && "$ofmt" == (qaac|fdkaac|exhale) ]] || [[ "$mmode.$ofmt" = taste.exhale ]]; then
       .fatal 'specified ofmt does not support pipe output'
     fi
   elif (( !$#1 )); then
@@ -552,7 +552,7 @@ function .main {
                       fi
                     fi; shift
                     done
-                  } qaac fdkaac aotuv flac
+                  } qaac fdkaac ${${(M)mmode:#taste}:+opus} aotuv flac
                 fi
                 argv=(${(@)wa_ofmt})
                 while ((#)); do
@@ -707,6 +707,16 @@ ${cuedump[d.REM REPLAYGAIN_ALBUM_PEAK]:+--comment=REPLAYGAIN_ALBUM_PEAK=${cuedum
                 } ${(k)vorbiscmt2itunes}
                 ;|
                 (flac) runenc[$ofmt]=${runenc[$ofmt]//--comment=/--tag=} ;|
+                (opus)
+                  runenc[$ofmt]+=$'\n-'
+                  if [[ "$mmode" != evalpipe ]]; then
+                    ## FIXME: potential heisenbug
+                    if [[ "$mmode" != taste ]]; then
+                    runenc[$ofmt]+=$'\n"$outfnpref/$outfnsuff"'.${ostrext[$ofmt]}
+                    runenc[$ofmt]+=$';:\n'
+                    fi
+                  fi
+                ;|
               esac
                   shift
                 done
@@ -1008,18 +1018,11 @@ ${cuedump[d.REM REPLAYGAIN_ALBUM_PEAK]:+--comment=REPLAYGAIN_ALBUM_PEAK=${cuedum
                   if [[ "$mmode" != (evalpipe|taste) ]] && [[ ! -d "$outfnpref" ]]; then
                     mkdir -vp -- $outfnpref
                   fi
+
+                  case "$ofmt" in
+                  esac
                 ;|
                 (flac|wv)
-                  case "$ofmt" in
-                    (opus)
-                      #runenc[$ofmt]+=$'\n--discard-comments\n--discard-pictures'
-                      runenc[$ofmt]+=$'\n--\n-'
-                      if [[ "$mmode" != evalpipe ]]; then
-                        runenc[$ofmt]+=$'\n"$outfnpref/$outfnsuff".${ostrext[$ofmt]};:\n'
-                      fi
-                      #runenc[$ofmt]=$'sox\n-D\n-t\nwav\n-\n-t\nwav\n-\nrate\n-v\n-I\n48k|'${runenc[$ofmt]} ;;
-                  esac
-
                   if (( cuedump[tc] > 1 && ${(@)#${(@)cuedump[(I)*.FILE]}} > 1 )); then
                     [[ -z "$mmode" || "$mmode" == (evalpipe|taste) ]]
                     for ((tn=1;tn<=cuedump[tc];tn++)); do
@@ -1062,7 +1065,7 @@ ${cuedump[d.REM REPLAYGAIN_ALBUM_PEAK]:+--comment=REPLAYGAIN_ALBUM_PEAK=${cuedum
                           if [[ ! -d "$outfnpref" ]]; then
                             mkdir -vp -- $outfnpref
                           fi
-                          command ${(s. .)rundec} ${${(M)cuedump[${seltnums[1]}.skip]:#<1->}:+--skip=${cuedump[${seltnums[1]}.skip]}} ${${(M)cuedump[${seltnums[1]}.until]:#<1->}:+--until=${cuedump[${seltnums[1]}.until]}} ${${(M)${cuedump[${seltnums[1]}.file]:-$ifile}:#-*}:+./}${cuedump[${seltnums[1]}.file]:-$ifile} | rw | eval "${rundecpipe:+$rundecpipe | }" command ${${${${(f)runenc[${asktaste[-1]%.*}]}:#}//\[\$tn./'[${seltnums[1]}.'}//\[\$tn\]/'[${seltnums[1]}]'} ${(z)runencspinsadd[${asktaste[-1]}]} "${(@q)ofmtargs}" -
+                          command ${(s. .)rundec} ${${(M)cuedump[${seltnums[1]}.skip]:#<1->}:+--skip=${cuedump[${seltnums[1]}.skip]}} ${${(M)cuedump[${seltnums[1]}.until]:#<1->}:+--until=${cuedump[${seltnums[1]}.until]}} ${${(M)${cuedump[${seltnums[1]}.file]:-$ifile}:#-*}:+./}${cuedump[${seltnums[1]}.file]:-$ifile} | rw | eval "${rundecpipe:+$rundecpipe | }" command ${${${${(f)runenc[${asktaste[-1]%.*}]}:#}//\[\$tn./'[${seltnums[1]}.'}//\[\$tn\]/'[${seltnums[1]}]'} ${(z)runencspinsadd[${asktaste[-1]}]} "${(@q)ofmtargs}" - "${${(M)asktaste[-1]:#opus(|.*)}:+| rw \$outfnpref/\$outfnsuff.${ostrext[${asktaste[-1]%.*}]}}"
                         ;&
                         (next) shift seltnums; continue
                         ;;
@@ -1071,7 +1074,7 @@ ${cuedump[d.REM REPLAYGAIN_ALBUM_PEAK]:+--comment=REPLAYGAIN_ALBUM_PEAK=${cuedum
                           continue
                         ;;
                         (?*)
-                          command ${(s. .)rundec} ${${(M)cuedump[${seltnums[1]}.skip]:#<1->}:+--skip=${cuedump[${seltnums[1]}.skip]}} ${${(M)cuedump[${seltnums[1]}.until]:#<1->}:+--until=${cuedump[${seltnums[1]}.until]}} ${${(M)${cuedump[${seltnums[1]}.file]:-$ifile}:#-*}:+./}${cuedump[${seltnums[1]}.file]:-$ifile} | eval "${rundecpipe:+$rundecpipe | }" command ${${${${(f)runenc[${asktaste[-1]%.*}]//$'\n'\"\$outfnpref\/\$outfnsuff\".${ostrext[${asktaste[-1]%.*}]}/$'\n'-}:#}//\[\$tn./'[${seltnums[1]}.'}//\[\$tn\]/'[${seltnums[1]}]'} ${(z)runencspinsadd[${asktaste[-1]}]} ${${(M)asktaste[-1]:#fdkaac(.*|)}:+-f2} ${${(M)asktaste[-1]:#qaac(|.*)}:+--adts} "${(@q)ofmtargs}" - | pv -b | rw | command mpv --title=${seltnums[1]}.${cuedump[${seltnums[1]}.TITLE]} -||continue
+                          command ${(s. .)rundec} ${${(M)cuedump[${seltnums[1]}.skip]:#<1->}:+--skip=${cuedump[${seltnums[1]}.skip]}} ${${(M)cuedump[${seltnums[1]}.until]:#<1->}:+--until=${cuedump[${seltnums[1]}.until]}} ${${(M)${cuedump[${seltnums[1]}.file]:-$ifile}:#-*}:+./}${cuedump[${seltnums[1]}.file]:-$ifile} | eval "${rundecpipe:+$rundecpipe | }" command ${${${${(f)runenc[${asktaste[-1]%.*}]/$'\n'\"\$outfnpref\/\$outfnsuff\".${ostrext[${asktaste[-1]%.*}]}/$'\n'-}:#}//\[\$tn./'[${seltnums[1]}.'}//\[\$tn\]/'[${seltnums[1]}]'} ${(z)runencspinsadd[${asktaste[-1]}]} ${${(M)asktaste[-1]:#fdkaac(.*|)}:+-f2} ${${(M)asktaste[-1]:#qaac(|.*)}:+--adts} "${(@q)ofmtargs}" - | pv -b | rw | command mpv --title=${seltnums[1]}.${cuedump[${seltnums[1]}.TITLE]} -||continue
                           continue
                         ;;
                         (*)
