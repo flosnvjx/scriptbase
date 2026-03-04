@@ -1063,7 +1063,7 @@ ${cuedump[d.REM REPLAYGAIN_ALBUM_PEAK]:+--comment=REPLAYGAIN_ALBUM_PEAK=${cuedum
                         fi
                         while ((#)); do printf '%s\n' ${argv[1]:#qaac} ${(@n)${(@)runencspinsadd[(I)$1.*]}}; shift; done
                           printf '%s\n' ${(f)asktaste[(R)^(play)]:+flac} cancel ${(f)asktaste[(R)^(play)]:+next$'\n'${${(M)${(@)${(@)#${(@)asktaste:#play}}}:#<2->}:+shift ${asktaste[(R)^(play)]}$'\n'}submit ${asktaste[(R)^(play)]}} play" ${cuedump[d.REM DISCNUMBER]:+${cuedump[d.REM DISCNUMBER]}#}${cuedump[${seltnums[1]}.tnum]}${cuedump[${seltnums[1]}.TITLE]:+. ${cuedump[${seltnums[1]}.TITLE]}}"
-                      } | fzf --accept-nth=1 --prompt="[${seltnums[1]}/$#seltnums] ${${cuedump[d.TITLE]:+${cuedump[d.TITLE]} (${ifile:t})}:-${ifile:t}} ")")
+                      } | fzf --accept-nth=1 --prompt="[1/$#seltnums] ${${cuedump[d.TITLE]:+${cuedump[d.TITLE]} (${ifile:t})}:-${ifile:t}} ")")
                       case "${asktaste[-1]}" in
                         (cancel|next|submit|shift)
                           shift -p asktaste
@@ -1075,7 +1075,7 @@ ${cuedump[d.REM REPLAYGAIN_ALBUM_PEAK]:+--comment=REPLAYGAIN_ALBUM_PEAK=${cuedum
                           shift -p asktaste
                           continue
                         ;|
-                        (cancel) break 2 ;;
+                        (cancel) break ;;
                         (flac)
                         ;&
                         (submit)
