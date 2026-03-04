@@ -1055,13 +1055,25 @@ ${cuedump[d.REM REPLAYGAIN_ALBUM_PEAK]:+--comment=REPLAYGAIN_ALBUM_PEAK=${cuedum
                     local outfnsuff="${(e)outfnsuff_t//\$tn/${seltnums[1]}}"
                     if [[ "$mmode" == taste ]]; then
                       asktaste+=("$(function {
-                        argv=(${wa_ofmt})
+                        if (( $#wa_ofmt > 1 )); then
+                          argv=(flac)
+                          argv=(${wa_ofmt:|argv})
+                        else
+                          argv=(${wa_ofmt})
+                        fi
                         while ((#)); do printf '%s\n' ${argv[1]:#qaac} ${(@n)${(@)runencspinsadd[(I)$1.*]}}; shift; done
-                        printf '%s\n' cancel next ${asktaste[-1]:+submit} play
-                      } | fzf --prompt="$ifile:${seltnums[1]}.${cuedump[${seltnums[1]}.TITLE]}@${cuedump[d.TITLE]} ")")
+                          printf '%s\n' ${(f)asktaste[(R)^(play)]:+flac} cancel ${(f)asktaste[(R)^(play)]:+next$'\n'${${(M)${(@)${(@)#${(@)asktaste:#play}}}:#<2->}:+shift ${asktaste[(R)^(play)]}$'\n'}submit ${asktaste[(R)^(play)]}} play" ${cuedump[d.REM DISCNUMBER]:+${cuedump[d.REM DISCNUMBER]}#}${cuedump[${seltnums[1]}.tnum]}${cuedump[${seltnums[1]}.TITLE]:+. ${cuedump[${seltnums[1]}.TITLE]}}"
+                      } | fzf --accept-nth=1 --prompt="[${seltnums[1]}/$#seltnums] ${${cuedump[d.TITLE]:+${cuedump[d.TITLE]} (${ifile:t})}:-${ifile:t}} ")")
                       case "${asktaste[-1]}" in
-                        (cancel|next|submit|play)
+                        (cancel|next|submit|shift)
                           shift -p asktaste
+                        ;|
+                        (shift)
+                          until [[ "${asktaste[-1]}" != play ]]; do
+                            shift -p asktaste
+                          done
+                          shift -p asktaste
+                          continue
                         ;|
                         (cancel) break 2 ;;
                         (flac)
@@ -1070,9 +1082,11 @@ ${cuedump[d.REM REPLAYGAIN_ALBUM_PEAK]:+--comment=REPLAYGAIN_ALBUM_PEAK=${cuedum
                           if [[ ! -d "$outfnpref" ]]; then
                             mkdir -vp -- $outfnpref
                           fi
-                          command ${(s. .)rundec} ${${(M)cuedump[${seltnums[1]}.skip]:#<1->}:+--skip=${cuedump[${seltnums[1]}.skip]}} ${${(M)cuedump[${seltnums[1]}.until]:#<1->}:+--until=${cuedump[${seltnums[1]}.until]}} ${${(M)${cuedump[${seltnums[1]}.file]:-$ifile}:#-*}:+./}${cuedump[${seltnums[1]}.file]:-$ifile} | rw | eval "${rundecpipe:+$rundecpipe | }" command ${${${${(f)runenc[${asktaste[-1]%.*}]}:#}//\[\$tn./'[${seltnums[1]}.'}//\[\$tn\]/'[${seltnums[1]}]'} ${(z)runencspinsadd[${asktaste[-1]}]} "${(@q)ofmtargs}" - "${${(M)asktaste[-1]:#opus(|.*)}:+| rw \$outfnpref/\$outfnsuff.${ostrext[${asktaste[-1]%.*}]}}"
+                          command ${(s. .)rundec} ${${(M)cuedump[${seltnums[1]}.skip]:#<1->}:+--skip=${cuedump[${seltnums[1]}.skip]}} ${${(M)cuedump[${seltnums[1]}.until]:#<1->}:+--until=${cuedump[${seltnums[1]}.until]}} ${${(M)${cuedump[${seltnums[1]}.file]:-$ifile}:#-*}:+./}${cuedump[${seltnums[1]}.file]:-$ifile} | rw | eval "${rundecpipe:+$rundecpipe | }" command ${${${${(f)runenc[${asktaste[(R)^(play)]%.*}]}:#}//\[\$tn./'[${seltnums[1]}.'}//\[\$tn\]/'[${seltnums[1]}]'} ${(z)runencspinsadd[${asktaste[(R)^(play)]}]} "${(@q)ofmtargs}" - "${${(M)asktaste[(R)^(play)]:#opus(|.*)}:+| rw \$outfnpref/\$outfnsuff.${ostrext[${asktaste[(R)^(play)]%.*}]}}"
                         ;&
-                        (next) shift seltnums; continue
+                        (next)
+                          asktaste=()
+                          shift seltnums; continue
                         ;;
                         (play)
                           command ${(s. .)rundec} ${${(M)cuedump[${seltnums[1]}.skip]:#<1->}:+--skip=${cuedump[${seltnums[1]}.skip]}} ${${(M)cuedump[${seltnums[1]}.until]:#<1->}:+--until=${cuedump[${seltnums[1]}.until]}} ${${(M)${cuedump[${seltnums[1]}.file]:-$ifile}:#-*}:+./}${cuedump[${seltnums[1]}.file]:-$ifile} | command mpv --title=${seltnums[1]}.${cuedump[${seltnums[1]}.TITLE]} -||continue
@@ -1902,13 +1916,23 @@ declare -A runencspinsadd
 runencspinsadd=(
   fdkaac.m3w  -w20000
   fdkaac.m4   -m4
-  fdkaac.m4w "-m4 -w20000"
+  fdkaac.m4w  "-m4 -w20000"
   fdkaac.m5   -m5
   qaac.v96    -v96
   qaac.v128   -v128
   qaac.v144   -v144
-  opus.64    "--bitrate=64"
-  opus.128   "--bitrate=128"
+  qaac.v160   -v160
+  qaac.v192   -v192
+  qaac.v224   -v224
+  opus.64     "--bitrate=64"
+  opus.128    "--bitrate=128"
+  opus.144    "--bitrate=144"
+  opus.160    "--bitrate=160"
+  aotuv.q5i5  "--advanced-encode-option impulse_noisetune=-5"
+  aotuv.q5i10 "--advanced-encode-option impulse_noisetune=-10"
+  aotuv.q5i15 "--advanced-encode-option impulse_noisetune=-15"
+  aotuv.q5.5  -q5.5
+  aotuv.q5.8  -q5.8
 )
 function .deps {
   fzf --version &>/dev/null
