@@ -600,14 +600,14 @@ mp4tagcli
                 (aotuv|flac|fdkaac|qaac|exhale|opus)
                 runenc[$ofmt]+='
 ${${${cuedump[$tn.TITLE]/#[    ]#}/%[   ]#}:+--comment=TITLE=${${cuedump[$tn.TITLE]/#[    ]#}/%[   ]#}}
-${${${${(s|・|)${(s| / |)${(s|, |)${(s|、|)cuedump[$tn.REM COMPOSER]:-${cuedump[$tn.SONGWRITER]:-${cuedump[d.REM COMPOSER]:-${cuedump[d.SONGWRITER]}}}}}}}/#[	 ]##}/%[	 ]##}:+--comment=COMPOSER=}${^${${(s|・|)${(s| / |)${(s|, |)${(s|、|)cuedump[$tn.REM COMPOSER]:-${cuedump[$tn.SONGWRITER]:-${cuedump[d.REM COMPOSER]:-${cuedump[d.SONGWRITER]}}}}}}}/#[	 ]##}/%[	 ]##}
-${${${${(s|・|)${(s| / |)${(s|, |)${(s|、|)cuedump[$tn.REM ARRANGER]:-${cuedump[d.REM ARRANGER]}}}}}/#[	 ]##}/%[	 ]##}:+--comment=ARRANGER=}${^${${(s|・|)${(s| / |)${(s|, |)${(s|、|)cuedump[$tn.REM ARRANGER]:-${cuedump[d.REM ARRANGER]}}}}}/#[	 ]##}/%[	 ]##}
-${${${${(s|・|)${(s| / |)${(s|, |)${(s|、|)cuedump[$tn.REM LYRICIST]:-${${${:-${cuedump[$tn.REM VOCALIST]}${cuedump[d.REM VOCALIST]}}:+${cuedump[$tn.SONGWRITER]}}:-${cuedump[d.REM LYRICIST]:-${${:-${cuedump[$tn.REM VOCALIST]}${cuedump[d.REM VOCALIST]}}:+${cuedump[d.SONGWRITER]}}}}}}}}/#[	 ]##}/%[	 ]##}:+--comment=LYRICIST=}${^${${(s|・|)${(s| / |)${(s|, |)${(s|、|)cuedump[$tn.REM LYRICIST]:-${${${:-${cuedump[$tn.REM VOCALIST]}${cuedump[d.REM VOCALIST]}}:+${cuedump[$tn.SONGWRITER]}}:-${cuedump[d.REM LYRICIST]:-${${:-${cuedump[$tn.REM VOCALIST]}${cuedump[d.REM VOCALIST]}}:+${cuedump[d.SONGWRITER]}}}}}}}}/#[	 ]##}/%[	 ]##}
-${${${${(s|・|)${(s| / |)${(s|, |)${(s|、|)cuedump[$tn.REM VOCALIST]:-${cuedump[d.REM VOCALIST]}}}}}/#[	 ]##}/%[	 ]##}:+--comment=VOCALIST=}${^${${(s|・|)${(s| / |)${(s|, |)${(s|、|)cuedump[$tn.REM VOCALIST]:-${cuedump[d.REM VOCALIST]}}}}}/#[	 ]##}/%[	 ]##}
-${${${${(s|・|)${(s| / |)${(s|, |)${(s|、|)cuedump[$tn.PERFORMER]:-${cuedump[d.PERFORMER]}}}}}/#[	 ]##}/%[	 ]##}:+--comment=ARTIST=}${^${${(s|・|)${(s| / |)${(s|, |)${(s|、|)cuedump[$tn.PERFORMER]:-${cuedump[d.PERFORMER]}}}}}/#[	 ]##}/%[	 ]##}
-${${${cuedump[d.TITLE]/#[    ]#}/%[   ]#}:+--comment=ALBUM=${${cuedump[d.TITLE]/#[    ]#}/%[   ]#}}
-${${${albumsorttitles[$walkcuefiles]/#[    ]#}/%[   ]#}:+--comment=ALBUMSORT=${${albumsorttitles[$walkcuefiles]/#[    ]#}/%[   ]#}}
-${${${${(s| / |)${(s|, |)${(s|、|)cuedump[d.PERFORMER]}}}//#[	 ]##}//%[	 ]##}:+--comment=ALBUMARTIST=}${^${${(s| / |)${(s|, |)${(s|、|)cuedump[d.PERFORMER]}}}/#[	 ]##}/%[	 ]##}
+${${${${(s|・|)${(s| / |)${(s|, |)${(s|、|)cuedump[$tn.REM COMPOSER]:-${cuedump[$tn.SONGWRITER]:-${cuedump[d.REM COMPOSER]:-${cuedump[d.SONGWRITER]}}}}}}}/#[	 ]##}/%[	 ]##}:+--comment=COMPOSER=}${(@)^${(@)${(@s|・|)${(@s| / |)${(@s|, |)${(@s|、|)cuedump[$tn.REM COMPOSER]:-${cuedump[$tn.SONGWRITER]:-${cuedump[d.REM COMPOSER]:-${cuedump[d.SONGWRITER]}}}}}}}/#[	 ]##}/%[	 ]##}
+${${${${(s|・|)${(s| / |)${(s|, |)${(s|、|)cuedump[$tn.REM ARRANGER]:-${cuedump[d.REM ARRANGER]}}}}}/#[	 ]##}/%[	 ]##}:+--comment=ARRANGER=}${(@)^${(@)${(@s|・|)${(@s| / |)${(@s|, |)${(@s|、|)cuedump[$tn.REM ARRANGER]:-${cuedump[d.REM ARRANGER]}}}}}/#[	 ]##}/%[	 ]##}
+${${${${(s|・|)${(s| / |)${(s|, |)${(s|、|)cuedump[$tn.REM LYRICIST]:-${${${:-${cuedump[$tn.REM VOCALIST]}${cuedump[d.REM VOCALIST]}}:+${cuedump[$tn.SONGWRITER]}}:-${cuedump[d.REM LYRICIST]:-${${:-${cuedump[$tn.REM VOCALIST]}${cuedump[d.REM VOCALIST]}}:+${cuedump[d.SONGWRITER]}}}}}}}}/#[	 ]##}/%[	 ]##}:+--comment=LYRICIST=}${(@)^${(@)${(@s|・|)${(@s| / |)${(@s|, |)${(@s|、|)cuedump[$tn.REM LYRICIST]:-${${${:-${cuedump[$tn.REM VOCALIST]}${cuedump[d.REM VOCALIST]}}:+${cuedump[$tn.SONGWRITER]}}:-${cuedump[d.REM LYRICIST]:-${${:-${cuedump[$tn.REM VOCALIST]}${cuedump[d.REM VOCALIST]}}:+${cuedump[d.SONGWRITER]}}}}}}}}/#[	 ]##}/%[	 ]##}
+${${${${(s|・|)${(s| / |)${(s|, |)${(s|、|)cuedump[$tn.REM VOCALIST]:-${cuedump[d.REM VOCALIST]}}}}}/#[	 ]##}/%[	 ]##}:+--comment=VOCALIST=}${(@)^${(@)${(@s|・|)${(@s| / |)${(@s|, |)${(@s|、|)cuedump[$tn.REM VOCALIST]:-${cuedump[d.REM VOCALIST]}}}}}/#[	 ]##}/%[	 ]##}
+${${${${(s|・|)${(s| / |)${(s|, |)${(s|、|)cuedump[$tn.PERFORMER]:-${cuedump[d.PERFORMER]}}}}}/#[	 ]##}/%[	 ]##}:+--comment=ARTIST=}${(@)^${(@)${(@s|・|)${(@s| / |)${(@s|, |)${(@s|、|)cuedump[$tn.PERFORMER]:-${cuedump[d.PERFORMER]}}}}}/#[	 ]##}/%[	 ]##}
+${${${cuedump[d.TITLE]/#[	 ]#}/%[	 ]#}:+--comment=ALBUM=${${cuedump[d.TITLE]/#[	 ]#}/%[	 ]#}}
+${${${albumsorttitles[$walkcuefiles]/#[	 ]#}/%[	 ]#}:+--comment=ALBUMSORT=${${albumsorttitles[$walkcuefiles]/#[	 ]#}/%[	 ]#}}
+${${${${(s| / |)${(s|, |)${(s|、|)cuedump[d.PERFORMER]}}}//#[	 ]##}//%[	 ]##}:+--comment=ALBUMARTIST=}${(@)^${(@)${(@s| / |)${(@s|, |)${(@s|、|)cuedump[d.PERFORMER]}}}/#[	 ]##}/%[	 ]##}
 '
                 ;|
                 (aotuv|flac|opus)
@@ -618,12 +618,12 @@ ${cuedump[date]:+--comment=DATE=${cuedump[date]}}
                 ;|
                 (fdkaac|qaac|exhale)
                 runenc[$ofmt]+='
-${${${(M)${#cuedump[date]}:#10}:+--tag=day:${cuedump[date]}T00:00:00Z}:-${cuedump[date]:+--tag=day:${cuedump[date]}}}
+${cuedump[date]:+--tag=day:${cuedump[date]}}
 '
                 ;|
                 (aotuv|flac|fdkaac|qaac|exhale|opus)
                 runenc[$ofmt]+='
-${${${${(s| / |)${(s|×|)${(s|、|)cuedump[d.REM LABEL]}}}//#[	 ]##}//%[	 ]##}:+--comment=LABEL=}${^${${(s| / |)${(s|×|)${(s|、|)cuedump[d.REM LABEL]}}}/#[	 ]##}/%[	 ]##}
+${${${${(s| / |)${(s|×|)${(s|、|)cuedump[d.REM LABEL]}}}//#[	 ]##}//%[	 ]##}:+--comment=LABEL=}${(@)^${(@)${(@s| / |)${(@s|×|)${(@s|、|)cuedump[d.REM LABEL]}}}/#[	 ]##}/%[	 ]##}
 ${${${${cuedump[$tn.REM COMMENT]:-${cuedump[d.REM COMMENT]}}//#[	 ]#}//%[	 ]#}:+--comment=COMMENT=${${${cuedump[$tn.REM COMMENT]:-${cuedump[d.REM COMMENT]}}/#[	 ]#}/%[	 ]#}}
 ${cuedump[d.REM CATALOGNUMBER]:+--comment=CATALOGNUMBER=${cuedump[d.REM CATALOGNUMBER]}}
 ${${cuedump[$tn.REM GENRE]:-${cuedump[d.REM GENRE]}}:+--comment=GENRE=${cuedump[$tn.REM GENRE]:-${cuedump[d.REM GENRE]}}}
@@ -685,7 +685,7 @@ ${cuedump[d.REM REPLAYGAIN_ALBUM_PEAK]:+--comment=REPLAYGAIN_ALBUM_PEAK=${cuedum
                   done
                   local match=()
                   if (( ${(M)#runenc:#*--comment=*} )); then
-                    runenc[$ofmt]=${runenc[$ofmt]//\(s\|[^|]##\|\)}
+                    runenc[$ofmt]=${runenc[$ofmt]//\((|@)s\|[^|]##\|\)}
                     setopt localoptions histsubstpattern
                     runenc[$ofmt]=${runenc[$ofmt]:gs/--comment=(#b)([^=]##)(#B)=/--long-tag='${match[1]}:'/}
                   fi
