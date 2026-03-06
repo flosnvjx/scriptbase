@@ -1064,7 +1064,15 @@ ${cuedump[d.REM REPLAYGAIN_ALBUM_PEAK]:+--comment=REPLAYGAIN_ALBUM_PEAK=${cuedum
                         if ! (( $#asktaste )); then
                           printf '%s\n' "play ${cuedump[d.REM DISCNUMBER]:+${cuedump[d.REM DISCNUMBER]}#}${cuedump[${seltnums[1]}.tnum]}${cuedump[${seltnums[1]}.TITLE]:+. ${cuedump[${seltnums[1]}.TITLE]}}"
                         fi
-                        while ((#)); do printf '%s\n' ${argv[1]:#(qaac|exhale)} ${(@n)${(@)runencspinsadd[(I)$1.*]}}; shift; done
+                        while ((#)); do
+                          print -rn -- ${argv[1]:#(qaac|exhale)}${${argv[1]:#(qaac|exhale)}:+$'\n'}
+                          if (( "${(@)#${(@M)${(@k)runencspinsadd}:#$1.*}}" )); then
+                            local p=; for p in ${(@n)${(@)runencspinsadd[(I)$1.*]}}; do
+                              printf '%s\t%s\n' $p ${runencspinsadd[$p]##*\#}
+                            done
+                          fi
+                          shift
+                        done
                         printf '%s\n' ${(f)asktaste[(R)^(play)]:+flac} cancel ${asktaste[-1]:+next} ${(f)asktaste[(R)^(play)]:+${${(M)${(@)${(@)#${(@)asktaste:#play}}}:#<2->}:+shift ${asktaste[(R)^(play)]}$'\n'}submit ${asktaste[(R)^(play)]}}
                         if (( $#asktaste )); then
                           printf '%s\n' "play ${cuedump[d.REM DISCNUMBER]:+${cuedump[d.REM DISCNUMBER]}#}${cuedump[${seltnums[1]}.tnum]}${cuedump[${seltnums[1]}.TITLE]:+. ${cuedump[${seltnums[1]}.TITLE]}}"
@@ -1090,7 +1098,7 @@ ${cuedump[d.REM REPLAYGAIN_ALBUM_PEAK]:+--comment=REPLAYGAIN_ALBUM_PEAK=${cuedum
                         ;|
                         (exhale*)
                           if [[ ! -e "$outfnpref/$outfnsuff.exhale@${asktaste[-1]#*.}.${ostrext[${asktaste[-1]%.*}]}" ]]; then
-                            command ${(s. .)rundec} ${${(M)cuedump[${seltnums[1]}.skip]:#<1->}:+--skip=${cuedump[${seltnums[1]}.skip]}} ${${(M)cuedump[${seltnums[1]}.until]:#<1->}:+--until=${cuedump[${seltnums[1]}.until]}} ${${(M)${cuedump[${seltnums[1]}.file]:-$ifile}:#-*}:+./}${cuedump[${seltnums[1]}.file]:-$ifile} | eval "${rundecpipe:+$rundecpipe | }" command exhale "${asktaste[-1]#*.}" \$outfnpref/\$outfnsuff.exhale@${asktaste[-1]#*.}.${ostrext[${asktaste[-1]%.*}]}
+                            command ${(s. .)rundec} ${${(M)cuedump[${seltnums[1]}.skip]:#<1->}:+--skip=${cuedump[${seltnums[1]}.skip]}} ${${(M)cuedump[${seltnums[1]}.until]:#<1->}:+--until=${cuedump[${seltnums[1]}.until]}} ${${(M)${cuedump[${seltnums[1]}.file]:-$ifile}:#-*}:+./}${cuedump[${seltnums[1]}.file]:-$ifile} | eval "${rundecpipe:+$rundecpipe | }" command exhale ${(z)runencspinsadd[${asktaste[-1]}]%%\#*} \$outfnpref/\$outfnsuff.exhale@${asktaste[-1]#*.}.${ostrext[${asktaste[-1]%.*}]}
                           fi
                           mpv --title=${seltnums[1]}.${cuedump[${seltnums[1]}.TITLE]} -- $outfnpref/$outfnsuff.exhale@${asktaste[-1]#*.}.${ostrext[${asktaste[-1]%.*}]}||:
                           continue
@@ -1101,7 +1109,7 @@ ${cuedump[d.REM REPLAYGAIN_ALBUM_PEAK]:+--comment=REPLAYGAIN_ALBUM_PEAK=${cuedum
                             mv -- $outfnpref/$outfnsuff{.exhale@${asktaste[(R)^(play)]#*.},}.${ostrext[${asktaste[(R)^(play)]%.*}]}
                             eval command mp4tagcli ${${${${(f)runenc[${asktaste[(R)^(play)]%.*}]##*$'\n'mp4tagcli}:#}//\[\$tn./'[${seltnums[1]}.'}//\[\$tn\]/'[${seltnums[1]}]'}
                           else
-                            command ${(s. .)rundec} ${${(M)cuedump[${seltnums[1]}.skip]:#<1->}:+--skip=${cuedump[${seltnums[1]}.skip]}} ${${(M)cuedump[${seltnums[1]}.until]:#<1->}:+--until=${cuedump[${seltnums[1]}.until]}} ${${(M)${cuedump[${seltnums[1]}.file]:-$ifile}:#-*}:+./}${cuedump[${seltnums[1]}.file]:-$ifile} | rw | eval "${rundecpipe:+$rundecpipe | }" command ${${${${(f)runenc[${asktaste[(R)^(play)]%.*}]}:#}//\[\$tn./'[${seltnums[1]}.'}//\[\$tn\]/'[${seltnums[1]}]'} ${(z)runencspinsadd[${asktaste[(R)^(play)]}]} "${(@q)ofmtargs}" - "${${(M)asktaste[(R)^(play)]:#opus(|.*)}:+| rw \$outfnpref/\$outfnsuff.${ostrext[${asktaste[(R)^(play)]%.*}]}}"
+                            command ${(s. .)rundec} ${${(M)cuedump[${seltnums[1]}.skip]:#<1->}:+--skip=${cuedump[${seltnums[1]}.skip]}} ${${(M)cuedump[${seltnums[1]}.until]:#<1->}:+--until=${cuedump[${seltnums[1]}.until]}} ${${(M)${cuedump[${seltnums[1]}.file]:-$ifile}:#-*}:+./}${cuedump[${seltnums[1]}.file]:-$ifile} | rw | eval "${rundecpipe:+$rundecpipe | }" command ${${${${(f)runenc[${asktaste[(R)^(play)]%.*}]}:#}//\[\$tn./'[${seltnums[1]}.'}//\[\$tn\]/'[${seltnums[1]}]'} ${(z)runencspinsadd[${asktaste[(R)^(play)]}]%%\#*} "${(@q)ofmtargs}" - "${${(M)asktaste[(R)^(play)]:#opus(|.*)}:+| rw \$outfnpref/\$outfnsuff.${ostrext[${asktaste[(R)^(play)]%.*}]}}"
                           fi
                         ;&
                         (next)
@@ -1116,7 +1124,7 @@ ${cuedump[d.REM REPLAYGAIN_ALBUM_PEAK]:+--comment=REPLAYGAIN_ALBUM_PEAK=${cuedum
                           continue
                         ;;
                         (?*)
-                          command ${(s. .)rundec} ${${(M)cuedump[${seltnums[1]}.skip]:#<1->}:+--skip=${cuedump[${seltnums[1]}.skip]}} ${${(M)cuedump[${seltnums[1]}.until]:#<1->}:+--until=${cuedump[${seltnums[1]}.until]}} ${${(M)${cuedump[${seltnums[1]}.file]:-$ifile}:#-*}:+./}${cuedump[${seltnums[1]}.file]:-$ifile} | eval "${rundecpipe:+$rundecpipe | }" command ${${${${(f)runenc[${asktaste[-1]%.*}]/$'\n'\"\$outfnpref\/\$outfnsuff\".${ostrext[${asktaste[-1]%.*}]}/$'\n'-}:#}//\[\$tn./'[${seltnums[1]}.'}//\[\$tn\]/'[${seltnums[1]}]'} ${(z)runencspinsadd[${asktaste[-1]}]} ${${(M)asktaste[-1]:#fdkaac(.*|)}:+-f2} ${${(M)asktaste[-1]:#qaac(|.*)}:+--adts} "${(@q)ofmtargs}" - | pv -b | rw | command mpv --title=${seltnums[1]}.${cuedump[${seltnums[1]}.TITLE]} -||continue
+                          command ${(s. .)rundec} ${${(M)cuedump[${seltnums[1]}.skip]:#<1->}:+--skip=${cuedump[${seltnums[1]}.skip]}} ${${(M)cuedump[${seltnums[1]}.until]:#<1->}:+--until=${cuedump[${seltnums[1]}.until]}} ${${(M)${cuedump[${seltnums[1]}.file]:-$ifile}:#-*}:+./}${cuedump[${seltnums[1]}.file]:-$ifile} | eval "${rundecpipe:+$rundecpipe | }" command ${${${${(f)runenc[${asktaste[-1]%.*}]/$'\n'\"\$outfnpref\/\$outfnsuff\".${ostrext[${asktaste[-1]%.*}]}/$'\n'-}:#}//\[\$tn./'[${seltnums[1]}.'}//\[\$tn\]/'[${seltnums[1]}]'} ${(z)runencspinsadd[${asktaste[-1]}]%%\#*} ${${(M)asktaste[-1]:#fdkaac(.*|)}:+-f2} ${${(M)asktaste[-1]:#qaac(|.*)}:+--adts} "${(@q)ofmtargs}" - | pv -b | rw | command mpv --title=${seltnums[1]}.${cuedump[${seltnums[1]}.TITLE]} -||continue
                           continue
                         ;;
                         (*)
@@ -1937,19 +1945,29 @@ ostrext=(
 declare -A runenc
 declare -A runencspinsadd
 runencspinsadd=(
-  exhale.2     -
-  exhale.3     -
-  exhale.4     -
+  exhale.1n    '1 n /dev/stdin#16/32kHz 14.5/44.1kHz'
+  exhale.2     '2#14.5/48kHz 15/44.1kHz'
+  exhale.3     '3#15/48kHz 15.7/44.1kHz'
+  exhale.4     '4#15.7/48kHz 16.5/44.1kHz'
+  exhale.5     '5#16.5/48kHz 17/44.1kHz'
+  exhale.6     '6#17.1/48kHz 17.5/44.1kHz'
+  fdkaac.m3h   -w15500
+  fdkaac.m3i   -w16120
+  fdkaac.m3j   -w17000
   fdkaac.m3w   -w20000
-  fdkaac.m4    -m4
+  fdkaac.m4    -m4'#128kbps, 15.5kHz'
+  fdkaac.m4h   '-m4 -w16120'
+  fdkaac.m4i   '-m4 -w17000'
   fdkaac.m4w   "-m4 -w20000"
-  fdkaac.m5    -m5
-  qaac.cv96    -v96
-  qaac.cv112   -v112
-  qaac.cv128   -v128
-  qaac.cv144   -v144
-  qaac.cv160   -v160
-  qaac.cv176   -v176
+  fdkaac.m5    -m5'#192kbps'
+  fdkaac.m5s   '-m5 -w16120'
+  fdkaac.m5r   '-m5 -w17000'
+  qaac.cv96    -v96'#16.2/48kHz 15+-.25/44.1kHz'
+  qaac.cv112   -v112'#16.5kHz'
+  qaac.cv128   -v128"#17+0.5-1kHz"
+  qaac.cv144   -v144'#17.5+0.5'
+  qaac.cv160   -v160'#18+0.5'
+  qaac.cv176   -v176'#18.5'
   qaac.TV96    -V48
   qaac.TV112   -V56
   qaac.TV128   -V64
@@ -1959,13 +1977,13 @@ runencspinsadd=(
   opus.64     "--bitrate=64"
   opus.80     "--bitrate=80"
   opus.128    "--bitrate=128"
-  opus.128dpi "--bitrate=128 --no-phase-inv"
+  opus.128i   "--bitrate=128 --no-phase-inv"
   opus.144    "--bitrate=144"
-  opus.144dpi "--bitrate=144 --no-phase-inv"
+  opus.144i   "--bitrate=144 --no-phase-inv"
   opus.160    "--bitrate=160"
-  opus.160dpi "--bitrate=160 --no-phase-inv"
-  aotuv.q3    -q3
-  aotuv.q4    -q4
+  opus.160i   "--bitrate=160 --no-phase-inv"
+  aotuv.q3    -q3'#17.2kHz'
+  aotuv.q4    -q4'#18.3kHz'
   aotuv.q5i5  "--advanced-encode-option impulse_noisetune=-5"
   aotuv.q5i7  "--advanced-encode-option impulse_noisetune=-7"
   aotuv.q5i10 "--advanced-encode-option impulse_noisetune=-10"
