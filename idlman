@@ -13,7 +13,7 @@ if [[ "$1" = get && $# = 3 ]]; then
     stdbuf -o 32M curl -q --no-progress-meter -gfL"${${already_existing_outfn_sz[$3]:#0}:+C${already_existing_outfn_sz[$3]}}" -y 185 -Y 10240 --retry 0 --url "$2" <&- >>"$3.ing"
   }; do
     case "$?" in
-     (52|35|18) sleep $((RANDOM%30+60*i))
+     (52|35|18|56|28) sleep $((RANDOM%30+60*i))
      let i++
      ;;
      (*) exit $? ;;
@@ -24,10 +24,13 @@ if [[ "$1" = get && $# = 3 ]]; then
 fi
 
 declare +x idlpaste=
+if (( !$# )); then
 vared -chp idlpaste: idlpaste
 
 declare -a idlargv=("${(@M)${(@f)idlpaste}:# #idman( ##/[dpf] ##\"[^\"]##\")## #}")
-
+else
+declare -a idlargv=("${(@M)${(@f)argv}:# #idman( ##/[dpf] ##\"[^\"]##\")## #}")
+fi
 env -v true "${(@)idlargv}"
 
 ((#idlargv))
@@ -69,7 +72,9 @@ while ((#urls)); do
   elif [[ -e "$outdir/${outfns[1]}" ]]; then
     : downloaded
   else
-    SLEEP=$((RANDOM%10+10*(++k))) $0 get "${urls[1]}" "$outdir/${outfns[1]}" & disown
+    k=$((k+1))
+    local SLEEP=$((RANDOM%10+10*k))
+    SLEEP=$SLEEP $0 get "${urls[1]}" "$outdir/${outfns[1]}" & disown
   fi
   shift urls outfns
 done

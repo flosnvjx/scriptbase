@@ -10,7 +10,7 @@ declare +x port=$$
 printf -v port '%04d' ${port[1,4]}
 port=4$port
 MemDAV -listen-http 127.0.0.2:$port -username a -password a >/dev/null &
-trap 'local abr=$?; pkill -INT MemDAV >/dev/null; exit $abr' ZERR TERM INT
+trap 'local abr=$?; pkill MemDAV >/dev/null; exit $abr' ZERR TERM INT
 sleep 0.2 >/dev/null
 curl -fsT - -u a:a http://127.0.0.2:$port/$key >/dev/null
 
@@ -27,4 +27,4 @@ ffmpeg -loglevel warning -xerror -err_detect explode -i http://a:a@127.0.0.2:$po
 }
 
 main "${(@)argv}"
-pkill -INT MemDAV >/dev/null
+pkill MemDAV >/dev/null
