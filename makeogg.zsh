@@ -50,7 +50,7 @@ function .main {
           fi
           shift
         done
-      } aotuv flac
+      } aotuv lame flac
     fi
   else
     .fatal "unsupported output fmt: $1"
@@ -552,7 +552,7 @@ function .main {
                       fi
                     fi; shift
                     done
-                  } qaac fdkaac ${(z)${(M)mmode:#taste}:+opus exhale} aotuv flac
+                  } qaac fdkaac ${(z)${(M)mmode:#taste}:+opus exhale} aotuv lame flac
                 fi
                 argv=(${(@)wa_ofmt})
                 while ((#)); do
@@ -561,7 +561,7 @@ function .main {
                 (null) runenc[$ofmt]=$'pv\n-qX;:\n' ;|
                 (aotuv) runenc[$ofmt]=$'oggenc\n-Qq5\n-s\n....\n' ;|
                 (flac) runenc[$ofmt]=$'flac\n-V8cs\n' ;|
-                (fdkaac|qaac|exhale|opus)
+                (fdkaac|qaac|exhale|opus|lame)
                   runenc[$ofmt]=${ostr[$ofmt]// ##/$'\n'}
                 ;|
                 (qaac)
@@ -597,7 +597,7 @@ mp4tagcli
 --comment=TRACKNUMBER=${cuedump[$tn.tnum]/#0}
 '
                 ;|
-                (aotuv|flac|fdkaac|qaac|exhale|opus)
+                (aotuv|flac|fdkaac|qaac|exhale|opus|lame)
                 runenc[$ofmt]+='
 ${${${cuedump[$tn.TITLE]/#[    ]#}/%[   ]#}:+--comment=TITLE=${${cuedump[$tn.TITLE]/#[    ]#}/%[   ]#}}
 ${${${${(s|・|)${(s| / |)${(s|, |)${(s|、|)cuedump[$tn.REM COMPOSER]:-${cuedump[$tn.SONGWRITER]:-${cuedump[d.REM COMPOSER]:-${cuedump[d.SONGWRITER]}}}}}}}/#[	 ]##}/%[	 ]##}:+--comment=COMPOSER=}${(@)^${(@)${(@s|・|)${(@s| / |)${(@s|, |)${(@s|、|)cuedump[$tn.REM COMPOSER]:-${cuedump[$tn.SONGWRITER]:-${cuedump[d.REM COMPOSER]:-${cuedump[d.SONGWRITER]}}}}}}}/#[	 ]##}/%[	 ]##}
@@ -621,7 +621,13 @@ ${cuedump[date]:+--comment=DATE=${cuedump[date]}}
 ${cuedump[date]:+--tag=day:${cuedump[date]}}
 '
                 ;|
-                (aotuv|flac|fdkaac|qaac|exhale|opus)
+                (lame)
+                runenc[$ofmt]+='
+${(ps.\t.)cuedump[date]:+--tv	TYER=${cuedump[date][1,4]}}
+${(ps.\t.)cuedump[date][5,-1]:+--tv	TDAT=$(TZ=UTC date "+%m%d" -d "${cuedump[date]}")}
+'
+                ;|
+                (aotuv|flac|fdkaac|qaac|exhale|opus|lame)
                 runenc[$ofmt]+='
 ${${${${(s| / |)${(s|×|)${(s|、|)cuedump[d.REM LABEL]}}}//#[	 ]##}//%[	 ]##}:+--comment=LABEL=}${(@)^${(@)${(@s| / |)${(@s|×|)${(@s|、|)cuedump[d.REM LABEL]}}}/#[	 ]##}/%[	 ]##}
 ${${${${cuedump[$tn.REM COMMENT]:-${cuedump[d.REM COMMENT]}}//#[	 ]#}//%[	 ]#}:+--comment=COMMENT=${${${cuedump[$tn.REM COMMENT]:-${cuedump[d.REM COMMENT]}}/#[	 ]#}/%[	 ]#}}
@@ -641,7 +647,13 @@ ${${${(M)cuedump[d.REM TOTALDISCS]:#1}:+--tag=disk:1/1}:-${cuedump[d.REM DISCNUM
 --tag=trkn:${cuedump[$tn.tnum]/#0}/${cuedump[tc]}
 '
                 ;|
-                (aotuv|flac|fdkaac|qaac|exhale|opus)
+                (lame)
+                runenc[$ofmt]+='
+${(@ps.\t.)${${(M)cuedump[d.REM TOTALDISCS]:#1}:+--tv	TPOS=1/1}:-${cuedump[d.REM DISCNUMBER]:+--tv	TPOS=${cuedump[d.REM DISCNUMBER]}${cuedump[d.REM TOTALDISCS]:+/${cuedump[d.REM TOTALDISCS]}}}}
+--tv'$'\n''TRCK=${cuedump[$tn.tnum]/#0}/${cuedump[tc]}
+'
+                ;|
+                (aotuv|flac|fdkaac|qaac|exhale|opus|lame)
                 runenc[$ofmt]+='
 ${cuedump[$tn.ISRC]:+--comment=ISRC=${cuedump[$tn.ISRC]}}
 ${cuedump[d.REM MUSICBRAINZ_ALBUMID]:+--comment=MUSICBRAINZ_ALBUMID=${cuedump[d.REM MUSICBRAINZ_ALBUMID]}}
@@ -649,7 +661,7 @@ ${cuedump[$tn.REM MUSICBRAINZ_RELEASETRACKID]:+--comment=MUSICBRAINZ_RELEASETRAC
 ${cuedump[$tn.REM BPM]+--comment=BPM=${cuedump[$tn.REM BPM]}}
 '
                 ;|
-                (aotuv|flac|fdkaac|qaac|opus)
+                (aotuv|flac|fdkaac|qaac|opus|lame)
                 runenc[$ofmt]+='
 ${${cuedump[$tn.REM REPLAYGAIN_TRACK_GAIN]:-${REPLAYGAIN_TRACK_GAINs[$tn]}}:+--comment=REPLAYGAIN_TRACK_GAIN=${cuedump[$tn.REM REPLAYGAIN_TRACK_GAIN]:-${REPLAYGAIN_TRACK_GAINs[$tn]}}}
 ${${cuedump[$tn.REM REPLAYGAIN_TRACK_PEAK]:-${REPLAYGAIN_TRACK_PEAKs[$tn]}}:+--comment=REPLAYGAIN_TRACK_PEAK=${cuedump[$tn.REM REPLAYGAIN_TRACK_PEAK]:-${REPLAYGAIN_TRACK_PEAKs[$tn]}}}
@@ -665,7 +677,7 @@ ${cuedump[d.REM REPLAYGAIN_ALBUM_PEAK]:+--comment=REPLAYGAIN_ALBUM_PEAK=${cuedum
                   runenc[$ofmt]+="-"
                 fi
                 ;|
-                (opus)
+                (opus|lame)
                 if [[ "${#ofmtargs}" -ge 1 ]]; then
                   runenc[$ofmt]+=$'\n'"${(@pj.\n.)ofmtargs}"$'\n'
                   ofmtargs=()
@@ -691,6 +703,25 @@ ${cuedump[d.REM REPLAYGAIN_ALBUM_PEAK]:+--comment=REPLAYGAIN_ALBUM_PEAK=${cuedum
                   fi
                 } ${(k)vorbiscmt2itunes}
                 ;|
+                (lame)
+                function {
+                  while ((#)); do
+                    if [[ "${vorbiscmt2id3v2[$1]}" == [A-Z0-9](#c4)(:[a-z]##|) ]]; then
+                      runenc[$ofmt]="${(@pj.\n.)${(@f)runenc[$ofmt]}//--comment=$1=/--tv	${vorbiscmt2id3v2[$1]/:/=}=}"
+                    else
+                      runenc[$ofmt]="${(@pj.\n.)${(@f)runenc[$ofmt]}//--comment=$1=/--tv	TXXX=${vorbiscmt2id3v2[$1]}=}"
+                    fi
+                    shift
+                  done
+                  local match=()
+                  if (( ${(M)#runenc:#*--comment=*} )); then
+                    runenc[$ofmt]=${runenc[$ofmt]//\((|@)s\|[^|]##\|\)}
+                    setopt localoptions histsubstpattern
+                    runenc[$ofmt]=${runenc[$ofmt]:gs/--comment=(#b)([^=]##)(#B)=/--tv$'\t'TXXX='${match[1]}='/}
+                  fi
+                } ${(k)vorbiscmt2id3v2}
+                runenc[$ofmt]="$(sed '/--tv\t/s%^\${\$%${(@ps.\t.)$%' <<< ${runenc[$ofmt]})"
+                ;|
                 (exhale)
                 function {
                   while ((#)); do
@@ -712,7 +743,7 @@ ${cuedump[d.REM REPLAYGAIN_ALBUM_PEAK]:+--comment=REPLAYGAIN_ALBUM_PEAK=${cuedum
                 } ${(k)vorbiscmt2itunes}
                 ;|
                 (flac) runenc[$ofmt]=${runenc[$ofmt]//--comment=/--tag=} ;|
-                (opus)
+                (opus|lame)
                   runenc[$ofmt]+=$'\n-'
                   if [[ "$mmode" != evalpipe ]]; then
                     ## FIXME: potential heisenbug
@@ -1065,7 +1096,7 @@ ${cuedump[d.REM REPLAYGAIN_ALBUM_PEAK]:+--comment=REPLAYGAIN_ALBUM_PEAK=${cuedum
                           printf '%s\n' "play ${cuedump[d.REM DISCNUMBER]:+${cuedump[d.REM DISCNUMBER]}#}${cuedump[${seltnums[1]}.tnum]}${cuedump[${seltnums[1]}.TITLE]:+. ${cuedump[${seltnums[1]}.TITLE]}}"
                         fi
                         while ((#)); do
-                          print -rn -- ${argv[1]:#(qaac|exhale)}${${argv[1]:#(qaac|exhale)}:+$'\n'}
+                          print -rn -- ${argv[1]:#(qaac|exhale|lame)}${${argv[1]:#(qaac|exhale|lame)}:+$'\n'}
                           if (( "${(@)#${(@M)${(@k)runencspinsadd}:#$1.*}}" )); then
                             local p=; for p in ${(@n)${(@)runencspinsadd[(I)$1.*]}}; do
                               printf '%s\t%s\n' $p ${runencspinsadd[$p]##*\#}
@@ -1089,7 +1120,6 @@ ${cuedump[d.REM REPLAYGAIN_ALBUM_PEAK]:+--comment=REPLAYGAIN_ALBUM_PEAK=${cuedum
                           shift -p asktaste
                           continue
                         ;|
-                        (cancel) break ;;
                         (flac|exhale*) ;&
                         (submit)
                           if [[ ! -d "$outfnpref" ]]; then
@@ -1109,14 +1139,17 @@ ${cuedump[d.REM REPLAYGAIN_ALBUM_PEAK]:+--comment=REPLAYGAIN_ALBUM_PEAK=${cuedum
                             mv -- $outfnpref/$outfnsuff{.exhale@${asktaste[(R)^(play)]#*.},}.${ostrext[${asktaste[(R)^(play)]%.*}]}
                             eval command mp4tagcli ${${${${(f)runenc[${asktaste[(R)^(play)]%.*}]##*$'\n'mp4tagcli}:#}//\[\$tn./'[${seltnums[1]}.'}//\[\$tn\]/'[${seltnums[1]}]'}
                           else
-                            command ${(s. .)rundec} ${${(M)cuedump[${seltnums[1]}.skip]:#<1->}:+--skip=${cuedump[${seltnums[1]}.skip]}} ${${(M)cuedump[${seltnums[1]}.until]:#<1->}:+--until=${cuedump[${seltnums[1]}.until]}} ${${(M)${cuedump[${seltnums[1]}.file]:-$ifile}:#-*}:+./}${cuedump[${seltnums[1]}.file]:-$ifile} | rw | eval "${rundecpipe:+$rundecpipe | }" command ${${${${(f)runenc[${asktaste[(R)^(play)]%.*}]}:#}//\[\$tn./'[${seltnums[1]}.'}//\[\$tn\]/'[${seltnums[1]}]'} ${(z)runencspinsadd[${asktaste[(R)^(play)]}]%%\#*} "${(@q)ofmtargs}" - "${${(M)asktaste[(R)^(play)]:#opus(|.*)}:+| rw \$outfnpref/\$outfnsuff.${ostrext[${asktaste[(R)^(play)]%.*}]}}"
+                            command ${(s. .)rundec} ${${(M)cuedump[${seltnums[1]}.skip]:#<1->}:+--skip=${cuedump[${seltnums[1]}.skip]}} ${${(M)cuedump[${seltnums[1]}.until]:#<1->}:+--until=${cuedump[${seltnums[1]}.until]}} ${${(M)${cuedump[${seltnums[1]}.file]:-$ifile}:#-*}:+./}${cuedump[${seltnums[1]}.file]:-$ifile} | rw | eval "${rundecpipe:+$rundecpipe | }" command ${${${${(f)runenc[${asktaste[(R)^(play)]%.*}]}:#}//\[\$tn./'[${seltnums[1]}.'}//\[\$tn\]/'[${seltnums[1]}]'} ${(z)runencspinsadd[${asktaste[(R)^(play)]}]%%\#*} "${(@q)ofmtargs}" - "${${(M)asktaste[(R)^(play)]:#(opus|lame)(|.*)}:+| rw \$outfnpref/\$outfnsuff.${ostrext[${asktaste[(R)^(play)]%.*}]}}"
                           fi
                         ;&
-                        (next)
+                        (next|cancel)
                           if function { (( $# )); } $outfnpref/$outfnsuff.exhale@[0-9a-g].${ostrext[exhale]}(.N); then
-                            rm -v -- $outfnpref/$outfnsuff.exhale@[0-9a-g].${ostrext[exhale]}(.N)
+                            rm -v -- $outfnpref/$outfnsuff.exhale@[0-9a-g](|n).${ostrext[exhale]}(.N)
                           fi
                           asktaste=()
+                        ;|
+                        (cancel) break ;;
+                        (next|submit)
                           shift seltnums; continue
                         ;;
                         (play)
@@ -1159,6 +1192,12 @@ ${cuedump[d.REM REPLAYGAIN_ALBUM_PEAK]:+--comment=REPLAYGAIN_ALBUM_PEAK=${cuedum
                     (flac) runenc[$ofmt]+=$'\n--force-raw-format\n--sign=signed\n--endian=little\n--channels=2\n--bps=16\n--sample-rate=44100\n'
                     ;;
                     (aotuv|fdkaac|opus) runenc[$ofmt]+=$'\n--raw\n' ;|
+                    (lame)
+                      runenc[$ofmt]+=$'\n-r\n-\n'
+                      if [[ "$mmode" != evalpipe ]]; then
+                        runenc[$ofmt]+=$'\n"$outfnpref/$outfnsuff".${ostrext[$ofmt]};:\n'
+                      fi
+                    ;|
                     (opus)
                       runenc[$ofmt]+=$'\n--raw-rate=44100\n--\n-'
                       if [[ "$mmode" != evalpipe ]]; then
@@ -1218,6 +1257,8 @@ ${cuedump[d.REM REPLAYGAIN_ALBUM_PEAK]:+--comment=REPLAYGAIN_ALBUM_PEAK=${cuedum
                 ;|
               esac
             fi
+          ;|
+          ([yp])
             break
           ;|
           (e)
@@ -1813,6 +1854,26 @@ vorbiscmt2itunes=(
   GENRE gen
 )
 
+declare -A vorbiscmt2id3v2=(
+  TITLE TIT2
+  COMPOSER TCOM
+  ARRANGER IPLS:arranger
+  ARTIST TPE1
+  ALBUM TALB
+  ALBUMSORT TSOA
+  ALBUMARTIST TPE2
+  COMMENT COMM:description
+  GROUPING TIT1
+  LANGUAGE TLAN
+  LYRICIST TEXT
+  LABEL TPUB
+  MUSICBRAINZ_ALBUMID 'TXXX:MusicBrainz Album Id'
+  MUSICBRAINZ_RELEASETRACKID 'TXXX:MusicBrainz Release Track Id'
+  BPM TBPM
+  GENRE TCON
+  ISRC TSRC
+)
+
 declare -a vorbiscmt2ape
 vorbiscmt2ape=(
   ALBUM Album
@@ -1941,11 +2002,13 @@ ostrext=(
   aotuv ogg
 
   opus opus
+
+  lame mp3
 )
 declare -A runenc
 declare -A runencspinsadd
 runencspinsadd=(
-  exhale.1n    '1 n /dev/stdin#16/32kHz 14.5/44.1kHz'
+  exhale.1     '1#16/32kHz 14.5/44.1kHz'
   exhale.2     '2#14.5/48kHz 15/44.1kHz'
   exhale.3     '3#15/48kHz 15.7/44.1kHz'
   exhale.4     '4#15.7/48kHz 16.5/44.1kHz'
@@ -1990,6 +2053,13 @@ runencspinsadd=(
   aotuv.q5i15 "--advanced-encode-option impulse_noisetune=-15"
   aotuv.q5.5  -q5.5
   aotuv.q5.8  -q5.8
+  lame.V0     -V0"#240k"
+  lame.V1     -V1"#224k, 19.5kHz"
+  lame.V2     -V2"#192k, 18.75kHz"
+  lame.V3     -V3"#176k, 18kHz"
+  lame.V4     -V4'#160k, 17.5kHz'
+  lame.V5     -V5"#128k, 16.75kHz"
+  lame.V6     -V6"#120k, 16.75kHz"
 )
 function .deps {
   fzf --version &>/dev/null
@@ -2036,6 +2106,10 @@ function .deps {
 
   if [[ -v commands[opusenc] ]]; then
     ostr[opus]='opusenc --music '
+  fi
+
+  if [[ -v commands[lame] ]]; then
+    ostr[lame]='lame --ignorelength --noreplaygain --silent --id3v2-only -V3 '
   fi
 }
 function .uninorm {
