@@ -1149,7 +1149,7 @@ ${cuedump[d.REM REPLAYGAIN_ALBUM_PEAK]:+--comment=REPLAYGAIN_ALBUM_PEAK=${cuedum
                           asktaste=()
                         ;|
                         (cancel) break ;;
-                        (next|submit)
+                        (flac|next|submit)
                           shift seltnums; continue
                         ;;
                         (play)
