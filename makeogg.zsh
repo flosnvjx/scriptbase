@@ -1258,8 +1258,11 @@ ${cuedump[d.REM REPLAYGAIN_ALBUM_PEAK]:+--comment=REPLAYGAIN_ALBUM_PEAK=${cuedum
               esac
             fi
           ;|
-          ([yp])
+          (y)
             break
+          ;|
+          (p)
+            continue
           ;|
           (e)
             mbuf="${$(print -rn -- $mbuf | zed):-$mbuf}" || continue
