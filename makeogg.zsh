@@ -1127,19 +1127,19 @@ ${cuedump[d.REM REPLAYGAIN_ALBUM_PEAK]:+--comment=REPLAYGAIN_ALBUM_PEAK=${cuedum
                           fi
                         ;|
                         (exhale*)
-                          if [[ ! -e "$outfnpref/$outfnsuff.exhale@${asktaste[-1]#*.}.${ostrext[${asktaste[-1]%.*}]}" ]]; then
-                            command ${(s. .)rundec} ${${(M)cuedump[${seltnums[1]}.skip]:#<1->}:+--skip=${cuedump[${seltnums[1]}.skip]}} ${${(M)cuedump[${seltnums[1]}.until]:#<1->}:+--until=${cuedump[${seltnums[1]}.until]}} ${${(M)${cuedump[${seltnums[1]}.file]:-$ifile}:#-*}:+./}${cuedump[${seltnums[1]}.file]:-$ifile} | eval "${rundecpipe:+$rundecpipe | }" command exhale ${(z)runencspinsadd[${asktaste[-1]}]%%\#*} \$outfnpref/\$outfnsuff.exhale@${asktaste[-1]#*.}.${ostrext[${asktaste[-1]%.*}]}
+                          if [[ ! -e "$outfnpref/$outfnsuff.exhale@${asktaste[-1]#*.}.${ostrext[${asktaste[-1]%%.*}]}" ]]; then
+                            command ${(s. .)rundec} ${${(M)cuedump[${seltnums[1]}.skip]:#<1->}:+--skip=${cuedump[${seltnums[1]}.skip]}} ${${(M)cuedump[${seltnums[1]}.until]:#<1->}:+--until=${cuedump[${seltnums[1]}.until]}} ${${(M)${cuedump[${seltnums[1]}.file]:-$ifile}:#-*}:+./}${cuedump[${seltnums[1]}.file]:-$ifile} | eval "${rundecpipe:+$rundecpipe | }" command exhale ${(z)runencspinsadd[${asktaste[-1]}]%%\#*} \$outfnpref/\$outfnsuff.exhale@${asktaste[-1]#*.}.${ostrext[${asktaste[-1]%%.*}]}
                           fi
-                          mpv --title=${seltnums[1]}.${cuedump[${seltnums[1]}.TITLE]} -- $outfnpref/$outfnsuff.exhale@${asktaste[-1]#*.}.${ostrext[${asktaste[-1]%.*}]}||:
+                          mpv --title=${seltnums[1]}.${cuedump[${seltnums[1]}.TITLE]} -- $outfnpref/$outfnsuff.exhale@${asktaste[-1]#*.}.${ostrext[${asktaste[-1]%%.*}]}||:
                           continue
                         ;;
                         (flac) ;&
                         (submit)
-                          if [[ "${asktaste[(R)^(play)]%.*}" == (exhale*) ]]; then
-                            mv -- $outfnpref/$outfnsuff{.exhale@${asktaste[(R)^(play)]#*.},}.${ostrext[${asktaste[(R)^(play)]%.*}]}
-                            eval command mp4tagcli ${${${${(f)runenc[${asktaste[(R)^(play)]%.*}]##*$'\n'mp4tagcli}:#}//\[\$tn./'[${seltnums[1]}.'}//\[\$tn\]/'[${seltnums[1]}]'}
+                          if [[ "${asktaste[(R)^(play)]%%.*}" == (exhale*) ]]; then
+                            mv -- $outfnpref/$outfnsuff{.exhale@${asktaste[(R)^(play)]#*.},}.${ostrext[${asktaste[(R)^(play)]%%.*}]}
+                            eval command mp4tagcli ${${${${(f)runenc[${asktaste[(R)^(play)]%%.*}]##*$'\n'mp4tagcli}:#}//\[\$tn./'[${seltnums[1]}.'}//\[\$tn\]/'[${seltnums[1]}]'}
                           else
-                            command ${(s. .)rundec} ${${(M)cuedump[${seltnums[1]}.skip]:#<1->}:+--skip=${cuedump[${seltnums[1]}.skip]}} ${${(M)cuedump[${seltnums[1]}.until]:#<1->}:+--until=${cuedump[${seltnums[1]}.until]}} ${${(M)${cuedump[${seltnums[1]}.file]:-$ifile}:#-*}:+./}${cuedump[${seltnums[1]}.file]:-$ifile} | rw | eval "${rundecpipe:+$rundecpipe | }" command ${${${${(f)runenc[${asktaste[(R)^(play)]%.*}]}:#}//\[\$tn./'[${seltnums[1]}.'}//\[\$tn\]/'[${seltnums[1]}]'} ${(z)runencspinsadd[${asktaste[(R)^(play)]}]%%\#*} "${(@q)ofmtargs}" - "${${(M)asktaste[(R)^(play)]:#(opus|lame)(|.*)}:+| rw \$outfnpref/\$outfnsuff.${ostrext[${asktaste[(R)^(play)]%.*}]}}"
+                            command ${(s. .)rundec} ${${(M)cuedump[${seltnums[1]}.skip]:#<1->}:+--skip=${cuedump[${seltnums[1]}.skip]}} ${${(M)cuedump[${seltnums[1]}.until]:#<1->}:+--until=${cuedump[${seltnums[1]}.until]}} ${${(M)${cuedump[${seltnums[1]}.file]:-$ifile}:#-*}:+./}${cuedump[${seltnums[1]}.file]:-$ifile} | rw | eval "${rundecpipe:+$rundecpipe | }" command ${${${${(f)runenc[${asktaste[(R)^(play)]%%.*}]}:#}//\[\$tn./'[${seltnums[1]}.'}//\[\$tn\]/'[${seltnums[1]}]'} ${(z)runencspinsadd[${asktaste[(R)^(play)]}]%%\#*} "${(@q)ofmtargs}" - "${${(M)asktaste[(R)^(play)]:#(opus|lame)(|.*)}:+| rw \$outfnpref/\$outfnsuff.${ostrext[${asktaste[(R)^(play)]%%.*}]}}"
                           fi
                         ;&
                         (next|cancel)
@@ -1157,7 +1157,7 @@ ${cuedump[d.REM REPLAYGAIN_ALBUM_PEAK]:+--comment=REPLAYGAIN_ALBUM_PEAK=${cuedum
                           continue
                         ;;
                         (?*)
-                          command ${(s. .)rundec} ${${(M)cuedump[${seltnums[1]}.skip]:#<1->}:+--skip=${cuedump[${seltnums[1]}.skip]}} ${${(M)cuedump[${seltnums[1]}.until]:#<1->}:+--until=${cuedump[${seltnums[1]}.until]}} ${${(M)${cuedump[${seltnums[1]}.file]:-$ifile}:#-*}:+./}${cuedump[${seltnums[1]}.file]:-$ifile} | eval "${rundecpipe:+$rundecpipe | }" command ${${${${(f)runenc[${asktaste[-1]%.*}]/$'\n'\"\$outfnpref\/\$outfnsuff\".${ostrext[${asktaste[-1]%.*}]}/$'\n'-}:#}//\[\$tn./'[${seltnums[1]}.'}//\[\$tn\]/'[${seltnums[1]}]'} ${(z)runencspinsadd[${asktaste[-1]}]%%\#*} ${${(M)asktaste[-1]:#fdkaac(.*|)}:+-f2} ${${(M)asktaste[-1]:#qaac(|.*)}:+--adts} "${(@q)ofmtargs}" - | pv -b | rw | command mpv --title=${seltnums[1]}.${cuedump[${seltnums[1]}.TITLE]} -||continue
+                          command ${(s. .)rundec} ${${(M)cuedump[${seltnums[1]}.skip]:#<1->}:+--skip=${cuedump[${seltnums[1]}.skip]}} ${${(M)cuedump[${seltnums[1]}.until]:#<1->}:+--until=${cuedump[${seltnums[1]}.until]}} ${${(M)${cuedump[${seltnums[1]}.file]:-$ifile}:#-*}:+./}${cuedump[${seltnums[1]}.file]:-$ifile} | eval "${rundecpipe:+$rundecpipe | }" command ${${${${(f)runenc[${asktaste[-1]%%.*}]/$'\n'\"\$outfnpref\/\$outfnsuff\".${ostrext[${asktaste[-1]%%.*}]}/$'\n'-}:#}//\[\$tn./'[${seltnums[1]}.'}//\[\$tn\]/'[${seltnums[1]}]'} ${(z)runencspinsadd[${asktaste[-1]}]%%\#*} ${${(M)asktaste[-1]:#fdkaac(.*|)}:+-f2} ${${(M)asktaste[-1]:#qaac(|.*)}:+--adts} "${(@q)ofmtargs}" - | pv -b | rw | command mpv --title=${seltnums[1]}.${cuedump[${seltnums[1]}.TITLE]} -||continue
                           continue
                         ;;
                         (*)
