@@ -1,24 +1,132 @@
 #!/usr/bin/env python3
 ## Tiny VorbisComment/FLAC CLI tag editor (opustags-style UX, MATCHES apev2tags.py)
 ## FEATURES: Multi-file + Opt-in sparse + Read error fail-fast + Deduplication (dev/inode) + Write error tracking
-## FIXES: Track only actually written files' triplets; hardlink-aware; noise-free deduplication
+## NEW: Stdin/stdout support (- as single file: read from stdin, write modified to stdout)
 import sys
 import os
 import fcntl
 import struct
 import argparse
 from os.path import exists
-from io import BytesIO
+from io import BytesIO, BufferedReader
 from typing import List, Tuple, Dict, Set
-# Mutagen imports - Official public API (Picture, not PictureData)
+from mutagen.flac import FLAC as FLAC, Picture
+from mutagen.oggvorbis import OggVorbis as OggVorbis
+from mutagen.oggopus import OggOpus as OggOpus
+## let's wrap mutagen public api to use uppercase tag name storage
 from mutagen import MutagenError
-from mutagen.flac import FLAC, Picture
-from mutagen.oggvorbis import OggVorbis
-from mutagen.oggopus import OggOpus
+from mutagen.flac import FLAC as OriginalFLAC
+from mutagen.oggvorbis import OggVorbis as OriginalOggVorbis
+from mutagen.oggopus import OggOpus as OriginalOggOpus
+# Future-Proof Case-Enforcing Wrapper (Public API Only)
+class CaseEnforcingVorbisComment:
+    """
+    Wrapper for Vorbis Comment files that ENFORCES UPPERCASE tag keys.
+    Uses ONLY public Mutagen APIs. No internal monkey-patching.
+    Preserves your script's uppercase convention while remaining API-compatible.
+    """
+    def __init__(self, audio_file):
+        self._audio = audio_file
+    # ------------------------------
+    # Core Public API Implementation
+    # ------------------------------
+    def _enforce_upper_key(self, key):
+        """Ensure all keys are UPPERCASE before any operation."""
+        if not isinstance(key, str):
+            raise KeyError(f"Tag keys must be strings (got {type(key).__name__})")
+        return key.strip().upper()
+    def __getitem__(self, key):
+        """Get a tag by key (key is auto-converted to UPPERCASE)."""
+        upper_key = self._enforce_upper_key(key)
+        try:
+            return self._audio.tags[upper_key]
+        except KeyError:
+            # Match Mutagen's behavior: raise KeyError only if the key is missing
+            raise KeyError(key) from None
+    def __setitem__(self, key, value):
+        """Set a tag (key is auto-converted to UPPERCASE)."""
+        upper_key = self._enforce_upper_key(key)
+        self._audio.tags[upper_key] = value
+    def __delitem__(self, key):
+        """Delete a tag (key is auto-converted to UPPERCASE)."""
+        upper_key = self._enforce_upper_key(key)
+        del self._audio.tags[upper_key]
+    def __contains__(self, key):
+        """Check key existence (key is auto-converted to UPPERCASE)."""
+        upper_key = self._enforce_upper_key(key)
+        return upper_key in self._audio.tags
+    def keys(self):
+        """Return all tag keys (preserved as UPPERCASE)."""
+        return [k.upper() for k in self._audio.tags.keys()]
+    def items(self):
+        """Return all (key, value) pairs (keys as UPPERCASE)."""
+        return [(k.upper(), v) for k, v in self._audio.tags.items()]
+    def values(self):
+        """Return all tag values."""
+        return self._audio.tags.values()
+    def get(self, key, default=None):
+        """Get a tag with fallback (key auto-converted to UPPERCASE)."""
+        upper_key = self._enforce_upper_key(key)
+        return self._audio.tags.get(upper_key, default)
+    def clear(self):
+        """Clear all tags."""
+        self._audio.tags.clear()
+    # ------------------------------
+    # Forward Compatibility (Public FLAC Picture API)
+    # ------------------------------
+    def __getattr__(self, name):
+        """Forward all other attribute access to the underlying audio file."""
+        return getattr(self._audio, name)
+
+# -----------------------------------------------------------------------------
+# Modified Open Functions (Add stdin buffer support + CASE-ENFORCEMENT)
+# -----------------------------------------------------------------------------
+def open_audio_file(file_path: str, stdin_buffer: BytesIO = None):
+    """
+    Open an audio file with CASE-ENFORCEMENT (UPPERCASE keys).
+    Supports stdin buffer (BytesIO) for - positional parameter.
+    Returns a wrapped object that behaves like the original, but enforces uppercase.
+    """
+    try:
+        if stdin_buffer is not None:
+            # Read from in-memory buffer (stdin data) - detect format automatically
+            stdin_buffer.seek(0)
+            # Try FLAC first, then OggVorbis (oga/ogg), then OggOpus
+            try:
+                audio = OriginalFLAC(stdin_buffer)
+            except MutagenError:
+                stdin_buffer.seek(0)
+                try:
+                    audio = OriginalOggVorbis(stdin_buffer)
+                except MutagenError:
+                    stdin_buffer.seek(0)
+                    audio = OriginalOggOpus(stdin_buffer)
+        else:
+            # Original file path handling
+            ext = file_path.lower().split('.')[-1]
+            if ext == 'flac':
+                audio = OriginalFLAC(file_path)
+            elif ext in ('ogg', 'oga'):
+                audio = OriginalOggVorbis(file_path)
+            elif ext == 'opus':
+                audio = OriginalOggOpus(file_path)
+            else:
+                raise MutagenError(f"unsupported format: .{ext} (only flac/ogg/oga/opus)")
+        # Wrap the audio file to enforce UPPERCASE keys (NO HACKING!)
+        return CaseEnforcingVorbisComment(audio)
+    except MutagenError as e:
+        raise e
+    except Exception as e:
+        raise MutagenError(f"file access failed: {str(e)}")
+
+## above to wrap mutagen public api to use uppercase tag name storage
 # -----------------------------------------------------------------------------
 # Helper: Resolve symlinks + validate regular file (abort on failure)
 # -----------------------------------------------------------------------------
 def resolve_and_check_regular_file(file_path: str) -> str:
+    # Skip validation for stdin marker (-)
+    if file_path == '-':
+        return '-'
     try:
         resolved_path = os.path.realpath(file_path)
     except OSError as e:
@@ -35,29 +143,36 @@ def resolve_and_check_regular_file(file_path: str) -> str:
         sys.exit(1)
     
     return resolved_path
+
 # -----------------------------------------------------------------------------
 # Helper: Get devmaj+devmin+inodenum triplet (unique physical file ID)
 # -----------------------------------------------------------------------------
 def get_file_ident_triplet(file_path: str) -> Tuple[int, int, int]:
+    # Skip triplet for stdin marker (-)
+    if file_path == '-':
+        return (-1, -1, -1)
     try:
         stat_info = os.stat(file_path)
-        devmaj = os.major(st.st_dev)
-        devmin = os.major(st.st_dev)
+        devmaj = os.major(stat_info.st_dev)
+        devmin = os.minor(stat_info.st_dev)
         inodenum = stat_info.st_ino
         return (devmaj, devmin, inodenum)
     except OSError as e:
         print(f"error: failed to get file metadata: {file_path} → {e}", file=sys.stderr)
         sys.exit(1)
+
 # -----------------------------------------------------------------------------
 # Pure Python Sparse File Wrapper (Linux standard, no libc hardcode)
 # -----------------------------------------------------------------------------
 FALLOC_FL_PUNCH_HOLE = 0x00000020
 FALLOC_FL_KEEP_SIZE = 0x00000001
 FALLOC_MODE = FALLOC_FL_PUNCH_HOLE | FALLOC_FL_KEEP_SIZE
+
 class SparseTagFile:
     def __init__(self, path: str):
         self.fd = os.open(path, os.O_RDWR)
         self._fallocate_supported = self._check_fallocate_support()
+
     def _check_fallocate_support(self) -> bool:
         try:
             original_offset = os.lseek(self.fd, 0, os.SEEK_CUR)
@@ -66,12 +181,14 @@ class SparseTagFile:
             return True
         except (AttributeError, OSError):
             return False
+
     def write(self, data: bytes) -> int:
         if not data:
             return 0
         if self._fallocate_supported and all(b == 0 for b in data):
             return self._punch_hole(len(data))
         return os.write(self.fd, data)
+
     def _punch_hole(self, size: int) -> int:
         try:
             current_offset = os.lseek(self.fd, 0, os.SEEK_CUR)
@@ -81,36 +198,27 @@ class SparseTagFile:
             return size
         except Exception:
             return os.write(self.fd, b'\x00' * size)
+
     def seek(self, offset: int, whence: int = 0) -> int:
         return os.lseek(self.fd, offset, whence)
+
     def tell(self) -> int:
         return os.lseek(self.fd, 0, os.SEEK_CUR)
+
     def close(self):
         if hasattr(self, 'fd') and self.fd != -1:
             os.close(self.fd)
             self.fd = -1
+
     def __enter__(self):
         return self
+
     def __exit__(self, *args):
         self.close()
+
 # -----------------------------------------------------------------------------
 # Core Helper Functions (tag parsing, file handling, validation)
 # -----------------------------------------------------------------------------
-def open_audio_file(file_path: str):
-    try:
-        ext = file_path.lower().split('.')[-1]
-        if ext == 'flac':
-            return FLAC(file_path)
-        elif ext in ('ogg', 'oga'):
-            return OggVorbis(file_path)
-        elif ext == 'opus':
-            return OggOpus(file_path)
-        else:
-            raise MutagenError(f"unsupported format: .{ext} (only flac/ogg/oga/opus)")
-    except MutagenError as e:
-        raise e
-    except Exception as e:
-        raise MutagenError(f"file access failed: {str(e)}")
 def load_tags(source: str) -> List[Tuple[str, str]]:
     items = []
     lines = []
@@ -138,6 +246,7 @@ def load_tags(source: str) -> List[Tuple[str, str]]:
                 sys.exit(1)
         items.append((k, v.strip()))
     return items
+
 def tags_are_equal(audio1, audio2) -> bool:
     if set(audio1.keys()) != set(audio2.keys()):
         return False
@@ -151,6 +260,7 @@ def tags_are_equal(audio1, audio2) -> bool:
             if p1.data != p2.data or p1.type != p2.type or p1.mime != p2.mime or p1.desc != p2.desc:
                 return False
     return True
+
 def parse_kv(kv: str) -> Tuple[str, str]:
     if '=' not in kv:
         print(f"error: invalid tag entry (missing '='): '{kv}'", file=sys.stderr)
@@ -165,9 +275,10 @@ def parse_kv(kv: str) -> Tuple[str, str]:
             print(f"error: invalid char in key '{k}' (only printable ASCII, no =/~)", file=sys.stderr)
             sys.exit(1)
     return (k, v.strip())
+
 def print_flac_pictures(flac: FLAC, file_path: str):
     if not isinstance(flac, FLAC):
-        print(f"error: --flac:list-picture only supports FLAC (file: {file_path})", file=sys.stderr)
+        print(f"error: --flac-list-picture only supports FLAC (file: {file_path})", file=sys.stderr)
         sys.exit(1)
     if len(flac.pictures) == 0:
         print(f"no picture blocks found for {file_path}", file=sys.stdout)
@@ -214,6 +325,7 @@ def print_flac_pictures(flac: FLAC, file_path: str):
         print(f"  number of colors: {colors} (0 for non-indexed)")
         data_size = len(pic.data) if pic.data else 0
         print(f"  picture data length: {data_size} bytes")
+
 def add_flac_cover(audio: FLAC, img_path: str, file_path: str) -> None:
     if not exists(img_path):
         print(f"error: cover image not found: {img_path} (file: {file_path})", file=sys.stderr)
@@ -239,16 +351,18 @@ def add_flac_cover(audio: FLAC, img_path: str, file_path: str) -> None:
     except Exception as e:
         print(f"error: add cover failed for {file_path}: {e}", file=sys.stderr)
         sys.exit(1)
+
 # -----------------------------------------------------------------------------
 # Main CLI Logic
 # -----------------------------------------------------------------------------
 def main():
     parser = argparse.ArgumentParser(
         description='Tiny VorbisComment/FLAC CLI tag editor (opustags-style UX, MATCHES apev2tags.py). '
-                    'FEATURES: Batch processing (1+ files) | Opt-in sparse punching (-G) | Hardlink-aware deduplication. '
+                    'FEATURES: Batch processing (1+ files) | Opt-in sparse punching (-G) | Hardlink-aware deduplication | Stdin/stdout support (- as single file). '
                     'PRE-COMMIT ORDER (fixed): 1)-F → 2)-f → 3)-D → 4)-d → 5)-s → 6)-a → 7)-P → 8)FLAC cover ops. '
                     'FAIL FAST: Aborts on missing/corrupted/non-regular files (arg parsing stage). '
                     'DEDUPLICATION: Only ≥2 files; uses dev/inode triplet; skips duplicates after first successful write. '
+                    'STDIN/STDOUT: Use - as single positional param to read from stdin, apply ops, write modified audio to stdout (binary). '
                     'EXIT CODE: 0=all writes success; 1=partial/full failure.',
         formatter_class=argparse.RawDescriptionHelpFormatter
     )
@@ -258,7 +372,7 @@ def main():
     # Core list/info (mutually exclusive)
     core_list_group = parser.add_mutually_exclusive_group()
     core_list_group.add_argument('-l', '--list', action='store_true', help='Show all tags (exclusive with modify ops)')
-    core_list_group.add_argument('--flac:list-picture', action='store_true', help='Show FLAC picture blocks (metaflac-compatible, FLAC only)')
+    core_list_group.add_argument('--flac-list-picture', action='store_true', help='Show FLAC picture blocks (metaflac-compatible, FLAC only)')
     # Padding (mutually exclusive)
     padding_group = parser.add_mutually_exclusive_group()
     padding_group.add_argument(
@@ -269,32 +383,43 @@ def main():
         '--align-padding', type=int, metavar='BLOCKSIZE',
         help='Align file size to multiple of BLOCKSIZE (positive integer)'
     )
-    # Import/purge (mutually exclusive groups)
+    # Import/purge/delete (FIXED: Combined mutual exclusivity for -D/-d; removed useless f_d_mutual_group)
     import_core_group = parser.add_mutually_exclusive_group()
     import_core_group.add_argument('-F', '--from-file', metavar='FILE', help='Clear → import tags (file/stdin "-", exclusive with -f)')
-    f_d_mutual_group = parser.add_mutually_exclusive_group()
+    # FIX 1: Del/Purge mutual group (enforces -D and -d are exclusive)
+    del_purge_group = parser.add_mutually_exclusive_group()
     import_core_group.add_argument('-f', '--import-from-file', metavar='FILE', help='Append tags (file/stdin "-", exclusive with -F/-D)')
-    f_d_mutual_group.add_argument('-D', '--purge', action='store_true', help='Purge all tags (FLAC: + pictures, exclusive with -d/-f)')
-    # Delete (mutually exclusive with -D)
-    del_group = parser.add_mutually_exclusive_group()
-    parser.add_argument('-d', '--delete', nargs='*', metavar='KEY', help='Delete tags (case-insensitive, exclusive with -D)')
-    # Core positional/files/modify args
-    parser.add_argument('files', nargs='+', help='Target files (flac/ogg/oga/opus; regular files after symlink resolve)')
-    parser.add_argument('-s', '--set', nargs='*', metavar='KEY=VALUE', help='Set/replace tags (last occurrence wins)')
-    parser.add_argument('-a', '--add', nargs='*', metavar='KEY=VALUE', help='Append multi-value tags (preserve order)')
+    del_purge_group.add_argument('-D', '--purge', action='store_true', help='Purge all tags (FLAC: + pictures, exclusive with -d/-f)')
+    del_purge_group.add_argument('-d', '--delete', nargs='+', metavar='KEY', help='Delete tags (case-insensitive, exclusive with -D; REQUIRES ≥1 KEY)')
+    # Core modify flags (SET/ADD)
+    parser.add_argument('-s', '--set', nargs='+', metavar='KEY=VALUE', help='Set/replace tags (last occurrence wins; REQUIRES ≥1 KEY=VALUE)')
+    parser.add_argument('-a', '--add', nargs='+', metavar='KEY=VALUE', help='Append multi-value tags (preserve order; REQUIRES ≥1 KEY=VALUE)')
     # FLAC cover ops (mutually exclusive)
     flac_cover_mutex = parser.add_mutually_exclusive_group()
-    parser.add_argument('-P', '--flac:purge-picture', action='store_true', help='[FLAC ONLY] Purge all picture blocks')
-    flac_cover_mutex.add_argument('--flac:add-cover', metavar='IMAGE_FILE', help='[FLAC ONLY] Append front cover (jpg/png)')
-    flac_cover_mutex.add_argument('-I', '--flac:only-a-cover', metavar='IMAGE_FILE', action='append', help='[FLAC ONLY] Purge pics → add cover (last file wins)')
+    flac_cover_mutex.add_argument('-P', '--flac-purge-picture', action='store_true', help='[FLAC ONLY] Purge all picture blocks')
+    flac_cover_mutex.add_argument('--flac-add-cover', metavar='IMAGE_FILE', help='[FLAC ONLY] Append front cover (jpg/png)')
+    flac_cover_mutex.add_argument('-I', '--flac-only-a-cover', metavar='IMAGE_FILE', action='append', help='[FLAC ONLY] Purge pics → add cover (last file wins)')
     # Commit (mutually exclusive)
     commit_group = parser.add_mutually_exclusive_group()
     commit_group.add_argument('-W', '--commit-write-anyway', action='store_true', help='Commit unconditionally (exclusive with -w)')
     commit_group.add_argument('-w', '--commit', action='store_true', help='Commit only if tags/pictures changed')
+    # FIX 4: Positional files moved to END (idiomatic CLI)
+    parser.add_argument('files', nargs='+', help='Target files (flac/ogg/oga/opus; regular files after symlink resolve) | Use - for stdin/stdout (single param only)')
+    
+    # Parse args FIRST (required for validation)
     args = parser.parse_args()
-
-    # -------------------------- MINIMAL MODIFICATION --------------------------
-    # Validate: if -s/-a/-d is specified, optarg count >=1
+    # FIX 2: Enforce list flags are EXCLUSIVE with all modify/padding ops (argparse level check)
+    list_flags = [args.list, args.flac_list_picture]
+    modify_ops = [
+        args.set, args.add, args.delete, args.purge, args.from_file, args.import_from_file,
+        args.flac_purge_picture, args.flac_add_cover, args.flac_only_a_cover,
+        args.padding, args.align_padding
+    ]
+    if any(list_flags) and any(m is not None for m in modify_ops):
+        parser.error("list flags (-l/--flac-list-picture) cannot be used with modify/padding operations")
+    # -------------------------------------------------------------------------
+    # NEW: Validate min 1 argument for -s/--set, -a/--add, -d/--delete
+    # -------------------------------------------------------------------------
     if args.set is not None and len(args.set) == 0:
         print("error: -s/--set requires at least 1 KEY=VALUE argument", file=sys.stderr)
         sys.exit(1)
@@ -304,67 +429,87 @@ def main():
     if args.delete is not None and len(args.delete) == 0:
         print("error: -d/--delete requires at least 1 KEY argument", file=sys.stderr)
         sys.exit(1)
-    # -------------------------------------------------------------------------
-
-    # Validate padding params
+    # Original validation logic (padding)
     if args.padding is not None and args.padding < 0:
         print(f"error: --padding must be non-negative (got {args.padding})", file=sys.stderr)
         sys.exit(1)
     if args.align_padding is not None and args.align_padding <= 0:
         print(f"error: --align-padding must be positive (got {args.align_padding})", file=sys.stderr)
         sys.exit(1)
-    # Step 1: Resolve + validate all files (abort on failure)
-    print("Validating input files (symlink resolve + regular file check)...", file=sys.stderr)
-    resolved_files = []
-    for file_path in args.files:
-        resolved_path = resolve_and_check_regular_file(file_path)
-        resolved_files.append(resolved_path)
-    # Step 2: Conditional deduplication (only ≥2 files)
-    unique_resolved_files = resolved_files
-    duplicate_count = 0
-    if len(resolved_files) >= 2:
-        seen_triplets: Set[Tuple[int, int, int]] = set()
-        unique_resolved_files = []
-        for path in resolved_files:
-            triplet = get_file_ident_triplet(path)
-            if triplet not in seen_triplets:
-                seen_triplets.add(triplet)
-                unique_resolved_files.append(path)
-            else:
-                duplicate_count += 1
-                print(f"warning: duplicate file (same dev/inode) → skipping: {path}", file=sys.stderr)
-        
-        # Print summary only if duplicates exist
-        if duplicate_count > 0:
-            print(f"deduplication complete: {len(resolved_files)} → {len(unique_resolved_files)} unique files (skipped {duplicate_count})", file=sys.stderr)
+
+    # -------------------------------------------------------------------------
+    # NEW: Stdin/stdout handling (single - positional parameter)
+    # -------------------------------------------------------------------------
+    stdin_mode = False
+    stdin_buffer = None
+    if len(args.files) == 1 and args.files[0] == '-':
+        stdin_mode = True
+        print("=== Stdin mode: reading audio data from stdin (binary) ===", file=sys.stderr)
+        # Read all stdin data into in-memory BytesIO buffer (read until EOF)
+        try:
+            stdin_buffer = BytesIO(sys.stdin.buffer.read())
+            if stdin_buffer.getbuffer().nbytes == 0:
+                print("error: empty stdin input (no audio data)", file=sys.stderr)
+                sys.exit(1)
+        except Exception as e:
+            print(f"error: failed to read stdin: {e}", file=sys.stderr)
+            sys.exit(1)
+        # Bypass deduplication for stdin mode (no file system triplet)
+        unique_resolved_files = ['-']
+    else:
+        # Step 1: Resolve + validate all files (abort on failure)
+        print("Validating input files (symlink resolve + regular file check)...", file=sys.stderr)
+        resolved_files = []
+        for file_path in args.files:
+            resolved_path = resolve_and_check_regular_file(file_path)
+            resolved_files.append(resolved_path)
+        # Step 2: Conditional deduplication (only ≥2 files)
+        unique_resolved_files = resolved_files
+        duplicate_count = 0
+        if len(resolved_files) >= 2:
+            seen_triplets: Set[Tuple[int, int, int]] = set()
+            unique_resolved_files = []
+            for path in resolved_files:
+                triplet = get_file_ident_triplet(path)
+                if triplet not in seen_triplets:
+                    seen_triplets.add(triplet)
+                    unique_resolved_files.append(path)
+                else:
+                    duplicate_count += 1
+                    print(f"warning: duplicate file (same dev/inode) → skipping: {path}", file=sys.stderr)
+            
+            # Print summary only if duplicates exist
+            if duplicate_count > 0:
+                print(f"deduplication complete: {len(resolved_files)} → {len(unique_resolved_files)} unique files (skipped {duplicate_count})", file=sys.stderr)
+
     args.files = unique_resolved_files
     # Initialize state trackers
     write_failures = 0
     written_triplets: Set[Tuple[int, int, int]] = set()  # Track ONLY actually written files
     # Step 3: Batch process unique files
     for file_path in args.files:
-        print(f"\n=== Processing: {file_path} ===")
-        # Runtime deduplication: Skip if already written
+        print(f"\n=== Processing: {file_path if not stdin_mode else 'stdin/stdout'} ===", file=sys.stderr)
+        # Runtime deduplication: Skip if already written (bypassed for stdin)
         current_triplet = get_file_ident_triplet(file_path)
-        if current_triplet in written_triplets:
+        if current_triplet in written_triplets and not stdin_mode:
             print(f"warning: file already successfully written → skipping: {file_path}", file=sys.stderr)
             continue
-        # Open file (abort on corruption)
+        # Open file (abort on corruption) - use stdin buffer if in stdin mode
         try:
-            audio = open_audio_file(file_path)
+            audio = open_audio_file(file_path, stdin_buffer if stdin_mode else None)
         except MutagenError as e:
             print(f"error: failed to open file (corrupted) → aborting batch: {e}", file=sys.stderr)
             sys.exit(1)
         # Handle FLAC picture list (highest priority)
         if args.flac_list_picture:
-            print_flac_pictures(audio, file_path)
+            print_flac_pictures(audio, file_path if not stdin_mode else 'stdin')
             continue
         # Initialize empty tags if needed
         if not audio.tags:
             audio.clear()
-        # Load original for change detection (abort on failure)
+        # Load original for change detection (abort on failure) - use stdin buffer if in stdin mode
         try:
-            original_audio = open_audio_file(file_path)
+            original_audio = open_audio_file(file_path, stdin_buffer if stdin_mode else None)
         except MutagenError as e:
             print(f"error: failed to read original tags → aborting batch: {e}", file=sys.stderr)
             sys.exit(1)
@@ -415,14 +560,14 @@ def main():
                 audio.clear_pictures()
                 dirty = True
             if args.flac_add_cover:
-                add_flac_cover(audio, args.flac_add_cover, file_path)
+                add_flac_cover(audio, args.flac_add_cover, file_path if not stdin_mode else 'stdin')
                 dirty = True
             if args.flac_only_a_cover:
                 last_cover = args.flac_only_a_cover[-1]
                 if len(audio.pictures) > 0:
                     audio.clear_pictures()
                     dirty = True
-                add_flac_cover(audio, last_cover, file_path)
+                add_flac_cover(audio, last_cover, file_path if not stdin_mode else 'stdin')
                 dirty = True
         # Handle tag list (no write)
         trigger_list = [
@@ -439,10 +584,10 @@ def main():
                     for val in audio[k]:
                         print(f"{k}={val}")
             continue
-        # Handle padding preview (no write)
+        # Handle padding preview (no write) - skip for stdin mode (no file size preview)
         padding_specified = args.padding is not None or args.align_padding is not None
         no_commit = not args.commit_write_anyway and not args.commit
-        if padding_specified and no_commit:
+        if padding_specified and no_commit and not stdin_mode:
             try:
                 buf = BytesIO()
                 audio.save(buf, padding=0)
@@ -462,7 +607,7 @@ def main():
             try:
                 # Skip if no changes (--commit flag)
                 if args.commit and tags_are_equal(audio, original_audio):
-                    print("no changes detected → skipping commit", file=sys.stdout)
+                    print("no changes detected → skipping commit", file=sys.stderr)
                     continue
                 # Calculate padding
                 final_padding = None
@@ -474,30 +619,48 @@ def main():
                     base_size = len(buf.getvalue())
                     remainder = base_size % args.align_padding
                     final_padding = args.align_padding - remainder if remainder != 0 else 0
-                # Save with sparse punching (if enabled)
-                if args.punch_hole:
-                    with SparseTagFile(file_path) as f:
-                        audio.save(f, padding=final_padding)
-                    sparse_note = " (sparse holes punched)"
+
+                # -----------------------------------------------------------------
+                # NEW: Stdout write for stdin mode (binary)
+                # -----------------------------------------------------------------
+                if stdin_mode:
+                    print("=== Writing modified audio data to stdout (binary) ===", file=sys.stderr)
+                    # Save modified audio to BytesIO buffer, then write to stdout binary
+                    output_buffer = BytesIO()
+                    audio.save(output_buffer, padding=final_padding)
+                    output_buffer.seek(0)
+                    # Write all binary data to stdout (bypass text mode)
+                    sys.stdout.buffer.write(output_buffer.read())
+                    sys.stdout.buffer.flush()
+                    print("=== Stdout write complete ===", file=sys.stderr)
                 else:
-                    audio.save(padding=final_padding)
-                    sparse_note = ""
-                # Success message + track triplet (ONLY after successful write)
-                padding_note = f" (padding: {final_padding}B)" if final_padding is not None else ""
-                print(f"tags committed{padding_note}{sparse_note}", file=sys.stdout)
-                written_triplets.add(current_triplet)
+                    # Original file write logic (with sparse punching if enabled)
+                    if args.punch_hole:
+                        with SparseTagFile(file_path) as f:
+                            audio.save(f, padding=final_padding)
+                        sparse_note = " (sparse holes punched)"
+                    else:
+                        audio.save(padding=final_padding)
+                        sparse_note = ""
+                    # Success message + track triplet (ONLY after successful write)
+                    padding_note = f" (padding: {final_padding}B)" if final_padding is not None else ""
+                    print(f"tags committed{padding_note}{sparse_note}", file=sys.stderr)
+                    written_triplets.add(current_triplet)
+
             except MutagenError as e:
                 print(f"error: mutagen commit failed → skipping: {e}", file=sys.stderr)
                 write_failures += 1
             except Exception as e:
                 print(f"error: file save failed → skipping: {e}", file=sys.stderr)
                 write_failures += 1
+
     # Final summary
     total_unique = len(args.files)
     successful = total_unique - write_failures
-    print(f"\n=== Batch Complete ===")
-    print(f"Total unique files: {total_unique} | Successful: {successful} | Failed writes: {write_failures}", file=sys.stdout)
+    print(f"\n=== Batch Complete ===", file=sys.stderr)
+    print(f"Total unique files: {total_unique} | Successful: {successful} | Failed writes: {write_failures}", file=sys.stderr)
     # Exit code (0=success, 1=failure)
     sys.exit(1 if write_failures > 0 else 0)
+
 if __name__ == '__main__':
     main()
