@@ -1,0 +1,178 @@
+#!/usr/bin/env python3
+## this file is a Vibe coding kludge
+import sys
+import argparse
+from os.path import exists
+from mutagen.apev2 import APEv2, APEv2File
+
+def load_tags(source):
+    """
+    Load tags from file path or stdin (when source is '-'), validate non-empty key for each entry
+    Follow Unix convention: source '-' means read from stdin
+    """
+    items = []
+    lines = []
+    try:
+        if source == '-':
+            # Read from stdin (Unix convention)
+            lines = [line.rstrip('\n').strip() for line in sys.stdin]
+        else:
+            # Read from regular file
+            with open(source, 'r', encoding='utf-8') as f:
+                lines = [line.rstrip('\n').strip() for line in f]
+    except Exception as e:
+        print(f"error: read failed (source: {source}): {e}", file=sys.stderr)
+        sys.exit(1)
+
+    # Parse lines (unified for file/stdin)
+    for line in lines:
+        if not line or '=' not in line:
+            print(f"error: invalid tag entry: missing '=' -> '{line}'", file=sys.stderr)
+            sys.exit(1)
+        k, v = line.split('=', 1)
+        if not k.strip():
+            print(f"error: empty tag key: invalid entry -> '{line}'", file=sys.stderr)
+            sys.exit(1)
+        items.append((k.strip(), v))
+    return items
+
+# 深度对比两个APEv2标签对象是否完全一致
+def tags_are_equal(tag1: APEv2, tag2: APEv2) -> bool:
+    if set(tag1.keys()) != set(tag2.keys()):
+        return False
+    for key in tag1:
+        if list(tag1[key]) != list(tag2[key]):
+            return False
+    return True
+
+def main():
+    p = argparse.ArgumentParser(
+        description='Tiny APEv2 CLI tag editor (opustags-style UX). '
+                    'PRE-COMMIT OPERATION APPLY ORDER (fixed, ignores actual CLI flag specifying order): '
+                    '1) -F/--from-file (clear then import) → 2) -f/--import-from-file (append import) → 3) -D/--purge (clear all) → 4) -d delete → 5) -s set → 6) -a add'
+    )
+    # 1. -l 专属互斥组：与除--help外所有选项互斥
+    list_group = p.add_mutually_exclusive_group()
+    list_group.add_argument('-l', '--list', action='store_true', help='Show all tags (exclusive with all other options except --help)')
+    # 2. 导入核心互斥组：-f/-F 互斥 + 新增 -f/-D 互斥
+    import_core_group = p.add_mutually_exclusive_group()
+    import_core_group.add_argument('-F', '--from-file', metavar='FILE', help='Clear existing tags FIRST, then import tags from file/stdin (use - for stdin, exclusive with -f)')
+    f_d_mutual_group = p.add_mutually_exclusive_group()
+    import_core_group.add_argument('-f', '--import-from-file', metavar='FILE', help='Import tags from file/stdin (append to existing, use - for stdin, exclusive with -F/-D)')
+    f_d_mutual_group.add_argument('-D', '--purge', action='store_true', help='Purge ALL tags (note: this is a pre-commit stage change) (exclusive with -d/-f)')
+    # 3. 清除/删除互斥组
+    del_group = p.add_mutually_exclusive_group()
+    del_group.add_argument('-d', '--delete', nargs='*', metavar='KEY', help='Delete specified tag(s) (exclusive with -D)')
+    # 常规操作选项
+    p.add_argument('file', help='APEv2 tagged file')
+    p.add_argument('-s', '--set', nargs='*', metavar='KEY=VALUE', help='Set/replace tag: purge ALL existing values for key, set to single value; if you specified several same name key on cli, only last specifying takes effect')
+    p.add_argument('-a', '--add', nargs='*', metavar='KEY=VALUE', help='Append (multi-value) tag in CLI specified order (no overwrite)')
+    # 4. 提交互斥组
+    commit_group = p.add_mutually_exclusive_group()
+    commit_group.add_argument('-W', '--commit-write-anyway', action='store_true', help='Commit anyway (exclusive with -w)')
+    commit_group.add_argument('-w', '--commit', action='store_true', help='Commit changes only if tags are really changed (avoid unnecessary write) (exclusive with -W)')
+    args = p.parse_args()
+
+    if not exists(args.file):
+        print(f"error: file not found: {args.file}", file=sys.stderr)
+        sys.exit(1)
+    try:
+        f = APEv2File(args.file)
+    except Exception as e:
+        print(f"error: read failed: {e}", file=sys.stderr)
+        sys.exit(1)
+
+    # 保存磁盘原始标签的深拷贝
+    original_tags = f.tags or APEv2()
+    original_tags_copy = APEv2()
+    for k, vals in original_tags.items():
+        original_tags_copy[k] = vals.copy()
+    tags = original_tags_copy
+    dirty = False
+
+    # 1. -F/--from-file: clear then import (support stdin with '-')
+    if args.from_file:
+        tags.clear()
+        for k, v in load_tags(args.from_file):
+            if k in tags:
+                tags[k].append(v)
+            else:
+                tags[k] = v
+        dirty = True
+
+    # 2. -f/--import-from-file: append import (support stdin with '-')
+    if args.import_from_file:
+        for k, v in load_tags(args.import_from_file):
+            if k in tags:
+                tags[k].append(v)
+            else:
+                tags[k] = v
+        dirty = True
+
+    # 清除所有标签
+    if args.purge:
+        tags.clear()
+        dirty = True
+
+    # 删除指定标签
+    if args.delete:
+        for k in args.delete:
+            if k in tags:
+                del tags[k]
+                dirty = True
+
+    # 设置标签
+    if args.set:
+        for kv in args.set:
+            if '=' not in kv:
+                print(f"error: invalid -s entry: missing '=' -> '{kv}'", file=sys.stderr)
+                sys.exit(1)
+            k, v = kv.split('=', 1)
+            if not k.strip():
+                print(f"error: invalid -s entry: empty tag key -> '{kv}'", file=sys.stderr)
+                sys.exit(1)
+            tags[k] = v
+            dirty = True
+
+    # 追加标签
+    if args.add:
+        for kv in args.add:
+            if '=' not in kv:
+                print(f"error: invalid -a entry: missing '=' -> '{kv}'", file=sys.stderr)
+                sys.exit(1)
+            k, v = kv.split('=', 1)
+            if not k.strip():
+                print(f"error: invalid -a entry: empty tag key -> '{kv}'", file=sys.stderr)
+                sys.exit(1)
+            if k in tags:
+                tags[k].append(v)
+            else:
+                tags[k] = v
+            dirty = True
+
+    # 列标签逻辑
+    if args.list or not (args.set or args.add or args.delete or args.purge or args.from_file or args.import_from_file):
+        if not tags:
+            print("(no tags)")
+        else:
+            for k, vals in tags.items():
+                for val in vals:
+                    print(f"{k}={val}")
+        sys.exit(0)
+
+    # 提交逻辑
+    if (args.commit_write_anyway or args.commit) and dirty:
+        try:
+            if args.commit:
+                if tags_are_equal(tags, original_tags):
+                    print("no tag changes detected, skip commit")
+                    return
+            f.tags = tags
+            f.save()
+            print("tags committed")
+        except Exception as e:
+            print(f"error: commit failed: {e}", file=sys.stderr)
+            sys.exit(1)
+
+if __name__ == '__main__':
+    main()
