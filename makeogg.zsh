@@ -2017,7 +2017,7 @@ runencspinsadd=(
   exhale.4     '4#15.7/48kHz 16.5/44.1kHz'
   exhale.5     '5#16.5/48kHz 17/44.1kHz'
   exhale.6     '6#17.1/48kHz 17.5/44.1kHz'
-  fdkaac.m3h   -w15500
+  fdkaac.m3h   -w15500'#96kbps'
   fdkaac.m3i   -w16120
   fdkaac.m3j   -w17000
   fdkaac.m3w   -w20000
@@ -2034,12 +2034,18 @@ runencspinsadd=(
   qaac.cv144   -v144'#17.5+0.5'
   qaac.cv160   -v160'#18+0.5'
   qaac.cv176   -v176'#18.5'
+  qaac.cv192   -v192
+  qaac.cv208   -v208
+  qaac.cv224   -v224
   qaac.TV96    -V48
   qaac.TV112   -V56
   qaac.TV128   -V64
   qaac.TV144   -V72
   qaac.TV160   -V80
   qaac.TV176   -V88
+  qaac.TV192   -V96
+  qaac.TV208   -V109
+  qaac.TV224   -V118
   opus.64     "--bitrate=64"
   opus.80     "--bitrate=80"
   opus.128    "--bitrate=128"
