@@ -1,0 +1,143 @@
+import sys
+import hashlib
+import subprocess
+
+def print_help():
+    print(f"Usage: {sys.argv[0]} [OPTION]... [FILE|-]...")
+    print("Dump or verify embedded MD5 signature of TAK audio files")
+    print()
+    print("Options:")
+    print("  -V, --verify      verify MD5 by decoding via ffmpeg")
+    print("  -h, --help        display this help screen and exit")
+    print()
+    print("Arguments:")
+    print("  FILE              path to TAK file")
+    print("  -                 read TAK from standard input (Unix convention)")
+    print()
+    print("Exit status:")
+    print("  0                 all files processed successfully")
+    print("  1                 at least one file failed or invalid")
+
+def extract_tak_md5_and_bits(path_or_stdin):
+    TAK_MAGIC = b"KAT\x00"
+    try:
+        if path_or_stdin == "-":
+            buf = sys.stdin.buffer.read(128)
+        else:
+            with open(path_or_stdin, "rb") as f:
+                buf = f.read(128)
+    except OSError as e:
+        print(f"{path_or_stdin}: read error: {e}", file=sys.stderr)
+        return None, None
+
+    if not buf.startswith(TAK_MAGIC):
+        print(f"{path_or_stdin}: not a TAK file", file=sys.stderr)
+        return None, None
+
+    md5_bin = buf[0x1E:0x1E+16]
+    if len(md5_bin) != 16:
+        print(f"{path_or_stdin}: MD5 field truncated", file=sys.stderr)
+        return None, None
+
+    bits = buf[0x1A] & 0x1F
+    if bits not in (8, 16, 20, 24):
+        print(f"{path_or_stdin}: unsupported bit depth: {bits}", file=sys.stderr)
+        return None, None
+
+    return md5_bin.hex().lower(), bits
+
+def compute_md5_via_ffmpeg(path_or_stdin, bits):
+    if bits == 8:
+        fmt = "u8"
+    elif bits == 16:
+        fmt = "s16le"
+    elif bits in (20, 24):
+        fmt = "s24le"
+    else:
+        return None
+
+    cmd = [
+        "ffmpeg",
+        "-i", path_or_stdin,
+        "-vn", "-sn",
+        "-f", fmt,
+        "-"
+    ]
+
+    try:
+        proc = subprocess.Popen(
+            cmd,
+            stdin=subprocess.PIPE if path_or_stdin == "-" else None,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            bufsize=0
+        )
+    except OSError as e:
+        print(f"{path_or_stdin}: ffmpeg failed to start: {e}", file=sys.stderr)
+        return None
+
+    if path_or_stdin == "-":
+        data = sys.stdin.buffer.read()
+        proc.stdin.write(data)
+        proc.stdin.close()
+
+    h = hashlib.md5()
+    while chunk := proc.stdout.read(131072):
+        h.update(chunk)
+
+    if proc.wait() != 0:
+        print(f"{path_or_stdin}: ffmpeg decode error", file=sys.stderr)
+        return None
+
+    return h.hexdigest().lower()
+
+def main():
+    args = sys.argv[1:]
+    verify = False
+
+    # Handle help
+    if "-h" in args or "--help" in args:
+        print_help()
+        sys.exit(0)
+
+    # Handle verify flag
+    if "-V" in args:
+        verify = True
+        args.remove("-V")
+
+    if not args:
+        print_help()
+        sys.exit(1)
+
+    any_failure = False
+
+    for path in args:
+        label = path if path != "-" else "(stdin)"
+        print(f"==> {label}")
+
+        md5_embedded, bits = extract_tak_md5_and_bits(path)
+
+        if not md5_embedded:
+            any_failure = True
+            continue
+
+        print(f"  embedded MD5: {md5_embedded}")
+        print(f"  bit depth:    {bits} bit")
+
+        if verify:
+            computed = compute_md5_via_ffmpeg(path, bits)
+            if not computed:
+                any_failure = True
+            else:
+                match = (computed == md5_embedded)
+                print(f"  computed MD5: {computed}")
+                print(f"  verify:       {'OK' if match else 'FAILED'}")
+                if not match:
+                    any_failure = True
+
+        print()
+
+    sys.exit(1 if any_failure else 0)
+
+if __name__ == "__main__":
+    main()
