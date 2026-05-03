@@ -202,7 +202,8 @@ local function detect_effective_bits(buf, total_samples, channels, sample_fmt)
     if sample_fmt == AV_SAMPLE_FMT_S32 or sample_fmt == AV_SAMPLE_FMT_S32P then
       if val < -1.0 then val = -1.0 end
       if val > 1.0 then val = 1.0 end
-      local intval = math.floor(val * 2147483647.0 + 0.5)
+      -- Round symmetrically: use 2^31-1 scaling, then integer rounding.
+      local intval = val >= 0 and math.floor(val * 2147483647.0 + 0.5) or math.ceil(val * 2147483647.0 - 0.5)
       return bit.band(intval, 0xFFFF) ~= 0
     end
     if sample_fmt == AV_SAMPLE_FMT_FLT or sample_fmt == AV_SAMPLE_FMT_FLTP or
@@ -302,6 +303,11 @@ local function get_input()
     return "file", path
   end
 
+  -- Aborting early if stdin is a tty (no data will ever arrive)
+  if ffi.C.isatty(fd) then
+    io.stderr:write("Error: stdin must be a pipe or file\n")
+    os.exit(1)
+  end
 
   local data = {}
   local total = 0
@@ -315,18 +321,24 @@ local function get_input()
     io.stderr:write("No input data\n")
     os.exit(1)
   end
+
   local memfd = C.memfd_create("afiresamp", 0)
   if memfd < 0 then
     io.stderr:write("Failed to create memfd\n")
     os.exit(1)
   end
+
+  local write_ok = true
   for _, chunk in ipairs(data) do
     local len = #chunk
     local written = C.write(memfd, chunk, len)
     if written ~= len then
-      io.stderr:write("Failed to write to memfd\n")
-      C.close(memfd)
-      os.exit(1)
+      -- Don't abort inside the loop; close and exit after reporting all failures
+      if write_ok then
+        io.stderr:write("Failed to write to memfd\n")
+        write_ok = false
+      end
+      break
     end
   end
   local buf = C.mmap(nil, total, 1, 2, memfd, 0)  -- PROT_READ=1, MAP_PRIVATE=2
@@ -336,9 +348,12 @@ local function get_input()
     os.exit(1)
   end
   C.close(memfd)
+  if not write_ok then
+    C.munmap(buf, total)
+    os.exit(1)
+  end
   return "pipe", buf, total
 end
-
 -- ---------------------------------------------------------------------------
 -- Custom AVIO from memory buffer
 local function create_mem_avio(buf, size)
@@ -433,7 +448,7 @@ local function probe_input(input_type, arg1, arg2)
   local sample_rate = codecpar.sample_rate
   sample_fmt = codecpar.format
   local sample_fmt_name = ffi.string(libavutil.av_get_sample_fmt_name(sample_fmt)) or "unknown"
-  local codec_name = decoder[0] and ffi.string(decoder[0].name) or "unknown"
+  local codec_name = decoder[0] ~= nil and ffi.string(decoder[0].name) or "unknown"
 
   libavformat.avformat_close_input(fmt_ctx_p)
   return sample_rate, sample_fmt_name, sample_fmt, codec_name
@@ -477,8 +492,13 @@ local function decode_audio(input_type, arg1, arg2)
     return nil, 0, 0
   end
 
+  if channels <= 0 or channels > 256 then
+    io.stderr:write("Invalid channel count: ", tostring(channels), "\n")
+    os.exit(1)
+  end
+
   local swr = C.swr_alloc()
-  local out_ch_layout = ffi.new("AVChannelLayout")
+	local out_ch_layout = ffi.new("AVChannelLayout")
   local in_ch_layout = ffi.new("AVChannelLayout")
   C.av_channel_layout_copy(out_ch_layout, codec_ctx.ch_layout)
   C.av_channel_layout_copy(in_ch_layout, codec_ctx.ch_layout)
@@ -718,6 +738,11 @@ local function measure_gain(float_buf, total_samples, channels,
   local copy = ffi.new("float[?]", copy_size)
   ffi.copy(copy, float_buf, copy_size * ffi.sizeof("float"))
 
+  if target_rate <= 0 or input_rate <= 0 or opposite_rate <= 0 then
+    io.stderr:write("Invalid sample rate\n")
+    os.exit(1)
+  end
+
   -- 1. resample to target rate
   local res1, res1_samples = resample(copy, total_samples, input_rate, target_rate, channels, main_quality)
 
@@ -745,6 +770,11 @@ local function measure_gain(float_buf, total_samples, channels,
   local max_abs = 0
   for i = 0, res2_samples * channels - 1 do
     local v = math.abs(int16_2[i])
+    -- Peak measurement sanity: values outside [-32768, 32767] indicate a bug.
+    if v > 32768 then
+      io.stderr:write("Internal error: post-resample peak out of range\n")
+      os.exit(1)
+    end
     if v > max_abs then max_abs = v end
   end
 
@@ -765,6 +795,10 @@ local function output_pass(float_buf, total_samples, channels,
                            input_rate, target_rate, gain_db, main_quality, if_apply_dither)
   -- apply gain
   local linear = 10.0 ^ (-gain_db / 20.0)
+  if linear ~= linear then  -- NaN check
+    io.stderr:write("Invalid gain value\n")
+    os.exit(1)
+  end
   local copy_size = total_samples * channels
   local copy = ffi.new("float[?]", copy_size)
   ffi.copy(copy, float_buf, copy_size * ffi.sizeof("float"))
@@ -823,6 +857,10 @@ local function main()
   local float_buf, total_samples, channels = decode_audio(input_type, input_arg1, input_arg2)
   if not float_buf or total_samples == 0 then
     io.stderr:write("Decoding failed or no audio\n")
+    os.exit(1)
+  end
+  if channels <= 0 or channels > 256 then
+    io.stderr:write("Invalid channel count: ", tostring(channels), "\n")
     os.exit(1)
   end
 
