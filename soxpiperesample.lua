@@ -160,10 +160,80 @@ local AVMEDIA_TYPE_AUDIO = 1
 -- than 16.  Dither is only needed when we are truncating higher‑precision
 -- samples to 16 bits; expanding 8‑bit to 16‑bit does not require dither.
 --
-local function needs_dither(sample_fmt)
+local function if_sampl_gt_16bit(sample_fmt)
   return (sample_fmt == AV_SAMPLE_FMT_S32 or sample_fmt == AV_SAMPLE_FMT_S32P or
           sample_fmt == AV_SAMPLE_FMT_FLT or sample_fmt == AV_SAMPLE_FMT_FLTP or
           sample_fmt == AV_SAMPLE_FMT_DBL or sample_fmt == AV_SAMPLE_FMT_DBLP)
+end
+
+--
+-- Inspect the decoded float buffer frame‑by‑frame to decide whether the
+-- true bit depth exceeds 16 bits.  The container format alone may claim
+-- >16 bits while the actual audio has been upsampled from a lower bit
+-- depth (e.g. 8‑bit → 16‑bit, or 16‑bit → 24‑bit with zero padding).
+--
+-- A *frame* (every channel at a single sample instant) is considered
+-- “high‑depth” if **any** channel in that frame shows >16‑bit activity.
+-- The detection for a single channel value depends on the container:
+--
+--   * 32‑bit integer containers (S32 / S32P):
+--     the lower 16 bits of the 32‑bit integer representation are non‑zero.
+--
+--   * float / double containers (FLT, FLTP, DBL, DBLP):
+--     |sample * 32768 - round(sample * 32768)| > 1e-6, i.e. the sample
+--     carries information beyond the 1/32768 quantisation grid of 16‑bit
+--     audio.
+--
+-- The scan tracks *consecutive* high‑depth frames.  If a run reaches
+-- `threshold` frames (default 600, ≈13.6 ms at 44.1 kHz), the audio is
+-- deemed to have genuine >16‑bit content and dithering will be applied.
+-- Shorter runs are treated as upsampling artefacts and **do not** trigger
+-- dithering.  The scan returns as soon as a qualifying run is encountered.
+--
+-- Returns true if dither is still required, false if the effective bit
+-- depth is ≤16 and dither should be skipped.
+--
+local function detect_effective_bits(buf, total_samples, channels, sample_fmt)
+  local threshold = 600          -- minimum consecutive high‑depth frames
+  local run = 0                  -- current consecutive count
+
+  -- helper: returns true if the channel sample has >16‑bit information
+  local function is_high_depth(val)
+    if sample_fmt == AV_SAMPLE_FMT_S32 or sample_fmt == AV_SAMPLE_FMT_S32P then
+      if val < -1.0 then val = -1.0 end
+      if val > 1.0 then val = 1.0 end
+      local intval = math.floor(val * 2147483647.0 + 0.5)
+      return bit.band(intval, 0xFFFF) ~= 0
+    end
+    if sample_fmt == AV_SAMPLE_FMT_FLT or sample_fmt == AV_SAMPLE_FMT_FLTP or
+       sample_fmt == AV_SAMPLE_FMT_DBL or sample_fmt == AV_SAMPLE_FMT_DBLP then
+      local v = val * 32768.0
+      return math.abs(v - math.floor(v + 0.5)) > 1e-6
+    end
+    -- unknown format: be conservative
+    return true
+  end
+
+  -- examine every frame (sample instant) across all channels
+  for frame_idx = 0, total_samples - 1 do
+    local frame_is_high = false
+    for ch = 0, channels - 1 do
+      if is_high_depth(buf[frame_idx * channels + ch]) then
+        frame_is_high = true
+        break
+      end
+    end
+    if frame_is_high then
+      run = run + 1
+      if run >= threshold then
+        return true    -- genuine >16‑bit content detected
+      end
+    else
+      run = 0
+    end
+  end
+
+  return false   -- no sustained high‑depth run found
 end
 
 -- Logging callback
@@ -350,7 +420,7 @@ local function probe_input(input_type, arg1, arg2)
   if not ok then os.exit(1) end
 
   local decoder = ffi.new("const AVCodec*[1]")
-  local sample_fmt  -- keep raw format value for needs_dither()
+  local sample_fmt  -- keep raw format value for if_sampl_gt_16bit()
   local idx = libavformat.av_find_best_stream(fmt_ctx_p[0], AVMEDIA_TYPE_AUDIO, -1, -1, decoder, 0)
   if idx < 0 then
     io.stderr:write("No audio stream found\n")
@@ -452,6 +522,7 @@ local function decode_audio(input_type, arg1, arg2)
         out_frame.sample_rate = codec_ctx.sample_rate
         C.av_channel_layout_copy(out_frame.ch_layout, out_ch_layout)
         out_frame.format = AV_SAMPLE_FMT_FLT
+        out_frame.nb_samples = frame.nb_samples
         -- allocate data buffer for output if not already done
         if out_frame.buf[0] == nil then
           C.av_frame_get_buffer(out_frame, 0)
@@ -614,10 +685,10 @@ end
 
 -- ---------------------------------------------------------------------------
 -- float -> int16 with dither
-local function float_to_s16(input, nsamples, channels, dither_state, do_dither)
+local function float_to_s16(input, nsamples, channels, dither_state, if_apply_dither)
   local out = ffi.new("int16_t[?]", nsamples * channels)
   for i = 0, nsamples * channels - 1 do
-    local dith = do_dither and (triangular_dither(dither_state) * (1.0/32767.0)) or 0.0
+    local dith = if_apply_dither and (triangular_dither(dither_state) * (1.0/32767.0)) or 0.0
     local val = input[i] + dith
     if val < -1.0 then val = -1.0 end
     if val > 1.0 then val = 1.0 end
@@ -642,7 +713,7 @@ end
 -- Gain measurement pass
 local function measure_gain(float_buf, total_samples, channels,
                             input_rate, target_rate, opposite_rate,
-                            main_quality, do_dither)
+                            main_quality, if_apply_dither)
   local copy_size = total_samples * channels
   local copy = ffi.new("float[?]", copy_size)
   ffi.copy(copy, float_buf, copy_size * ffi.sizeof("float"))
@@ -652,7 +723,7 @@ local function measure_gain(float_buf, total_samples, channels,
 
   -- 2. int16 with dither (seed 12345)
   local dither_state = dither_init(12345)
-  local int16_1 = float_to_s16(res1, res1_samples, channels, dither_state, do_dither)
+  local int16_1 = float_to_s16(res1, res1_samples, channels, dither_state, if_apply_dither)
 
   -- 3. back to float, resample to opposite rate (medium)
   local float2 = ffi.new("float[?]", res1_samples * channels)
@@ -691,7 +762,7 @@ end
 -- ---------------------------------------------------------------------------
 -- Final output pass
 local function output_pass(float_buf, total_samples, channels,
-                           input_rate, target_rate, gain_db, main_quality, do_dither)
+                           input_rate, target_rate, gain_db, main_quality, if_apply_dither)
   -- apply gain
   local linear = 10.0 ^ (-gain_db / 20.0)
   local copy_size = total_samples * channels
@@ -702,7 +773,7 @@ local function output_pass(float_buf, total_samples, channels,
   local res, res_samples = resample(copy, total_samples, input_rate, target_rate, channels, main_quality)
 
   local dither_state = dither_init(12345)
-  local int16 = float_to_s16(res, res_samples, channels, dither_state, do_dither)
+  local int16 = float_to_s16(res, res_samples, channels, dither_state, if_apply_dither)
 
   -- WAV header
   local bps = 2
@@ -743,7 +814,7 @@ local function main()
     io.stderr:write("Invalid sample rate\n")
     os.exit(1)
   end
-  local do_dither = needs_dither(sample_fmt)
+  local if_apply_dither = if_sampl_gt_16bit(sample_fmt)
 
   local opposite_rate = (target_rate == 44100) and 48000 or 44100
   local main_quality = get_main_quality(codec_name)
@@ -755,10 +826,17 @@ local function main()
     os.exit(1)
   end
 
+  -- Override the dither flag if the actual bit depth is ≤16
+  -- (e.g. the input was upsampled from a lower bit‑depth source)
+  if if_apply_dither then
+    if_apply_dither = detect_effective_bits(float_buf, total_samples, channels, sample_fmt)
+  end
+
+
   -- Measure gain
   local gain_db = measure_gain(float_buf, total_samples, channels,
                                sample_rate, target_rate, opposite_rate,
-                               main_quality, needs_dither(sample_fmt))
+                               main_quality, if_apply_dither)
 
   -- Summary to stderr (only if terminal)
   if ffi.C.isatty(2) then
@@ -766,7 +844,7 @@ local function main()
     if sample_rate ~= target_rate then
       table.insert(parts, string.format("%dHz -> %dHz", sample_rate, target_rate))
     end
-    if needs_dither(sample_fmt) then
+    if if_apply_dither then
       table.insert(parts, sample_fmt_name .. " dither")
     end
     if gain_db > 0 then
@@ -778,7 +856,7 @@ local function main()
   end
 
   -- Final output
-  output_pass(float_buf, total_samples, channels, sample_rate, target_rate, gain_db, main_quality, needs_dither(sample_fmt))
+  output_pass(float_buf, total_samples, channels, sample_rate, target_rate, gain_db, main_quality, if_apply_dither)
 
   -- Cleanup
   if input_type == "pipe" then
