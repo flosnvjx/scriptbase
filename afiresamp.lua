@@ -2,7 +2,7 @@
 -- vim: set noet ts=2 sw=2 sts=2:
 
 ---
--- soxpiperesample – resample audio from stdin to 44.1k/48k with clipping protection.
+-- afiresamp – resample audio from stdin to 44.1k/48k with clipping protection.
 --
 -- Reads audio from stdin (pipe or regular file), determines the exact attenuation
 -- needed to prevent clipping after resampling to both the target rate and the
@@ -14,7 +14,7 @@
 -- created – pipe input is buffered in a memfd.
 --
 -- Usage:
---   soxpiperesample.lua [-V <level>] [44100|48000]
+--   afiresamp.lua [-V <level>] [44100|48000]
 --
 -- Options:
 --   -V <level>     Set FFmpeg log level: quiet, error, warning, info, debug.
@@ -315,7 +315,7 @@ local function get_input()
     io.stderr:write("No input data\n")
     os.exit(1)
   end
-  local memfd = C.memfd_create("soxpipe", 0)
+  local memfd = C.memfd_create("afiresamp", 0)
   if memfd < 0 then
     io.stderr:write("Failed to create memfd\n")
     os.exit(1)
@@ -844,14 +844,32 @@ local function main()
     if sample_rate ~= target_rate then
       table.insert(parts, string.format("%dHz -> %dHz", sample_rate, target_rate))
     end
-    if if_apply_dither then
-      table.insert(parts, sample_fmt_name .. " dither")
+
+    -- input format, if different from output
+    local is_input_s16 = (sample_fmt == AV_SAMPLE_FMT_S16 or
+                          sample_fmt == AV_SAMPLE_FMT_S16P)
+    if not is_input_s16 then
+      local input_gt_16 = if_sampl_gt_16bit(sample_fmt)
+      if input_gt_16 and not if_apply_dither then
+        -- container >16bit but actual content is ≤16 (upsampled)
+        -- We know the effective depth is at most 16; assume 16.
+        table.insert(parts, sample_fmt_name .. " (upsampled)")
+      elseif input_gt_16 and if_apply_dither then
+        -- genuine >16bit audio, dither is active
+        table.insert(parts, sample_fmt_name .. " dither")
+      else
+        -- input depth ≤16 but not s16 (e.g. u8)
+        table.insert(parts, sample_fmt_name)
+      end
     end
+    -- output format (always 16‑bit)
+    table.insert(parts, "s16")
+
     if gain_db > 0 then
       table.insert(parts, string.format("gain -%.1fdB", gain_db))
     end
     if #parts > 0 then
-      io.stderr:write("soxpipe: ", table.concat(parts, ", "), "\n")
+      io.stderr:write("afiresamp: ", table.concat(parts, ", "), "\n")
     end
   end
 
