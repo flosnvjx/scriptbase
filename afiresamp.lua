@@ -1,17 +1,12 @@
 #!/usr/bin/env luajit
+-- SPDX-FileCopyrightText: 2026 DeepSeek LLM
+-- SPDX-License-Identifier: WTFPL
 -- vim: set noet ts=2 sw=2 sts=2:
+--
+-- implemented based on soxpiperesample.py
 
 ---
 -- afiresamp – resample audio from stdin to 44.1k/48k with clipping protection.
---
--- Reads audio from stdin (pipe or regular file), determines the exact attenuation
--- needed to prevent clipping after resampling to both the target rate and the
--- opposite rate (48000 Hz when target is 44100, or vice‑versa) and outputs a
--- 16‑bit WAV stream to stdout.
---
--- The attenuation is measured in a single pass using libsoxr resampling and
--- internal dithering, then applied in a second pass.  No temporary files are
--- created – pipe input is buffered in a memfd.
 --
 -- Usage:
 --   afiresamp.lua [-V <level>] [44100|48000]
@@ -21,9 +16,18 @@
 --                  Default is warning.
 --   [44100|48000]  Target sample rate.  Default is 44100.
 --
+-- It reads audio from stdin (pipe or regular file), determines the exact attenuation needed to prevent clipping after resampling to both the target rate (dithering got applied after that if needed) and then to the opposite rate (48000 Hz when target is 44100, or vice‑versa)
+--
+-- No temporary files are created. Pipe input is buffered in a memfd.
+-- It has detection on upsampled (bit-depth) input.
+--
 -- The script prints a summary line to stderr (only when stderr is a terminal)
--- and final audio data to stdout.  Errors go to stderr.
+-- and the final audio data (16‑bit WAV stream) to stdout.  Errors go to stderr.
 ---
+
+-- workflow inspired by:
+-- * https://hydrogenaudio.org/index.php?topic=126615.msg1058178#msg1058178
+-- * https://hydrogenaudio.org/index.php/topic,63360.0.html
 
 local ffi = require("ffi")
 local bit = require("bit")
@@ -717,17 +721,6 @@ local function float_to_s16(input, nsamples, channels, dither_state, if_apply_di
   return out
 end
 
--- ---------------------------------------------------------------------------
--- Determine main resampling quality (lossless -> medium, lossy -> high)
-local function get_main_quality(codec_name)
-  local lossless = {flac=true, wav=true, pcm_s16le=true, pcm_s24le=true,
-                    tak=true, ape=true, wavpack=true, alac=true}
-  if lossless[codec_name] then
-    return 2   -- SOXR_MQ
-  else
-    return 3   -- SOXR_HQ
-  end
-end
 
 -- ---------------------------------------------------------------------------
 -- Gain measurement pass
@@ -755,7 +748,7 @@ local function measure_gain(float_buf, total_samples, channels,
   for i = 0, res1_samples * channels - 1 do
     float2[i] = int16_1[i] / 32767.0
   end
-  local res2, res2_samples = resample(float2, res1_samples, target_rate, opposite_rate, channels, 2)
+  local res2, res2_samples = resample(float2, res1_samples, target_rate, opposite_rate, channels, 2)  -- 2 = SOXR_MQ
 
   -- 4. int16 again (no dither)
   local int16_2 = ffi.new("int16_t[?]", res2_samples * channels)
@@ -851,7 +844,7 @@ local function main()
   local if_apply_dither = if_sampl_gt_16bit(sample_fmt)
 
   local opposite_rate = (target_rate == 44100) and 48000 or 44100
-  local main_quality = get_main_quality(codec_name)
+  local main_quality = 3     -- SOXR_HQ
 
   -- Decode
   local float_buf, total_samples, channels = decode_audio(input_type, input_arg1, input_arg2)
