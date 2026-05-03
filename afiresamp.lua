@@ -119,6 +119,7 @@ void *mmap(void *addr, size_t length, int prot, int flags, int fd, long long off
 int munmap(void *addr, size_t length);
 long long lseek(int fd, long long offset, int whence);
 ssize_t write(int fd, const void *buf, size_t count);
+int isatty(int fd);
 int close(int fd);
 ]]
 
