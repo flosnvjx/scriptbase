@@ -737,11 +737,16 @@ local function measure_gain(float_buf, total_samples, channels,
   end
 
   -- 1. resample to target rate
-  local res1, res1_samples = resample(copy, total_samples, input_rate, target_rate, channels, main_quality)
+  local res1, res1_samples
+  if input_rate == target_rate then
+    res1, res1_samples = copy, total_samples
+  else
+    res1, res1_samples = resample(copy, total_samples, input_rate, target_rate, channels, main_quality)
+  end
 
   -- 2. int16 with dither (seed 12345)
   local dither_state = dither_init(12345)
-  local int16_1 = float_to_s16(res1, res1_samples, channels, dither_state, if_apply_dither)
+	local int16_1 = float_to_s16(res1, res1_samples, channels, dither_state, if_apply_dither)
 
   -- 3. back to float, resample to opposite rate (medium)
   local float2 = ffi.new("float[?]", res1_samples * channels)
@@ -797,7 +802,12 @@ local function output_pass(float_buf, total_samples, channels,
   ffi.copy(copy, float_buf, copy_size * ffi.sizeof("float"))
   for i = 0, copy_size - 1 do copy[i] = copy[i] * linear end
 
-  local res, res_samples = resample(copy, total_samples, input_rate, target_rate, channels, main_quality)
+  local res, res_samples
+  if input_rate == target_rate then
+    res, res_samples = copy, total_samples
+  else
+    res, res_samples = resample(copy, total_samples, input_rate, target_rate, channels, main_quality)
+  end
 
   local dither_state = dither_init(12345)
   local int16 = float_to_s16(res, res_samples, channels, dither_state, if_apply_dither)
