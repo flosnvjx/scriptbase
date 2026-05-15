@@ -22,7 +22,7 @@ Requirements
 
 Usage
 -----
-    python3 hf_scan.py [-h] [-v] [-p JOBS] [--start START] [--end END] [--step STEP] <audio_file>
+    python3 hf_scan.py [options] <audio_file>
 
 Arguments
 ---------
@@ -299,8 +299,8 @@ def build_argument_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--end", "-e",
         type=float,
-        default=20,
-        help="Highest crossover frequency in kHz (default: 20)."
+        default=19,
+        help="Highest crossover frequency in kHz (default: 19)."
     )
     parser.add_argument(
         "--step", "-t",
