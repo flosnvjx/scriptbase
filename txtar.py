@@ -26,16 +26,76 @@ Verbose output (-v/--verbose):
 - For list mode: prints '<size> <filename>' for each normal file.
 - For extract mode: prints 'created:', 'overwrite:', or 'skip:' before each file.
 
+Helper support (--helpers SPEC):
+- Enables special processing for selected file entries.
+- SPEC is comma-separated list of helperName[:option[=value]].
+- Only helper 'roodiff' is currently supported.
+- roodiff recognizes file members containing a RooCode-style diff patch
+  (with '<<<<<<< SEARCH' marker). In extract mode, such members are not written
+  to disk; instead the patch is applied to the target file using an external
+  script (apply_diff.py by default). In list mode, such members are prefixed
+  with '(roodiff[:N])' where N is the number of diff blocks.
+- Options for roodiff: runpipe=PATH (path to patch application script).
+
 Exit codes:
   0: success
-  1: any error (I/O, parse, security, directory entry, etc.)
+  1: any error (I/O, parse, security, directory entry, patch failure, etc.)
 """
 
 import argparse
 import os
 import sys
+import subprocess
 from pathlib import Path
 
+# ---------------------------------------------------------------------------
+# Helper specification parsing
+# ---------------------------------------------------------------------------
+def parse_helpers_spec(spec: str):
+    """
+    Parse --helpers SPEC string.
+
+    Format: helperName[:option[=value]][,helperName[:option[=value]]...]
+    Returns: dict { helperName: { optionName: value } }
+    Raises ValueError on malformed input.
+    """
+    if not spec:
+        return {}
+
+    helpers = {}
+    for part in spec.split(','):
+        if not part:
+            raise ValueError("empty helper name")
+        # Split helperName and options
+        if ':' in part:
+            name, opt_str = part.split(':', 1)
+        else:
+            name, opt_str = part, ''
+        if not name:
+            raise ValueError("empty helper name")
+        if name in helpers:
+            raise ValueError(f"duplicate helper: '{name}'")
+        helpers[name] = {}
+        if opt_str:
+            # Split options by colon
+            for opt_pair in opt_str.split(':'):
+                if '=' in opt_pair:
+                    opt, val = opt_pair.split('=', 1)
+                    if not opt:
+                        raise ValueError(f"empty option name in helper '{name}'")
+                    helpers[name][opt] = val
+                else:
+                    # boolean option, default true
+                    opt = opt_pair
+                    if not opt:
+                        raise ValueError(f"empty option name in helper '{name}'")
+                    helpers[name][opt] = True
+    return helpers
+
+
+# ---------------------------------------------------------------------------
+# Txtar parsing
+# ---------------------------------------------------------------------------
 def parse_txtar(data: bytes) -> list[tuple[str, bytes]]:
     """
     Parse a txtar archive from bytes.
@@ -95,6 +155,9 @@ def parse_txtar(data: bytes) -> list[tuple[str, bytes]]:
     return files
 
 
+# ---------------------------------------------------------------------------
+# File extraction (normal mode)
+# ---------------------------------------------------------------------------
 def extract_file(dest_path: str, content: bytes, verbose: bool) -> str:
     """
     Write a single file to the filesystem, handling existing entries.
@@ -162,6 +225,9 @@ def extract_file(dest_path: str, content: bytes, verbose: bool) -> str:
     return status
 
 
+# ---------------------------------------------------------------------------
+# Main
+# ---------------------------------------------------------------------------
 def main() -> None:
     parser = argparse.ArgumentParser(
         description="Extract or list files from a txtar archive.",
@@ -171,13 +237,30 @@ def main() -> None:
     group.add_argument('-e', '--extract', action='store_true', help='Extract files (default)')
     group.add_argument('-l', '--list', action='store_true', help='List files only')
     parser.add_argument('-C', '--chdir', metavar='DIR', help='Change to DIR before operation')
-    parser.add_argument('-v', '--verbose', action='store_true', help='Increase verbosity')
+    parser.add_argument('-v', '--verbose', action='count', default=0,
+                        help='Increase verbosity (-v, -vv for more)')
+    parser.add_argument('--helpers', metavar='SPEC', help='Enable helpers (comma-separated specs)')
     parser.add_argument('archive', nargs='?', default='-', help='Archive file (default: stdin)')
 
     args = parser.parse_args()
 
-    # Default to extract mode if neither -e nor -l is given
+    # Determine mode: extract is default if neither -e nor -l given
     extract_mode = not args.list
+
+    # Parse helper spec if provided
+    helpers = {}
+    roodiff_enabled = False
+    roodiff_runpipe = 'apply_diff.py'
+    if args.helpers:
+        try:
+            helpers = parse_helpers_spec(args.helpers)
+        except ValueError as e:
+            sys.stderr.write(f"txtar: invalid --helpers spec: {e}\n")
+            sys.exit(1)
+
+        if 'roodiff' in helpers:
+            roodiff_enabled = True
+            roodiff_runpipe = helpers['roodiff'].get('runpipe', 'apply_diff.py')
 
     # Change directory if requested
     if args.chdir:
@@ -205,27 +288,119 @@ def main() -> None:
         sys.stderr.write(f"txtar: parse error: {e}\n")
         sys.exit(1)
 
-    if extract_mode:
-        # Extract files – abort on directory entry
+    # -----------------------------------------------------------------------
+    # List mode
+    # -----------------------------------------------------------------------
+    if not extract_mode:
         for filename, content in files:
-            if filename.endswith('/'):
-                sys.stderr.write(f"txtar: aborting: directory entry not allowed: '{filename}'\n")
-                sys.exit(1)
-            try:
-                extract_file(filename, content, args.verbose)
-            except (OSError, ValueError) as e:
-                sys.stderr.write(f"txtar: error extracting '{filename}': {e}\n")
-                sys.exit(1)
-    else:
-        # List mode – also abort on directory entry, but print size+name to stderr
-        for filename, content in files:
+            # Directory entry handling: abort with size+name to stderr
             if filename.endswith('/'):
                 sys.stderr.write(f"{len(content)} {filename}\n")
                 sys.exit(1)
-            if args.verbose:
-                print(f"{len(content)} {filename}")
+
+            # Determine prefix based on roodiff detection
+            if roodiff_enabled and b'<<<<<<< SEARCH' in content:
+                blocks = content.count(b'<<<<<<< SEARCH')
+                if blocks == 1:
+                    prefix = "(roodiff)"
+                else:
+                    prefix = f"(roodiff:{blocks})"
             else:
-                print(filename)
+                prefix = "(file)"
+
+            if args.verbose:
+                print(f"{prefix} {len(content)} {filename}")
+            else:
+                print(f"{prefix} {filename}")
+        return
+
+    # -----------------------------------------------------------------------
+    # Extract mode
+    # -----------------------------------------------------------------------
+    for filename, content in files:
+        # Directory entry handling: abort
+        if filename.endswith('/'):
+            sys.stderr.write(f"txtar: aborting: directory entry not allowed: '{filename}'\n")
+            sys.exit(1)
+
+        # Check if this is a roodiff patch and helper is enabled
+        is_roodiff = roodiff_enabled and b'<<<<<<< SEARCH' in content
+
+        if is_roodiff:
+            # Target file path (same as filename)
+            target = Path(filename)
+
+            # Security: reject absolute paths or path traversal
+            try:
+                resolved = target.resolve()
+                cwd = Path.cwd().resolve()
+                if not str(resolved).startswith(str(cwd)):
+                    raise ValueError("path tries to escape current directory")
+            except Exception as e:
+                sys.stderr.write(f"txtar: [roodiff] invalid target path '{filename}': {e}\n")
+                sys.exit(1)
+
+            # Check if target is a symlink -> skip with warning
+            if target.is_symlink():
+                sys.stderr.write(f"txtar: [roodiff] target is a symlink, skipping: {filename}\n")
+                continue
+
+            # Check if target is a regular file (and exists)
+            if not target.is_file():
+                sys.stderr.write(f"txtar: [roodiff] unable to locate {filename} as patch target file\n")
+                continue
+
+            # Build command for apply_diff script
+            cmd = [roodiff_runpipe, '-f', '-', str(target)]
+            if args.verbose >= 2:
+                # Insert -v after the script name
+                cmd.insert(1, '-v')
+
+            # Invoke script
+            try:
+                proc = subprocess.run(
+                    cmd,
+                    input=content,
+                    capture_output=True,
+                    text=True,
+                    check=False
+                )
+            except FileNotFoundError:
+                sys.stderr.write(f"txtar: cannot run apply script '{roodiff_runpipe}': command not found\n")
+                sys.exit(1)
+            except Exception as e:
+                sys.stderr.write(f"txtar: cannot run apply script '{roodiff_runpipe}': {e}\n")
+                sys.exit(1)
+
+            # Handle script output
+            if proc.returncode != 0:
+                # Failure: print error details
+                sys.stderr.write(f"txtar: patch application failed for '{filename}' (exit code {proc.returncode})\n")
+                if proc.stdout:
+                    for line in proc.stdout.splitlines():
+                        sys.stderr.write(f"[roodiff] {line}\n")
+                if proc.stderr:
+                    for line in proc.stderr.splitlines():
+                        sys.stderr.write(f"[roodiff] {line}\n")
+                sys.exit(1)
+            else:
+                # Success: optionally print script output if verbose
+                if args.verbose >= 1:
+                    if proc.stdout:
+                        for line in proc.stdout.splitlines():
+                            sys.stderr.write(f"[roodiff] {line}\n")
+                    if proc.stderr:
+                        for line in proc.stderr.splitlines():
+                            sys.stderr.write(f"[roodiff] {line}\n")
+                # Do NOT write patch content to disk
+                continue
+
+        # Not a roodiff patch (or helper not enabled) -> normal extraction
+        try:
+            extract_file(filename, content, args.verbose >= 1)
+        except (OSError, ValueError) as e:
+            sys.stderr.write(f"txtar: error extracting '{filename}': {e}\n")
+            sys.exit(1)
 
 
 if __name__ == '__main__':
