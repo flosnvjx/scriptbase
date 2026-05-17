@@ -1075,6 +1075,7 @@ ${cuedump[d.REM REPLAYGAIN_ALBUM_PEAK]:+--comment=REPLAYGAIN_ALBUM_PEAK=${cuedum
 
                   if [[ "$mmode" == taste ]]; then
                     local -a asktaste=()
+                    local -a hf_scan=()
                   fi
                   while (( $#seltnums )); do
                     if [[ "$mmode" != evalpipe ]] && [[ "$ofmt" == (flac|wavpack|takc) ]] && ! (( ${#cuedump[${seltnums[1]}.REM REPLAYGAIN_TRACK_GAIN]} && ${#cuedump[${seltnums[1]}.REM REPLAYGAIN_TRACK_PEAK]} )) && [[ "$ofmt" != null ]]; then
@@ -1094,6 +1095,9 @@ ${cuedump[d.REM REPLAYGAIN_ALBUM_PEAK]:+--comment=REPLAYGAIN_ALBUM_PEAK=${cuedum
                         fi
                         if ! (( $#asktaste )); then
                           printf '%s\n' "play ${cuedump[d.REM DISCNUMBER]:+${cuedump[d.REM DISCNUMBER]}#}${cuedump[${seltnums[1]}.tnum]}${cuedump[${seltnums[1]}.TITLE]:+. ${cuedump[${seltnums[1]}.TITLE]}}"
+                          if [[ -v commands[hf_scan.py] ]]; then
+                            echo hfscan
+                          fi
                         fi
                         while ((#)); do
                           print -rn -- ${argv[1]:#(qaac|exhale|lame)}${${argv[1]:#(qaac|exhale|lame)}:+$'\n'}
@@ -1106,9 +1110,12 @@ ${cuedump[d.REM REPLAYGAIN_ALBUM_PEAK]:+--comment=REPLAYGAIN_ALBUM_PEAK=${cuedum
                         done
                         printf '%s\n' ${(f)asktaste[(R)^(play)]:+flac} cancel ${asktaste[-1]:+next} ${(f)asktaste[(R)^(play)]:+${${(M)${(@)${(@)#${(@)asktaste:#play}}}:#<2->}:+shift ${asktaste[(R)^(play)]}$'\n'}submit ${asktaste[(R)^(play)]}}
                         if (( $#asktaste )); then
+                          if [[ -v commands[hf_scan.py] ]] && ! (( ${#hf_scan[${seltnums[1]}]} )); then
+                            echo hfscan
+                          fi
                           printf '%s\n' "play ${cuedump[d.REM DISCNUMBER]:+${cuedump[d.REM DISCNUMBER]}#}${cuedump[${seltnums[1]}.tnum]}${cuedump[${seltnums[1]}.TITLE]:+. ${cuedump[${seltnums[1]}.TITLE]}}"
                         fi
-                      } | fzf --accept-nth=1 --prompt="[1/$#seltnums] ${${cuedump[d.TITLE]:+${cuedump[d.TITLE]} (${ifile:t})}:-${ifile:t}} ")")
+                      } | fzf --accept-nth=1 --prompt="[1/$#seltnums] ${hf_scan[${seltnums[1]}]}${${cuedump[d.TITLE]:+${cuedump[d.TITLE]} (${ifile:t})}:-${ifile:t}} ")")
                       case "${asktaste[-1]}" in
                         (cancel|next|submit|shift)
                           shift -p asktaste
@@ -1154,6 +1161,11 @@ ${cuedump[d.REM REPLAYGAIN_ALBUM_PEAK]:+--comment=REPLAYGAIN_ALBUM_PEAK=${cuedum
                         ;;
                         (play)
                           command ${(s. .)rundec} ${${(M)cuedump[${seltnums[1]}.skip]:#<1->}:+--skip=${cuedump[${seltnums[1]}.skip]}} ${${(M)cuedump[${seltnums[1]}.until]:#<1->}:+--until=${cuedump[${seltnums[1]}.until]}} ${${(M)${cuedump[${seltnums[1]}.file]:-$ifile}:#-*}:+./}${cuedump[${seltnums[1]}.file]:-$ifile} | command mpv --title=${seltnums[1]}.${cuedump[${seltnums[1]}.TITLE]} -||continue
+                          continue
+                        ;;
+                        (hfscan)
+                          command ${(s. .)rundec} ${${(M)cuedump[${seltnums[1]}.skip]:#<1->}:+--skip=${cuedump[${seltnums[1]}.skip]}} ${${(M)cuedump[${seltnums[1]}.until]:#<1->}:+--until=${cuedump[${seltnums[1]}.until]}} ${${(M)${cuedump[${seltnums[1]}.file]:-$ifile}:#-*}:+./}${cuedump[${seltnums[1]}.file]:-$ifile} | command hf_scan.py -e 18 -p -1 - | gawk -v FS=, 'NR>1{printf "%.0f:%.3f,",$1/1000,$2*1000}END{print ""}' | read -r hf_scan"[${seltnums[1]}]" || continue
+                          asktaste=(${(@)asktaste:#hfscan})
                           continue
                         ;;
                         (?*)

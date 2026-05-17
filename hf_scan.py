@@ -155,21 +155,28 @@ def get_loudness(file_path: str,
 
     cmd.extend(["-f", "null", "-"])
 
+    # Use binary streams, no universal_newlines
     stdin_arg = subprocess.PIPE if input_data is not None else None
     proc = subprocess.Popen(
         cmd,
         stdin=stdin_arg,
         stderr=subprocess.PIPE,
-        universal_newlines=True,
-        bufsize=1,
+        # No universal_newlines – we'll decode stderr manually
     )
 
+    # Write input_data to stdin if provided (bytes)
     if input_data is not None:
-        proc.stdin.write(input_data)
-        proc.stdin.close()
+        try:
+            proc.stdin.write(input_data)
+        except BrokenPipeError:
+            pass
+        finally:
+            proc.stdin.close()
 
     stderr_lines = []
-    for line in proc.stderr:
+    # Read stderr as binary, decode line by line
+    for line_bytes in proc.stderr:
+        line = line_bytes.decode('utf-8', errors='replace')
         if verbose:
             sys.stderr.write(line)
             sys.stderr.flush()
@@ -265,49 +272,20 @@ def build_argument_parser() -> argparse.ArgumentParser:
                "  cat song.flac | python3 hf_scan.py -p 4 -f flac -",
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    parser.add_argument(
-        "audio_file",
-        metavar="<audio_file>",
-        help="Path to input audio file (required, positional). Use '-' for stdin."
-    )
-    parser.add_argument(
-        "-v", "--verbose",
-        action="store_true",
-        default=False,
-        help="Print ffmpeg's stderr in real time."
-    )
-    parser.add_argument(
-        "-p", "--parallel",
-        type=int,
-        default=1,
-        metavar="JOBS",
-        help="Number of parallel ffmpeg jobs. 0 for all cores, negative to subtract (min 1). Default: 1 (serial)."
-    )
-    parser.add_argument(
-        "-f", "--format",
-        type=str,
-        default=None,
-        metavar="FMT",
-        help="Force input format (passed to ffmpeg -f). Useful for stdin or pipes."
-    )
-    parser.add_argument(
-        "--start", "-s",
-        type=float,
-        default=14,
-        help="Lowest crossover frequency in kHz (default: 14)."
-    )
-    parser.add_argument(
-        "--end", "-e",
-        type=float,
-        default=19,
-        help="Highest crossover frequency in kHz (default: 19)."
-    )
-    parser.add_argument(
-        "--step", "-t",
-        type=float,
-        default=1,
-        help="Step size in kHz (default: 1)."
-    )
+    parser.add_argument("audio_file", metavar="<audio_file>",
+                        help="Path to input audio file (required, positional). Use '-' for stdin.")
+    parser.add_argument("-v", "--verbose", action="store_true", default=False,
+                        help="Print ffmpeg's stderr in real time.")
+    parser.add_argument("-p", "--parallel", type=int, default=1, metavar="JOBS",
+                        help="Number of parallel ffmpeg jobs. 0 for all cores, negative to subtract (min 1). Default: 1 (serial).")
+    parser.add_argument("-f", "--format", type=str, default=None, metavar="FMT",
+                        help="Force input format (passed to ffmpeg -f).")
+    parser.add_argument("--start", "-s", type=float, default=14,
+                        help="Lowest crossover frequency in kHz (default: 14).")
+    parser.add_argument("--end", "-e", type=float, default=20,
+                        help="Highest crossover frequency in kHz (default: 20).")
+    parser.add_argument("--step", "-t", type=float, default=1,
+                        help="Step size in kHz (default: 1).")
     return parser
 
 
