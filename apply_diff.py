@@ -36,7 +36,7 @@ Options:
                          search string (requires -r)
   -r REPLACE, --replace REPLACE
                          replace string (required with -s)
-  -L N, --start-line N   start‑line hint (default 1 when -s is used)
+  -L N, --start-line N   start‑line hint (default 0 when -s is used)
   -o PATH, --output PATH write output to PATH (“-” for stdout)
   -l N, --buffer-lines N extra context lines for fuzzy search (default 40)
   -v, --verbose          increase log verbosity (-v INFO, -vv DEBUG)
