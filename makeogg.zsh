@@ -734,7 +734,7 @@ ${cuedump[d.REM REPLAYGAIN_ALBUM_PEAK]:+--comment=REPLAYGAIN_ALBUM_PEAK=${cuedum
                   done
                   local match=()
                   if (( ${(M)#runenc:#*--comment=*} )); then
-                    runenc[$ofmt]=${runenc[$ofmt]//\(s\|[^|]##\|\)}
+                    runenc[$ofmt]=${runenc[$ofmt]//\((|@)s\|[^|]##\|\)}
                     setopt localoptions histsubstpattern
                     runenc[$ofmt]=${runenc[$ofmt]:gs/--comment=(#b)([^=]##)(#B)=/----:com.apple.iTunes:'${match[1]}='/}
                     match=()
@@ -2024,12 +2024,15 @@ declare -A runenc
 declare -A runencspinsadd
 runencspinsadd=(
   exhale.1     '1#16/32kHz 14.5/44.1kHz'
-  exhale.2     '2#14.5/48kHz 15/44.1kHz'
+  exhale.2     '2#14.5/48kHz 15/44.1kHz (peak)'
   exhale.3     '3#15/48kHz 15.7/44.1kHz'
-  exhale.4     '4#15.7/48kHz 16.5/44.1kHz'
+  exhale.4     '4#15.7/48kHz (peak) 16.5/44.1kHz'
   exhale.5     '5#16.5/48kHz 17/44.1kHz'
   exhale.6     '6#17.1/48kHz 17.5/44.1kHz'
-  fdkaac.m3h   -w15500'#96kbps'
+  exhale.7     '7#18/48kHz 18.5/44.1kHz'
+  exhale.8     '8#19.25/48kHz 19/44.1kHz'
+  exhale.9     '9#20+.25'
+  fdkaac.m3h   -w15500
   fdkaac.m3i   -w16120
   fdkaac.m3j   -w17000
   fdkaac.m3w   -w20000
