@@ -11,7 +11,7 @@ function .main {
     mmode=${match[1]}
     case "$mmode" in
       (tidy|tidy.?*) mmode=tidy
-              match[2]=${match[2]:-${ostr[takc]:+takc}}
+              match[2]=${match[2]:-${ostr[wavpack]:+wavpack}}
               if [[ -n "${match[2]:#none}" ]]; then
                 [[ -v ostr[${match[2]}] ]]
               fi
