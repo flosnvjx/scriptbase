@@ -125,11 +125,13 @@ def build_production_sox_cmd(
 
     cmd = ["sox", "-D", "-t", input_type, "-"]
 
+    # Output
+    cmd.extend(["-t", input_type])
     if need_b16:
         cmd.append("-b16")
+    cmd.append("-")
 
-    cmd.append("-")  # output to stdout
-
+    # Effects
     if need_vol:
         cmd.extend(["vol", f"{attenuation_db:.1f}dB"])
 
@@ -324,7 +326,7 @@ def main() -> None:
     codec = stream_info["codec_name"]
     src_sr = stream_info["sample_rate"]
     fmt = stream_info["sample_fmt"]
-    needs_convert = codec not in ("wav", "flac")
+    needs_convert = codec not in ("wav")
 
     # ------------------------------------------------------------------
     # Phase 2 – Gain estimation
@@ -373,7 +375,7 @@ def main() -> None:
             _check_return_code(sox_proc.returncode, "sox", sox_stderr, debug)
             _check_return_code(ffmpeg_proc.returncode, "ffmpeg", ffmpeg_stderr, debug)
         else:
-            input_type = "flac" if codec == "flac" else "wav"
+            input_type = "wav"
             sox_proc = run_sox_with_input(sys.stdin.buffer, input_type)
             sox_stderr = sox_proc.communicate()[1]
             _check_return_code(sox_proc.returncode, "sox", sox_stderr, debug)
@@ -408,7 +410,7 @@ def main() -> None:
             input_type = "wav"
         else:
             data_for_sox = original_data
-            input_type = "flac" if codec == "flac" else "wav"
+            input_type = "wav"
 
         sox_cmd = build_gain_estimation_sox_cmd(input_type, fmt, src_sr, target_sr)
         _log_cmd(sox_cmd, debug)
@@ -432,7 +434,7 @@ def main() -> None:
     # ------------------------------------------------------------------
     # Phase 3 – Final audio production
     # ------------------------------------------------------------------
-    production_input_type = "wav" if needs_convert else ("flac" if codec == "flac" else "wav")
+    production_input_type = "wav"
     need_sox_cmd = build_production_sox_cmd(
         production_input_type,
         fmt,
