@@ -1,0 +1,115 @@
+#!/usr/bin/env python3
+"""noop - A tool that does nothing but checks stdin for exactly one audio stream.
+
+Reads from standard input and uses ffprobe to verify that the input contains
+exactly one audio stream. If stdin is a terminal, an error is reported.
+If input is seekable, ffprobe is run directly on the stream; otherwise
+the entire input is buffered in memory for later use while being fed to ffprobe.
+"""
+import sys
+import subprocess
+import json
+
+def _exactly_one_audio_stream(ffprobe_stdout: bytes) -> bool:
+    """Parse ffprobe JSON output and return True if exactly one audio stream exists."""
+    try:
+        data = json.loads(ffprobe_stdout.decode('utf-8'))
+    except (json.JSONDecodeError, UnicodeDecodeError):
+        return False
+    streams = data.get('streams', [])
+    audio_count = sum(1 for s in streams if s.get('codec_type') == 'audio')
+    return audio_count == 1
+
+def main():
+    if sys.stdin.isatty():
+        print("Error: stdin is a terminal, input must be piped or redirected.", file=sys.stderr)
+        sys.exit(1)
+
+    ffprobe_args = [
+        'ffprobe', '-v', 'warning', '-hide_banner',
+        '-print_format', 'json', '-show_streams', '-i', '-'
+    ]
+
+    if sys.stdin.buffer.seekable():
+        # Seekable input: run ffprobe directly on the stdin stream
+        try:
+            proc = subprocess.Popen(
+                ffprobe_args,
+                stdin=sys.stdin.buffer,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE
+            )
+            stdout, stderr = proc.communicate()
+            ret = proc.returncode
+        except FileNotFoundError:
+            print("Error: ffprobe not found. Please install ffmpeg.", file=sys.stderr)
+            sys.exit(1)
+
+        # Seek back to the beginning for potential later use
+        sys.stdin.buffer.seek(0)
+
+        if ret != 0 or not _exactly_one_audio_stream(stdout):
+            print("Error: input must contain exactly one audio stream.", file=sys.stderr)
+            sys.exit(1)
+    else:
+        # Non-seekable input: buffer the entire input in memory while feeding to ffprobe
+        try:
+            proc = subprocess.Popen(
+                ffprobe_args,
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE
+            )
+        except FileNotFoundError:
+            print("Error: ffprobe not found. Please install ffmpeg.", file=sys.stderr)
+            sys.exit(1)
+
+        buffer_chunks = []
+        early_exit_checked = False
+        write_to_ffprobe = True
+
+        while True:
+            chunk = sys.stdin.buffer.read(128 * 1024)  # 128 KB
+            if not chunk:
+                break
+            buffer_chunks.append(chunk)
+
+            if write_to_ffprobe:
+                try:
+                    proc.stdin.write(chunk)
+                    proc.stdin.flush()
+                except BrokenPipeError:
+                    # ffprobe has already exited and closed stdin
+                    pass
+
+                # Check if ffprobe has exited after this write
+                if proc.poll() is not None:
+                    # ffprobe terminated; decide early outcome
+                    stdout_data = proc.stdout.read()
+                    # we don't care about stderr for decision
+                    ret = proc.returncode
+                    if ret != 0 or not _exactly_one_audio_stream(stdout_data):
+                        print("Error: input must contain exactly one audio stream.", file=sys.stderr)
+                        sys.exit(1)
+                    # Successful early detection; stop feeding ffprobe but continue buffering
+                    write_to_ffprobe = False
+                    early_exit_checked = True
+
+        # If ffprobe hasn't exited yet, close its stdin and collect final result
+        if not early_exit_checked:
+            proc.stdin.close()
+            stdout_data, stderr_data = proc.communicate()
+            ret = proc.returncode
+            if ret != 0 or not _exactly_one_audio_stream(stdout_data):
+                print("Error: input must contain exactly one audio stream.", file=sys.stderr)
+                sys.exit(1)
+
+        # At this point, buffer_chunks contains the complete input for later use
+        # (currently unused, but ready for future functionality)
+        del buffer_chunks
+
+    # Success: input contains exactly one audio stream
+    sys.exit(0)
+
+if __name__ == "__main__":
+    main()
