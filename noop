@@ -92,8 +92,7 @@ def build_gain_estimation_sox_cmd(
     if sample_fmt not in ("s16", "s16p", "u8"):
         cmd.append("dither")
 
-    other_rate = 44100 if target_sample_rate == 48000 else 48000
-    cmd.extend(["rate", "-m", str(other_rate), "stats"])
+    cmd.append("stats")
 
     return cmd
 
