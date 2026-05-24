@@ -157,20 +157,19 @@ def parse_peak_from_stats(sox_stderr: bytes) -> Optional[float]:
 
 
 def compute_attenuation(peak_db: Optional[float]) -> float:
-    """Calculate required attenuation.
+    """Calculate required attenuation (negative gain) to reach -20 dB loudness.
 
     If the peak cannot be determined, returns 0.0 (no change).
     """
     if peak_db is None:
         return 0.0
-    # Required attenuation = (peak level relative to -20 dB), plus 0.1 dB margin
     att = 20.0 + peak_db
     if att > 0.0:
         att += 0.1
+        att = (-att)
     else:
         att = 0.0
-    # SoX “vol” uses negative values for attenuation
-    return -att
+    return att
 
 
 def _log_cmd(cmd: List[str], debug: bool) -> None:
