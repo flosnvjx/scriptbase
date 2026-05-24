@@ -356,7 +356,7 @@ def main() -> None:
                 "-",
                 "-f",
                 "wav",
-                "pipe:1",
+                "-",
             ]
             _log_cmd(ffmpeg_cmd, debug)
             ffmpeg_proc = subprocess.Popen(
@@ -393,7 +393,7 @@ def main() -> None:
                 "-",
                 "-f",
                 "wav",
-                "pipe:1",
+                "-",
             ]
             _log_cmd(ffmpeg_cmd, debug)
             ffmpeg_proc = subprocess.Popen(
@@ -459,7 +459,7 @@ def main() -> None:
                 "-",
                 "-f",
                 "wav",
-                "pipe:1",
+                "-",
             ]
             _log_cmd(ffmpeg_cmd, debug)
             ffmpeg_proc = subprocess.Popen(
