@@ -9,6 +9,8 @@ Diagnostic output from ffprobe, ffmpeg and SoX is forwarded to stderr on failure
 the target sample rate (default 44100 Hz).  With ``--keep-input-bitdepth-if-8bit``,
 8‑bit unsigned input is left at its original bit depth instead of being promoted
 to 16‑bit.
+
+With ``--debug``, every subprocess command line is logged to stderr.
 """
 import sys
 import subprocess
@@ -34,7 +36,7 @@ def parse_args() -> argparse.Namespace:
         "--debug",
         action="store_true",
         default=False,
-        help="Always print captured stderr of subprocesses",
+        help="Always print captured stderr of subprocesses and log commands",
     )
     parser.add_argument(
         "--keep-input-bitdepth-if-8bit",
@@ -75,7 +77,6 @@ def build_gain_estimation_sox_cmd(
 ) -> List[str]:
     """Construct the SoX command line used for gain estimation.
 
-    The command measures loudness without producing audio data.
     Dither is omitted for u8 input because it makes no sense.
     """
     cmd = ["sox", "-D", "-t", input_type, "-"]
@@ -102,26 +103,21 @@ def build_production_sox_cmd(
     sample_fmt: str,
     src_sample_rate: int,
     target_sample_rate: int,
-    attenuation_db: str,
+    attenuation_db: float,
     keep_8bit: bool,
 ) -> Optional[List[str]]:
     """Construct the SoX command line for final audio production.
 
     Returns ``None`` when no processing is needed (no volume change,
-    no resampling, and no dithering or bit‑depth conversion).
+    no resampling, and no dithering/bit‑depth conversion).
     """
-    need_vol = attenuation_db != "0"
+    need_vol = attenuation_db != 0.0
     need_resample = src_sample_rate != target_sample_rate
 
-    # -b16 is added for non‑16‑bit formats, except u8 when --keep‑… is active.
     is_u8 = sample_fmt == "u8"
     need_b16 = sample_fmt not in ("s16", "s16p") and not (is_u8 and keep_8bit)
 
-    # Dither is only added when we are converting to 16‑bit, which happens
-    # when -b16 is used (i.e. need_b16 is True) OR when the input is already 16‑bit.
-    # Actually dither is only meaningful when reducing bit depth, but the original
-    # specification says: add dither if input is not s16/s16p and not u8.
-    # We follow that exactly: dither when sample_fmt NOT s16/s16p AND NOT u8.
+    # Dither added when converting to 16‑bit (i.e. not already 16‑bit and not u8)
     need_dither = sample_fmt not in ("s16", "s16p", "u8")
 
     if not (need_vol or need_resample or need_b16 or need_dither):
@@ -129,16 +125,13 @@ def build_production_sox_cmd(
 
     cmd = ["sox", "-D", "-t", input_type, "-"]
 
-    # Sample size option belongs before the output filename.
     if need_b16:
         cmd.append("-b16")
 
-    # Output to stdout – explicit filename, placed after format options but
-    # before effects.
-    cmd.append("-")
+    cmd.append("-")  # output to stdout
 
     if need_vol:
-        cmd.extend(["vol", f"{attenuation_db}dB"])
+        cmd.extend(["vol", f"{attenuation_db:.1f}dB"])
 
     if need_resample:
         cmd.extend(["rate", str(target_sample_rate)])
@@ -163,16 +156,27 @@ def parse_peak_from_stats(sox_stderr: bytes) -> Optional[float]:
     return None
 
 
-def compute_attenuation(peak_db: Optional[float]) -> str:
-    """Convert a peak dB value into an attenuation string (one decimal place)."""
+def compute_attenuation(peak_db: Optional[float]) -> float:
+    """Calculate required attenuation.
+
+    If the peak cannot be determined, returns 0.0 (no change).
+    """
     if peak_db is None:
-        return "0"
+        return 0.0
+    # Required attenuation = (peak level relative to -20 dB), plus 0.1 dB margin
     att = 20.0 + peak_db
-    if att > 0:
+    if att > 0.0:
         att += 0.1
     else:
         att = 0.0
-    return f"{att:.1f}"
+    # SoX “vol” uses negative values for attenuation
+    return -att
+
+
+def _log_cmd(cmd: List[str], debug: bool) -> None:
+    """Print the command line to stderr if debug is enabled."""
+    if debug:
+        print("RUN:", " ".join(cmd), file=sys.stderr)
 
 
 def _maybe_dump_stderr(stderr_data: bytes, proc_name: str, exit_code: int, debug: bool) -> None:
@@ -189,7 +193,7 @@ def _maybe_dump_stderr(stderr_data: bytes, proc_name: str, exit_code: int, debug
 
 
 def _check_return_code(exit_code: int, proc_name: str, stderr_data: bytes, debug: bool) -> None:
-    """Exit with an error message if *exit_code* is non‑zero, dumping stderr first."""
+    """Exit with an error if *exit_code* is non‑zero, dumping stderr first."""
     _maybe_dump_stderr(stderr_data, proc_name, exit_code, debug)
     if exit_code != 0:
         print(f"Error: {proc_name} failed with exit code {exit_code}", file=sys.stderr)
@@ -198,6 +202,7 @@ def _check_return_code(exit_code: int, proc_name: str, stderr_data: bytes, debug
 
 def run_ffprobe_seekable(args: List[str], debug: bool) -> bytes:
     """Run ffprobe on a seekable stdin, rewinding afterwards."""
+    _log_cmd(args, debug)
     proc = subprocess.Popen(
         args,
         stdin=sys.stdin.buffer,
@@ -215,6 +220,7 @@ def run_ffprobe_nonseekable(args: List[str], debug: bool) -> Tuple[bytes, bytes]
 
     Returns the ffprobe stdout and the buffered original data.
     """
+    _log_cmd(args, debug)
     proc = subprocess.Popen(
         args,
         stdin=subprocess.PIPE,
@@ -242,13 +248,9 @@ def run_ffprobe_nonseekable(args: List[str], debug: bool) -> Tuple[bytes, bytes]
             if proc.poll() is not None:
                 ffprobe_stdout = proc.stdout.read()
                 ret = proc.returncode
-                # stderr is buffered; we'll collect it later if needed.
                 if ret != 0 or not _exactly_one_audio_stream(ffprobe_stdout):
-                    # gather remaining stderr before dumping
                     stderr_tail = proc.stderr.read()
-                    full_stderr = stderr_tail  # we lost earlier stderr? Actually we haven't read any yet.
-                    # But proc.stderr was not read before poll, so it's all buffered in pipe; we can read now.
-                    _maybe_dump_stderr(full_stderr, "ffprobe", ret, debug)
+                    _maybe_dump_stderr(stderr_tail, "ffprobe", ret, debug)
                     print(
                         "Error: input must contain exactly one audio stream.",
                         file=sys.stderr,
@@ -268,10 +270,9 @@ def run_ffprobe_nonseekable(args: List[str], debug: bool) -> Tuple[bytes, bytes]
             )
             sys.exit(1)
     else:
-        # consume remaining stderr for cleanliness
+        # consume remaining stderr
         stderr_tail = proc.stderr.read()
-        ffprobe_stdout = ffprobe_stdout  # already obtained during early check
-        # no need to check again
+        ffprobe_stdout = ffprobe_stdout  # already captured
 
     original_data = b"".join(buffer_chunks)
     del buffer_chunks
@@ -309,7 +310,7 @@ def main() -> None:
     seekable = sys.stdin.buffer.seekable()
     if seekable:
         ffprobe_stdout = run_ffprobe_seekable(ffprobe_args, debug)
-        original_data = None  # will be read from stdin on demand
+        original_data = None
     else:
         ffprobe_stdout, original_data = run_ffprobe_nonseekable(ffprobe_args, debug)
 
@@ -334,6 +335,7 @@ def main() -> None:
 
         def run_sox_with_input(stdin_src, input_type):
             cmd = build_gain_estimation_sox_cmd(input_type, fmt, src_sr, target_sr)
+            _log_cmd(cmd, debug)
             return subprocess.Popen(
                 cmd,
                 stdin=stdin_src,
@@ -356,6 +358,7 @@ def main() -> None:
                 "wav",
                 "pipe:1",
             ]
+            _log_cmd(ffmpeg_cmd, debug)
             ffmpeg_proc = subprocess.Popen(
                 ffmpeg_cmd,
                 stdin=sys.stdin.buffer,
@@ -376,7 +379,7 @@ def main() -> None:
             sox_stderr = sox_proc.communicate()[1]
             _check_return_code(sox_proc.returncode, "sox", sox_stderr, debug)
     else:
-        # non‑seekable: we already have original_data in memory.
+        # non‑seekable
         if needs_convert:
             ffmpeg_cmd = [
                 "ffmpeg",
@@ -392,6 +395,7 @@ def main() -> None:
                 "wav",
                 "pipe:1",
             ]
+            _log_cmd(ffmpeg_cmd, debug)
             ffmpeg_proc = subprocess.Popen(
                 ffmpeg_cmd,
                 stdin=subprocess.PIPE,
@@ -400,7 +404,7 @@ def main() -> None:
             )
             converted_wav, ffmpeg_stderr = ffmpeg_proc.communicate(input=original_data)
             _check_return_code(ffmpeg_proc.returncode, "ffmpeg", ffmpeg_stderr, debug)
-            del original_data  # free original buffer
+            del original_data
             data_for_sox = converted_wav
             input_type = "wav"
         else:
@@ -408,6 +412,7 @@ def main() -> None:
             input_type = "flac" if codec == "flac" else "wav"
 
         sox_cmd = build_gain_estimation_sox_cmd(input_type, fmt, src_sr, target_sr)
+        _log_cmd(sox_cmd, debug)
         sox_proc = subprocess.Popen(
             sox_cmd,
             stdin=subprocess.PIPE,
@@ -418,14 +423,12 @@ def main() -> None:
         _check_return_code(sox_proc.returncode, "sox", sox_stderr, debug)
 
     # Parse loudness statistics.
-    # If debugging, dump captured stderr (already handled by _check_return_code if failed,
-    # but for success with debug we do it here explicitly).
     if debug and sox_stderr:
         sys.stderr.buffer.write(sox_stderr)
         sys.stderr.buffer.flush()
 
     peak_db = parse_peak_from_stats(sox_stderr)
-    attenuation_str = compute_attenuation(peak_db)
+    attenuation_val = compute_attenuation(peak_db)
 
     # ------------------------------------------------------------------
     # Phase 3 – Final audio production
@@ -436,7 +439,7 @@ def main() -> None:
         fmt,
         src_sr,
         target_sr,
-        attenuation_str,
+        attenuation_val,
         keep_8bit,
     )
 
@@ -458,6 +461,7 @@ def main() -> None:
                 "wav",
                 "pipe:1",
             ]
+            _log_cmd(ffmpeg_cmd, debug)
             ffmpeg_proc = subprocess.Popen(
                 ffmpeg_cmd,
                 stdin=sys.stdin.buffer,
@@ -466,6 +470,7 @@ def main() -> None:
             )
 
             if need_sox_cmd is not None:
+                _log_cmd(need_sox_cmd, debug)
                 sox_proc = subprocess.Popen(
                     need_sox_cmd,
                     stdin=ffmpeg_proc.stdout,
@@ -478,15 +483,14 @@ def main() -> None:
                 _check_return_code(sox_proc.returncode, "sox", sox_stderr, debug)
                 _check_return_code(ffmpeg_proc.returncode, "ffmpeg", ffmpeg_stderr, debug)
             else:
-                # No SoX needed: pipe ffmpeg directly to stdout.
-                # We still want to capture stderr for failure diagnostics.
-                ffmpeg_proc.stdout.close()  # not needed; we copy manually
+                ffmpeg_proc.stdout.close()
                 shutil.copyfileobj(ffmpeg_proc.stdout, sys.stdout.buffer)
                 ffmpeg_stderr = ffmpeg_proc.communicate()[1]
                 _check_return_code(ffmpeg_proc.returncode, "ffmpeg", ffmpeg_stderr, debug)
         else:
-            # Input already WAV/FLAC.
+            # Already WAV/FLAC
             if need_sox_cmd is not None:
+                _log_cmd(need_sox_cmd, debug)
                 sox_proc = subprocess.Popen(
                     need_sox_cmd,
                     stdin=sys.stdin.buffer,
@@ -498,13 +502,14 @@ def main() -> None:
             else:
                 shutil.copyfileobj(sys.stdin.buffer, sys.stdout.buffer)
     else:
-        # Non‑seekable: we have the final data in memory.
+        # Non‑seekable: final data is still in memory.
         if needs_convert:
-            data = data_for_sox  # already converted WAV
+            data = data_for_sox  # converted WAV
         else:
             data = original_data
 
         if need_sox_cmd is not None:
+            _log_cmd(need_sox_cmd, debug)
             sox_proc = subprocess.Popen(
                 need_sox_cmd,
                 stdin=subprocess.PIPE,
