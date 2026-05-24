@@ -1,25 +1,25 @@
 #!/usr/bin/env python3
-"""noop - Check stdin for exactly one audio stream and estimate the gain required.
+"""noop - Validate a single audio stream on stdin, estimate loudness gain, and output processed audio.
 
-Reads from standard input and uses ffprobe to verify that the input contains
-exactly one audio stream.  If stdin is a terminal, an error is reported.
-When the check passes, the stream (possibly transcoded to WAV) is fed to SoX
-to compute the gain needed to reach -20 dB loudness.  A target sample rate may
-be given as a positional argument (default 44100 Hz).  The result is printed
-on stdout; all diagnostic output from ffprobe, ffmpeg and sox appears on
-stderr.
+Reads standard input, verifies via ffprobe that it contains exactly one audio stream,
+computes the gain required to reach -20 dB loudness using SoX, applies that gain
+together with optional resampling and dithering, and writes the result to stdout.
+All diagnostic output from ffprobe, ffmpeg and SoX is forwarded to stderr (SoX
+loudness statistics are silenced unless ``--debug`` is given).  An optional
+positional argument specifies the target sample rate (default 44100 Hz).
 """
 import sys
 import subprocess
 import json
 import argparse
+import shutil
 from typing import Optional, Dict, List, Tuple
 
 
 def parse_args() -> argparse.Namespace:
-    """Parse the optional target sample-rate argument."""
+    """Parse command‑line arguments."""
     parser = argparse.ArgumentParser(
-        description="Verify a single audio stream on stdin and estimate gain."
+        description="Verify a single audio stream on stdin and output gain‑adjusted audio."
     )
     parser.add_argument(
         "sample_rate",
@@ -28,14 +28,20 @@ def parse_args() -> argparse.Namespace:
         default=44100,
         help="Target sample rate (default: 44100)",
     )
+    parser.add_argument(
+        "--debug",
+        action="store_true",
+        default=False,
+        help="Forward SoX gain‑estimation statistics to stderr",
+    )
     return parser.parse_args()
 
 
 def _get_audio_stream_info(ffprobe_stdout: bytes) -> Optional[Dict]:
-    """Extract the *first* audio stream's metadata from ffprobe JSON output.
+    """Extract the **first** audio stream's metadata from ffprobe JSON output.
 
     Returns a dict with keys ``codec_name``, ``sample_rate``, ``sample_fmt``,
-    or ``None`` if the JSON is invalid or no audio stream exists.
+    or ``None`` if parsing fails or no audio stream is found.
     """
     try:
         data = json.loads(ffprobe_stdout.decode("utf-8"))
@@ -57,52 +63,103 @@ def _exactly_one_audio_stream(ffprobe_stdout: bytes) -> bool:
     return _get_audio_stream_info(ffprobe_stdout) is not None
 
 
-def build_sox_cmd(
+def build_gain_estimation_sox_cmd(
     input_type: str,
     sample_fmt: str,
     src_sample_rate: int,
     target_sample_rate: int,
 ) -> List[str]:
-    """Construct the SoX gain‑estimation command line.
+    """Construct the SoX command line used for **gain estimation**.
 
-    Parameters
-    ----------
-    input_type : str
-        ``"wav"`` or ``"flac"``.
-    sample_fmt : str
-        Sample format reported by ffprobe (e.g. ``"s16"``, ``"s32"``).
-    src_sample_rate : int
-        Sample rate reported by ffprobe.
-    target_sample_rate : int
-        Desired sample rate (default 44100).
-
-    Returns
-    -------
-    List[str]
-        Command and arguments suitable for ``subprocess``.
+    The command measures loudness without producing audio data.
     """
     cmd = ["sox", "-D", "-t", input_type, "-"]
 
-    # If the input is not 16‑bit signed, convert it to 16‑bit first.
     if sample_fmt not in ("s16", "s16p"):
         cmd.append("-b16")
 
-    cmd.extend(["vol", "-20dB"])
+    # Output to null device, then run stats.
+    cmd.extend(["-n", "vol", "-20dB"])
 
-    # Resample only when the reported rate differs from the target.
     if src_sample_rate != target_sample_rate:
         cmd.extend(["rate", str(target_sample_rate)])
 
-    # Dither after volume adjustment if we converted to 16‑bit.
     if sample_fmt not in ("s16", "s16p"):
         cmd.append("dither")
 
-    # Always perform a second rate conversion to the "other" rate,
-    # as required by the gain‑estimation logic.
+    # Second rate conversion as required by the loudness algorithm.
     other_rate = 44100 if target_sample_rate == 48000 else 48000
-    cmd.extend(["rate", "-m", str(other_rate)])
+    cmd.extend(["rate", "-m", str(other_rate), "stats"])
 
     return cmd
+
+
+def build_production_sox_cmd(
+    input_type: str,
+    sample_fmt: str,
+    src_sample_rate: int,
+    target_sample_rate: int,
+    attenuation_db: str,
+) -> Optional[List[str]]:
+    """Construct the SoX command line used for **final audio production**.
+
+    Returns ``None`` when no processing is needed (no volume change,
+    no resampling, no dither).
+    """
+    need_vol = attenuation_db != "0"
+    need_resample = src_sample_rate != target_sample_rate
+    need_dither = sample_fmt not in ("s16", "s16p")
+
+    if not (need_vol or need_resample or need_dither):
+        return None
+
+    cmd = ["sox", "-D", "-t", input_type, "-"]
+
+    if need_dither:
+        cmd.append("-b16")
+
+    # Output file is stdout (omitted).
+
+    if need_vol:
+        cmd.extend(["vol", f"{attenuation_db}dB"])
+
+    if need_resample:
+        cmd.extend(["rate", str(target_sample_rate)])
+
+    if need_dither:
+        cmd.append("dither")
+
+    return cmd
+
+
+def parse_peak_from_stats(sox_stderr: bytes) -> Optional[float]:
+    """Extract the peak level (dB) from the SoX ``stats`` effect output."""
+    lines = sox_stderr.decode("utf-8", errors="replace").splitlines()
+    for line in lines:
+        if line.startswith("Pk lev dB"):
+            parts = line.split()
+            if len(parts) >= 4:
+                try:
+                    return float(parts[3])
+                except ValueError:
+                    pass
+    return None
+
+
+def compute_attenuation(peak_db: Optional[float]) -> str:
+    """Convert a peak dB value into an attenuation string (one decimal place).
+
+    If the peak cannot be determined, returns ``"0"``.
+    """
+    if peak_db is None:
+        return "0"
+    # formula from bash snippet: test_attenuation = 20 + peak
+    att = 20.0 + peak_db
+    if att > 0:
+        att += 0.1
+    else:
+        att = 0.0
+    return f"{att:.1f}"
 
 
 def _check_return_code(proc: subprocess.Popen, name: str) -> None:
@@ -113,9 +170,87 @@ def _check_return_code(proc: subprocess.Popen, name: str) -> None:
         sys.exit(1)
 
 
+def run_ffprobe_seekable(args: List[str]) -> bytes:
+    """Run ffprobe on a seekable stdin.  The stream position is rewound afterwards."""
+    try:
+        proc = subprocess.Popen(
+            args,
+            stdin=sys.stdin.buffer,
+            stdout=subprocess.PIPE,
+            stderr=sys.stderr,
+        )
+        stdout, _ = proc.communicate()
+    except FileNotFoundError:
+        print("Error: ffprobe not found.  Is ffmpeg installed?", file=sys.stderr)
+        sys.exit(1)
+    sys.stdin.buffer.seek(0)
+    return stdout
+
+
+def run_ffprobe_nonseekable(args: List[str]) -> Tuple[bytes, bytes]:
+    """Run ffprobe on a non‑seekable stdin, buffering the entire input in memory."""
+    try:
+        proc = subprocess.Popen(
+            args,
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=sys.stderr,
+        )
+    except FileNotFoundError:
+        print("Error: ffprobe not found.  Is ffmpeg installed?", file=sys.stderr)
+        sys.exit(1)
+
+    buffer_chunks: List[bytes] = []
+    early_check = False
+    write_to_ffprobe = True
+
+    while True:
+        chunk = sys.stdin.buffer.read(128 * 1024)
+        if not chunk:
+            break
+        buffer_chunks.append(chunk)
+
+        if write_to_ffprobe:
+            try:
+                proc.stdin.write(chunk)
+                proc.stdin.flush()
+            except BrokenPipeError:
+                pass
+
+            if proc.poll() is not None:
+                ffprobe_stdout = proc.stdout.read()
+                ret = proc.returncode
+                if ret != 0 or not _exactly_one_audio_stream(ffprobe_stdout):
+                    print(
+                        "Error: input must contain exactly one audio stream.",
+                        file=sys.stderr,
+                    )
+                    sys.exit(1)
+                write_to_ffprobe = False
+                early_check = True
+
+    if not early_check:
+        proc.stdin.close()
+        ffprobe_stdout, _ = proc.communicate()
+        ret = proc.returncode
+        if ret != 0 or not _exactly_one_audio_stream(ffprobe_stdout):
+            print(
+                "Error: input must contain exactly one audio stream.",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+    else:
+        ffprobe_stdout = proc.stdout.read()  # already consumed
+
+    original_data = b"".join(buffer_chunks)
+    del buffer_chunks
+    return ffprobe_stdout, original_data
+
+
 def main() -> None:
     args = parse_args()
     target_sr = args.sample_rate
+    debug = args.debug
 
     if sys.stdin.isatty():
         print(
@@ -137,79 +272,15 @@ def main() -> None:
     ]
 
     # ------------------------------------------------------------------
-    # Phase 1 – ffprobe
+    # Phase 1 – ffprobe & data acquisition
     # ------------------------------------------------------------------
-    if sys.stdin.buffer.seekable():
-        # Seekable input: run ffprobe directly on stdin.
-        try:
-            proc = subprocess.Popen(
-                ffprobe_args,
-                stdin=sys.stdin.buffer,
-                stdout=subprocess.PIPE,
-                stderr=sys.stderr,
-            )
-            ffprobe_stdout, _ = proc.communicate()
-        except FileNotFoundError:
-            print("Error: ffprobe not found.  Is ffmpeg installed?", file=sys.stderr)
-            sys.exit(1)
-
-        # Rewind so the rest of the script can reuse stdin.
-        sys.stdin.buffer.seek(0)
+    seekable = sys.stdin.buffer.seekable()
+    if seekable:
+        ffprobe_stdout = run_ffprobe_seekable(ffprobe_args)
+        original_data = None  # will be read on demand from stdin
     else:
-        # Non‑seekable input: buffer the entire stream while feeding ffprobe.
-        try:
-            proc = subprocess.Popen(
-                ffprobe_args,
-                stdin=subprocess.PIPE,
-                stdout=subprocess.PIPE,
-                stderr=sys.stderr,
-            )
-        except FileNotFoundError:
-            print("Error: ffprobe not found.  Is ffmpeg installed?", file=sys.stderr)
-            sys.exit(1)
+        ffprobe_stdout, original_data = run_ffprobe_nonseekable(ffprobe_args)
 
-        buffer_chunks: List[bytes] = []
-        early_check = False
-        write_to_ffprobe = True
-
-        while True:
-            chunk = sys.stdin.buffer.read(128 * 1024)  # 128 KB
-            if not chunk:
-                break
-            buffer_chunks.append(chunk)
-
-            if write_to_ffprobe:
-                try:
-                    proc.stdin.write(chunk)
-                    proc.stdin.flush()
-                except BrokenPipeError:
-                    pass  # ffprobe already closed stdin
-
-                if proc.poll() is not None:
-                    ffprobe_stdout = proc.stdout.read()
-                    ret = proc.returncode
-                    if ret != 0 or not _exactly_one_audio_stream(ffprobe_stdout):
-                        print(
-                            "Error: input must contain exactly one audio stream.",
-                            file=sys.stderr,
-                        )
-                        sys.exit(1)
-                    # Early success – stop feeding ffprobe but keep buffering.
-                    write_to_ffprobe = False
-                    early_check = True
-
-        if not early_check:
-            proc.stdin.close()
-            ffprobe_stdout, _ = proc.communicate()
-            ret = proc.returncode
-            if ret != 0 or not _exactly_one_audio_stream(ffprobe_stdout):
-                print(
-                    "Error: input must contain exactly one audio stream.",
-                    file=sys.stderr,
-                )
-                sys.exit(1)
-
-    # Validate exactly one audio stream.
     stream_info = _get_audio_stream_info(ffprobe_stdout)
     if stream_info is None:
         print(
@@ -226,12 +297,21 @@ def main() -> None:
     # ------------------------------------------------------------------
     # Phase 2 – Gain estimation
     # ------------------------------------------------------------------
-    if sys.stdin.buffer.seekable():
-        # Seekable input -------------------------------------------------
-        sys.stdin.buffer.seek(0)  # already rewound, but be explicit
+    if seekable:
+        sys.stdin.buffer.seek(0)
+
+        def run_sox_with_input(stdin_src, input_type):
+            """Run gain‑estimation SoX command on the given input source."""
+            sox_cmd = build_gain_estimation_sox_cmd(input_type, fmt, src_sr, target_sr)
+            sox_proc = subprocess.Popen(
+                sox_cmd,
+                stdin=stdin_src,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.PIPE,
+            )
+            return sox_proc
 
         if needs_convert:
-            # ffmpeg → sox pipeline
             ffmpeg_cmd = [
                 "ffmpeg",
                 "-hide_banner",
@@ -246,58 +326,26 @@ def main() -> None:
                 "wav",
                 "pipe:1",
             ]
-            try:
-                ffmpeg_proc = subprocess.Popen(
-                    ffmpeg_cmd,
-                    stdin=sys.stdin.buffer,
-                    stdout=subprocess.PIPE,
-                    stderr=sys.stderr,
-                )
-            except FileNotFoundError:
-                print("Error: ffmpeg not found.", file=sys.stderr)
-                sys.exit(1)
+            ffmpeg_proc = subprocess.Popen(
+                ffmpeg_cmd,
+                stdin=sys.stdin.buffer,
+                stdout=subprocess.PIPE,
+                stderr=sys.stderr,
+            )
+            sox_proc = run_sox_with_input(ffmpeg_proc.stdout, "wav")
+            ffmpeg_proc.stdout.close()  # allow SIGPIPE
 
-            sox_cmd = build_sox_cmd("wav", fmt, src_sr, target_sr)
-            try:
-                sox_proc = subprocess.Popen(
-                    sox_cmd,
-                    stdin=ffmpeg_proc.stdout,
-                    stdout=sys.stdout,
-                    stderr=sys.stderr,
-                )
-            except FileNotFoundError:
-                print("Error: sox not found.", file=sys.stderr)
-                sys.exit(1)
-
-            ffmpeg_proc.stdout.close()  # allow SIGPIPE propagation
-            sox_ret = sox_proc.wait()
-            ffmpeg_ret = ffmpeg_proc.wait()
+            sox_stderr = sox_proc.communicate()[1]
             _check_return_code(sox_proc, "sox")
             _check_return_code(ffmpeg_proc, "ffmpeg")
         else:
-            # sox only
             input_type = "flac" if codec == "flac" else "wav"
-            sox_cmd = build_sox_cmd(input_type, fmt, src_sr, target_sr)
-            try:
-                sox_proc = subprocess.Popen(
-                    sox_cmd,
-                    stdin=sys.stdin.buffer,
-                    stdout=sys.stdout,
-                    stderr=sys.stderr,
-                )
-            except FileNotFoundError:
-                print("Error: sox not found.", file=sys.stderr)
-                sys.exit(1)
-            sox_proc.communicate()
+            sox_proc = run_sox_with_input(sys.stdin.buffer, input_type)
+            sox_stderr = sox_proc.communicate()[1]
             _check_return_code(sox_proc, "sox")
     else:
-        # Non‑seekable input ---------------------------------------------
-        # At this point `buffer_chunks` holds the complete original stream.
-        original_data = b"".join(buffer_chunks)
-        del buffer_chunks  # free memory
-
+        # non‑seekable: we already have original_data in memory
         if needs_convert:
-            # Convert to WAV via ffmpeg, buffering the result in memory.
             ffmpeg_cmd = [
                 "ffmpeg",
                 "-hide_banner",
@@ -319,45 +367,128 @@ def main() -> None:
                     stdout=subprocess.PIPE,
                     stderr=sys.stderr,
                 )
+                converted_wav, _ = ffmpeg_proc.communicate(input=original_data)
+                _check_return_code(ffmpeg_proc, "ffmpeg")
             except FileNotFoundError:
                 print("Error: ffmpeg not found.", file=sys.stderr)
                 sys.exit(1)
+            del original_data  # free original buffer
+            data_for_sox = converted_wav
+            input_type = "wav"
+        else:
+            data_for_sox = original_data
+            input_type = "flac" if codec == "flac" else "wav"
 
-            converted_wav, _ = ffmpeg_proc.communicate(input=original_data)
-            _check_return_code(ffmpeg_proc, "ffmpeg")
+        sox_cmd = build_gain_estimation_sox_cmd(input_type, fmt, src_sr, target_sr)
+        try:
+            sox_proc = subprocess.Popen(
+                sox_cmd,
+                stdin=subprocess.PIPE,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.PIPE,
+            )
+            sox_stderr = sox_proc.communicate(input=data_for_sox)[1]
+            _check_return_code(sox_proc, "sox")
+        except FileNotFoundError:
+            print("Error: sox not found.", file=sys.stderr)
+            sys.exit(1)
 
-            # Discard the original (pre‑conversion) data.
-            del original_data
+    # Parse loudness statistics.
+    if debug and sox_stderr:
+        sys.stderr.buffer.write(sox_stderr)
+        sys.stderr.buffer.flush()
 
-            sox_cmd = build_sox_cmd("wav", fmt, src_sr, target_sr)
-            try:
+    peak_db = parse_peak_from_stats(sox_stderr)
+    attenuation_str = compute_attenuation(peak_db)
+
+    # ------------------------------------------------------------------
+    # Phase 3 – Final audio production
+    # ------------------------------------------------------------------
+    need_sox_cmd = build_production_sox_cmd(
+        "wav" if needs_convert else ("flac" if codec == "flac" else "wav"),
+        fmt,
+        src_sr,
+        target_sr,
+        attenuation_str,
+    )
+
+    if seekable:
+        sys.stdin.buffer.seek(0)
+
+        if needs_convert:
+            ffmpeg_cmd = [
+                "ffmpeg",
+                "-hide_banner",
+                "-xerror",
+                "-err_detect",
+                "explode",
+                "-loglevel",
+                "warning",
+                "-i",
+                "-",
+                "-f",
+                "wav",
+                "pipe:1",
+            ]
+            ffmpeg_proc = subprocess.Popen(
+                ffmpeg_cmd,
+                stdin=sys.stdin.buffer,
+                stdout=subprocess.PIPE,
+                stderr=sys.stderr,
+            )
+
+            if need_sox_cmd is not None:
                 sox_proc = subprocess.Popen(
-                    sox_cmd,
-                    stdin=subprocess.PIPE,
-                    stdout=sys.stdout,
+                    need_sox_cmd,
+                    stdin=ffmpeg_proc.stdout,
+                    stdout=sys.stdout.buffer,
                     stderr=sys.stderr,
                 )
-            except FileNotFoundError:
-                print("Error: sox not found.", file=sys.stderr)
-                sys.exit(1)
-            sox_proc.communicate(input=converted_wav)
+                ffmpeg_proc.stdout.close()
+                sox_ret = sox_proc.wait()
+                ffmpeg_ret = ffmpeg_proc.wait()
+                _check_return_code(sox_proc, "sox")
+                _check_return_code(ffmpeg_proc, "ffmpeg")
+            else:
+                # No SoX needed: pipe ffmpeg directly to stdout.
+                shutil.copyfileobj(ffmpeg_proc.stdout, sys.stdout.buffer)
+                ffmpeg_proc.stdout.close()
+                ffmpeg_ret = ffmpeg_proc.wait()
+                _check_return_code(ffmpeg_proc, "ffmpeg")
+        else:
+            # Input already WAV/FLAC.
+            if need_sox_cmd is not None:
+                sox_proc = subprocess.Popen(
+                    need_sox_cmd,
+                    stdin=sys.stdin.buffer,
+                    stdout=sys.stdout.buffer,
+                    stderr=sys.stderr,
+                )
+                sox_proc.communicate()
+                _check_return_code(sox_proc, "sox")
+            else:
+                # No processing at all – just copy stdin to stdout.
+                shutil.copyfileobj(sys.stdin.buffer, sys.stdout.buffer)
+    else:
+        # Non‑seekable: we have the final data in memory.
+        if needs_convert:
+            # data_for_sox was already set to converted_wav during Phase 2.
+            data = data_for_sox  # type: bytes
+        else:
+            data = original_data
+
+        if need_sox_cmd is not None:
+            sox_proc = subprocess.Popen(
+                need_sox_cmd,
+                stdin=subprocess.PIPE,
+                stdout=sys.stdout.buffer,
+                stderr=sys.stderr,
+            )
+            sox_proc.communicate(input=data)
             _check_return_code(sox_proc, "sox")
         else:
-            # No conversion needed; feed the original data directly to sox.
-            input_type = "flac" if codec == "flac" else "wav"
-            sox_cmd = build_sox_cmd(input_type, fmt, src_sr, target_sr)
-            try:
-                sox_proc = subprocess.Popen(
-                    sox_cmd,
-                    stdin=subprocess.PIPE,
-                    stdout=sys.stdout,
-                    stderr=sys.stderr,
-                )
-            except FileNotFoundError:
-                print("Error: sox not found.", file=sys.stderr)
-                sys.exit(1)
-            sox_proc.communicate(input=original_data)
-            _check_return_code(sox_proc, "sox")
+            sys.stdout.buffer.write(data)
+            sys.stdout.buffer.flush()
 
     sys.exit(0)
 
