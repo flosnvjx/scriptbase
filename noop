@@ -1,27 +1,12 @@
 #!/usr/bin/env python3
-"""noop - Validate a single audio stream on stdin, estimate loudness gain, and output processed audio.
-
-Reads standard input, verifies via ffprobe that it contains exactly one audio stream,
-computes the gain required to reach -20 dB loudness using SoX, applies that gain
-together with optional resampling and dithering, and writes the result to stdout.
-Diagnostic output from ffprobe, ffmpeg and SoX is forwarded to stderr on failure
-(or always when ``--debug`` is given).  An optional positional argument specifies
-the target sample rate (default 44100 Hz).  With ``--keep-input-bitdepth-if-8bit``,
-8‑bit unsigned input is left at its original bit depth instead of being promoted
-to 16‑bit.
-
-If neither dithering nor resampling would be used in the final stage, the gain
-estimation step is skipped and the audio is passed through unchanged (except for
-possible bit‑depth conversion).
-
-When the input is not already in WAV format, flac or wvunpack are preferred over
-ffmpeg for decoding, provided they are available in PATH.
-
-For non‑trivial sample formats (not u8/s16/s16p) the effective bit‑depth is
-determined via a short SoX detection run.  If the actual bit‑depth is ≤ 16,
-dithering is omitted entirely.  All SoX invocations use LC_ALL=C to ensure
-reliable output parsing.
 """
+afiresamp – resample piped audio with automatic dither and pre‑resampling headroom adjustment.
+
+A two‑pass offline processor designed for mastering‑grade sample‑rate conversion (SRC) and
+bit‑depth reduction.  It works on data received via stdin and outputs the processed audio to
+stdout, supporting both seekable (regular file) and non‑seekable (pipe/network) inputs.
+"""
+
 import sys
 import subprocess
 import json
@@ -32,34 +17,52 @@ from typing import Optional, Dict, List, Tuple
 
 
 def parse_args() -> argparse.Namespace:
-    """Parse command‑line arguments."""
+    """Parse command‑line arguments and return a namespace.
+    """
     parser = argparse.ArgumentParser(
-        description="Verify a single audio stream on stdin and output gain‑adjusted audio."
+        description=(
+            "Resample piped audio to a target sample rate, automatically applying "
+            "dither when reducing bitdepth, adjusting pre‑SRC gain to prevent "
+            "clipping from resampling overshoots.\n\n"
+        ),
+        epilog=(
+            "Examples:\n"
+            "  cat input.flac | afiresamp 48000 > output.wav\n"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.add_argument(
         "sample_rate",
         nargs="?",
         type=int,
         default=44100,
-        help="Target sample rate (default: 44100)",
+        help="Target sample rate in Hz (default: 44100).",
     )
     parser.add_argument(
         "--debug",
         action="store_true",
         default=False,
-        help="Always print captured stderr of subprocesses and log commands",
+        help="Log all subprocess command lines and always print captured stderr.",
     )
     parser.add_argument(
         "--keep-input-bitdepth-if-8bit",
         action="store_true",
         default=False,
-        help="For u8 input, keep 8‑bit depth instead of converting to 16‑bit",
+        help=(
+            "Preserve 8‑bit depth instead of up‑converting to 16‑bit. "
+            "When the input is 8‑bit unsigned (u8), the output will also be 8‑bit; "
+            "otherwise the default is to convert to 16‑bit for safety."
+        ),
     )
     return parser.parse_args()
 
 
 def _sox_env() -> Dict[str, str]:
-    """Return a copy of the current environment with LC_ALL=C."""
+    """Return a copy of the current environment with LC_ALL=C.
+
+    This ensures SoX prints numbers in a format that the parsing routines expect,
+    regardless of the user's locale settings.
+    """
     env = os.environ.copy()
     env["LC_ALL"] = "C"
     return env
@@ -101,9 +104,18 @@ def build_gain_estimation_sox_cmd(
     target_sample_rate: int,
     need_dither: bool,
 ) -> List[str]:
-    """Construct the SoX command line used for gain estimation.
+    """Construct the SoX command line used for peak measurement.
 
-    Dither is only added when *need_dither* is True.
+    The chain is:
+        input -> vol -20 dB -> [rate] -> [dither] -> stats
+
+    * The **-20 dB pad** ensures that resampling overshoots (which can be
+      as high as +6 dB for extreme test signals) will never clip the measurement.
+    * Dither is only added when *need_dither* is True – this mirrors what the final
+      production pass will do, so the measured peak accurately reflects the final
+      peak after dither.
+    * The ``stats`` effect prints peak level and other metrics to stderr, which are
+      later parsed.
     """
     cmd = ["sox", "-D", "-t", input_type, "-"]
 
@@ -134,8 +146,14 @@ def build_production_sox_cmd(
 ) -> Optional[List[str]]:
     """Construct the SoX command line for final audio production.
 
-    Returns ``None`` when no processing is needed (no volume change,
-    no resampling, and no dithering/bit‑depth conversion).
+    The chain is built to apply only the necessary operations, in the correct order:
+        1. Bit‑depth conversion to 16‑bit (unless keep_8bit and input is u8).
+        2. Pre‑SRC volume adjustment (the computed attenuation).
+        3. Sample‑rate conversion (if needed).
+        4. Dither (always last, only if reducing effective bit‑depth).
+
+    Returns None if no processing at all is required (i.e., output is identical
+    to input), allowing the caller to simply copy the data.
     """
     need_vol = attenuation_db != 0.0
     need_resample = src_sample_rate != target_sample_rate
@@ -148,13 +166,13 @@ def build_production_sox_cmd(
 
     cmd = ["sox", "-D", "-t", input_type, "-"]
 
-    # Output
+    # Output type and bit‑depth
     cmd.extend(["-t", input_type])
     if need_b16:
         cmd.append("-b16")
     cmd.append("-")
 
-    # Effects
+    # Effects in correct DSP order
     if need_vol:
         cmd.extend(["vol", f"{attenuation_db:.1f}dB"])
 
@@ -168,7 +186,11 @@ def build_production_sox_cmd(
 
 
 def parse_peak_from_stats(sox_stderr: bytes) -> Optional[float]:
-    """Extract the peak level (dB) from the SoX stats effect output."""
+    """Extract the peak level (dB) from the SoX stats effect output.
+
+    Looks for the line starting with 'Pk lev dB' and returns the numeric value
+    (the fourth whitespace‑separated token).
+    """
     lines = sox_stderr.decode("utf-8", errors="replace").splitlines()
     for line in lines:
         if line.startswith("Pk lev dB"):
@@ -182,10 +204,10 @@ def parse_peak_from_stats(sox_stderr: bytes) -> Optional[float]:
 
 
 def parse_bitdepth_from_stats(sox_stderr: bytes) -> Optional[int]:
-    """Extract the bit‑depth from SoX stats output.
+    """Extract the effective bit‑depth from SoX stats output.
 
-    The expected line looks like ``Bit-depth      16/16``.
-    We return the first number.
+    The 'Bit-depth' line looks like 'Bit-depth      16/16' or '24/24'.
+    We take the first part before the slash and convert to int.
     """
     lines = sox_stderr.decode("utf-8", errors="replace").splitlines()
     for line in lines:
@@ -201,7 +223,13 @@ def parse_bitdepth_from_stats(sox_stderr: bytes) -> Optional[int]:
 
 
 def compute_attenuation(peak_db: float) -> float:
-    """Calculate required attenuation (negative gain) to reach -20 dB loudness."""
+    """Calculate the pre‑SRC attenuation needed.
+
+    *peak_db* is the peak measured **after** a −20 dB pad, so the true unattenuated
+    peak would be 20 + peak_db.  If that value is positive, we attenuate to bring the
+    peak down to −0.1 dBFS (an extra 0.1 dB safety margin).  The result is negative
+    (or zero if no reduction is needed).
+    """
     att = 20.0 + peak_db
     if att > 0.0:
         att += 0.1
@@ -241,7 +269,10 @@ def _check_return_code(exit_code: int, proc_name: str, stderr_data: bytes, debug
 def _get_converter_cmd(codec_name: str, seekable: bool) -> List[str]:
     """Return the command line to decode the given codec to WAV on stdout.
 
-    Prefers flac or wvunpack over ffmpeg when they are available in PATH.
+    Prefers dedicated decoders over ffmpeg for quality and efficiency:
+      - flac: flac
+      - wavpack: wvunpack
+    Falls back to ffmpeg for everything else.
     When *seekable* is True and ffmpeg is used, the fd: protocol is invoked with
     ``-fd 0``, enabling the decoder to seek within the input.
     """
@@ -273,7 +304,8 @@ def _get_converter_cmd(codec_name: str, seekable: bool) -> List[str]:
 
 
 def run_ffprobe_seekable(args: List[str], debug: bool) -> bytes:
-    """Run ffprobe on a seekable stdin, rewinding afterwards."""
+    """Run ffprobe on a seekable stdin, rewinding afterwards.
+    """
     _log_cmd(args, debug)
     proc = subprocess.Popen(
         args,
@@ -290,7 +322,10 @@ def run_ffprobe_seekable(args: List[str], debug: bool) -> bytes:
 def run_ffprobe_nonseekable(args: List[str], debug: bool) -> Tuple[bytes, bytes]:
     """Run ffprobe on a non‑seekable stdin, buffering the entire input.
 
-    Returns the ffprobe stdout and the buffered original data.
+    Since we can't re‑read a pipe, we read the whole stream into memory while
+    simultaneously piping it to ffprobe.  Once ffprobe has seen enough data to
+    identify the stream, we stop writing to it, but continue buffering the
+    remainder.  The buffered data is returned for later processing phases.
     """
     _log_cmd(args, debug)
     proc = subprocess.Popen(
@@ -356,6 +391,7 @@ def _detect_bitdepth_from_data(
     """Run SoX stats on *wav_data* and return the detected bit‑depth.
 
     Exits with an error if the bit‑depth cannot be determined.
+    Used when the input is non‑seekable and has already been decoded to WAV.
     """
     sox_env = _sox_env()
     cmd = ["sox", "-D", "-t", "wav", "-", "-n", "stats"]
@@ -383,7 +419,7 @@ def _detect_bitdepth_seekable(
 ) -> int:
     """Detect bit‑depth from seekable stdin by (if necessary) decoding and running SoX stats.
 
-    Rewinds stdin afterwards.
+    Rewinds stdin afterwards so that later passes can read the data afresh.
     """
     sys.stdin.buffer.seek(0)
     if needs_convert:
@@ -435,6 +471,7 @@ def _detect_bitdepth_seekable(
 
 
 def main() -> None:
+    """Main entry point: orchestrate probing, gain estimation, and final processing."""
     args = parse_args()
     target_sr = args.sample_rate
     debug = args.debug
