@@ -4,7 +4,7 @@ afiresamp – resample piped audio with automatic dither and pre‑resampling he
 
 A two‑pass offline processor designed for mastering‑grade sample‑rate conversion (SRC) and
 bit‑depth reduction.  It works on data received via stdin and outputs the processed audio to
-stdout, supporting both seekable (regular file) and non‑seekable (pipe/network) inputs.
+stdout, supporting both seekable (regular file) and non‑seekable (pipe) inputs.
 """
 
 import sys
@@ -21,7 +21,7 @@ def parse_args() -> argparse.Namespace:
     """
     parser = argparse.ArgumentParser(
         description=(
-            "Resample piped audio to a target sample rate, automatically applying "
+            "Resample audio to a target sample rate, automatically applying "
             "dither when reducing bitdepth, adjusting pre‑SRC gain to prevent "
             "clipping from resampling overshoots.\n\n"
         ),
@@ -266,20 +266,24 @@ def _check_return_code(exit_code: int, proc_name: str, stderr_data: bytes, debug
         sys.exit(1)
 
 
-def _get_converter_cmd(codec_name: str, seekable: bool) -> List[str]:
-    """Return the command line to decode the given codec to WAV on stdout.
+def _get_converter_cmd(format_name: str, seekable: bool, stdin_path: Optional[str] = None) -> List[str]:
+    """Return the command line to decode the given format to WAV on stdout.
 
     Prefers dedicated decoders over ffmpeg for quality and efficiency:
       - flac: flac
-      - wavpack: wvunpack
+      - wv (WavPack): wvunpack
+      - ape (seekable with resolved path): mac
     Falls back to ffmpeg for everything else.
     When *seekable* is True and ffmpeg is used, the fd: protocol is invoked with
     ``-fd 0``, enabling the decoder to seek within the input.
     """
-    if codec_name == "flac" and shutil.which("flac"):
+    if format_name == "flac" and shutil.which("flac"):
         return ["flac", "-d", "-c", "-"]
-    if codec_name == "wavpack" and shutil.which("wvunpack"):
-        return ["wvunpack", "-y", "-", "-o", "-"]
+    if format_name == "wv" and shutil.which("wvunpack"):
+        return ["wvunpack", "-wz0", "-o", "-", "-"]
+    # APE: use mac if the real path of stdin is known and mac is available
+    if format_name == "ape" and stdin_path is not None and shutil.which("mac"):
+        return ["mac", stdin_path, "-", "-d"]
     # Fallback to ffmpeg
     if seekable:
         return [
@@ -415,7 +419,7 @@ def _detect_bitdepth_from_data(
 
 
 def _detect_bitdepth_seekable(
-    needs_convert: bool, codec: str, seekable: bool, debug: bool
+    needs_convert: bool, format_name: str, seekable: bool, debug: bool, stdin_path: Optional[str] = None
 ) -> int:
     """Detect bit‑depth from seekable stdin by (if necessary) decoding and running SoX stats.
 
@@ -423,7 +427,7 @@ def _detect_bitdepth_seekable(
     """
     sys.stdin.buffer.seek(0)
     if needs_convert:
-        conv_cmd = _get_converter_cmd(codec, seekable)
+        conv_cmd = _get_converter_cmd(format_name, seekable, stdin_path=stdin_path)
         _log_cmd(conv_cmd, debug)
         conv_proc = subprocess.Popen(
             conv_cmd,
@@ -516,9 +520,21 @@ def main() -> None:
         sys.exit(1)
 
     stream_info, format_name = probe_result
-    codec = stream_info["codec_name"]
     src_sr = stream_info["sample_rate"]
     fmt = stream_info["sample_fmt"]
+
+    # Try to resolve the real path of stdin for APE decoding via mac
+    stdin_realpath = None
+    if format_name == "ape" and seekable:
+        try:
+            # Linux /proc/self/fd/0
+            stdin_realpath = os.readlink('/proc/self/fd/0')
+        except (OSError, AttributeError):
+            try:
+                # macOS /dev/fd/0
+                stdin_realpath = os.readlink('/dev/fd/0')
+            except OSError:
+                pass
 
     # Determine if input is already WAV format.
     needs_convert = format_name != "wav"
@@ -533,11 +549,11 @@ def main() -> None:
     else:
         # For non‑trivial formats, detect actual bit‑depth via SoX stats.
         if seekable:
-            actual_bitdepth = _detect_bitdepth_seekable(needs_convert, codec, seekable, debug)
+            actual_bitdepth = _detect_bitdepth_seekable(needs_convert, format_name, seekable, debug, stdin_path=stdin_realpath)
         else:
             # For non‑seekable input we must decode (if needed) into a single buffer first.
             if needs_convert:
-                conv_cmd = _get_converter_cmd(codec, seekable)
+                conv_cmd = _get_converter_cmd(format_name, seekable)
                 _log_cmd(conv_cmd, debug)
                 conv_proc = subprocess.Popen(
                     conv_cmd,
@@ -592,7 +608,7 @@ def main() -> None:
                 )
 
             if needs_convert:
-                conv_cmd = _get_converter_cmd(codec, seekable)
+                conv_cmd = _get_converter_cmd(format_name, seekable, stdin_path=stdin_realpath)
                 _log_cmd(conv_cmd, debug)
                 conv_proc = subprocess.Popen(
                     conv_cmd,
@@ -659,7 +675,7 @@ def main() -> None:
         sys.stdin.buffer.seek(0)
 
         if needs_convert:
-            conv_cmd = _get_converter_cmd(codec, seekable)
+            conv_cmd = _get_converter_cmd(format_name, seekable, stdin_path=stdin_realpath)
             _log_cmd(conv_cmd, debug)
             conv_proc = subprocess.Popen(
                 conv_cmd,
