@@ -383,6 +383,12 @@ def run_ffprobe_nonseekable(args: List[str], debug: bool) -> Tuple[bytes, bytes]
     else:
         # consume remaining stderr
         stderr_tail = proc.stderr.read()
+        # Close the pipe to avoid BrokenPipeError during finalization
+        try:
+            proc.stdin.close()
+        except BrokenPipeError:
+            pass
+        proc.wait()   # reap the child process
 
     original_data = b"".join(buffer_chunks)
     del buffer_chunks
