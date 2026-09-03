@@ -18,9 +18,10 @@ Options:
     -o SEC   Minimum lead‑out offset. Default: -0.5 (allow end up to 0.5s earlier).
     -R RATIO Preferred proportion of total compensation assigned to lead‑in.
              Default: 0.5 (half to lead‑in, half to lead‑out).
-    -p [SEC] Prevent overlapping subtitles. Optional tolerance in seconds:
-             overlaps <= tolerance are ignored. Without value, tolerance = 0.
-             Default: no overlap prevention.
+    -p [SEC] Prevent overlapping subtitles. The value is a threshold:
+             only overlaps <= SEC seconds are corrected (default SEC=inf,
+             meaning all overlaps are corrected). If -p is omitted,
+             overlap prevention is disabled.
     --cross-style  When -p is used, apply overlap prevention globally across
                    all Styles (instead of per‑Style). Ignored for SRT.
     -m SEC   Enforce a minimum display duration (seconds). Default: 0.01.
@@ -36,9 +37,10 @@ Algorithm per event:
     5. new_start = adjusted_start - lead_in, new_end = adjusted_end + lead_out
     6. If -p is active:
          - For ASS, group by Style (unless --cross-style)
-         - Ensure new_start >= previous_end_of_same_group + 10ms
-         - If overlap > tolerance, move start forward and adjust end to
-           preserve duration as much as possible (within lead_out bounds)
+         - Compute overlap = previous_end_of_same_group - new_start
+         - If overlap > 0 and overlap <= tolerance_ms, then correct:
+             * move start forward to previous_end + 10ms
+             * adjust end to preserve duration as much as possible (within lead_out bounds)
     7. Finally, enforce min_duration: if duration < min_duration, extend end.
 """
 
@@ -77,10 +79,16 @@ def parse_finite_float(value: str) -> float:
     return f
 
 
-def parse_optional_float(value: str) -> Optional[float]:
-    """Parse an optional float; if empty or None, return None."""
+def parse_overlap_tolerance(value: str) -> Optional[float]:
+    """
+    Parse the -p value. 'inf' or 'INF' -> float('inf').
+    Otherwise, must be a non‑negative float (0 allowed).
+    Returns None only if the argument is not given (which is handled by default=None).
+    """
     if value is None:
         return None
+    if value.lower() == "inf":
+        return float("inf")
     try:
         f = float(value)
         if f < 0:
@@ -144,10 +152,10 @@ def get_args():
         "-p",
         dest="overlap_tolerance",
         nargs="?",
-        const=0.0,
-        default=None,
-        type=parse_optional_float,
-        help="Prevent overlap (optional tolerance in seconds). Default: no prevention.",
+        const="inf",          # when -p is given without value, treat as inf
+        default=None,         # when -p is not given, disable prevention
+        type=parse_overlap_tolerance,
+        help="Prevent overlaps with tolerance threshold (default: inf).",
     )
     parser.add_argument(
         "--cross-style",
@@ -236,7 +244,7 @@ def apply_restoration(
     lead_out_min: float,
     lead_out_max: Optional[float],
     ratio: float,
-    overlap_tolerance: Optional[float],
+    overlap_tolerance: Optional[float],   # None = disabled, inf = all overlaps
     cross_style: bool,
     min_duration: float,
 ) -> None:
@@ -307,7 +315,8 @@ def apply_restoration(
                 prev_end = last_end_by_style.get(style, -10)
 
             overlap_ms = prev_end - new_start
-            if overlap_ms > 0 and overlap_ms > overlap_tolerance * 1000.0:
+            # New condition: correct only if overlap > 0 AND overlap <= tolerance
+            if overlap_ms > 0 and overlap_ms <= overlap_tolerance * 1000.0:
                 # Need to push start forward
                 new_start = prev_end + 10  # minimum gap
                 # Try to keep original duration (or adjusted if no delta)
@@ -348,7 +357,7 @@ def apply_restoration(
         new_event.end = new_end
         modified_events.append(new_event)
 
-        # Update previous end records
+        # Update previous end records (only if overlap prevention is active)
         if overlap_tolerance is not None:
             if cross_style or not is_ass:
                 global_previous_end = new_end
