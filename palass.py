@@ -26,6 +26,7 @@ Options:
                    all Styles (instead of per‑Style). Ignored for SRT.
     -m SEC   Enforce a minimum display duration (seconds). Default: 0.01.
              Must be >= 0.01. Overrides all other constraints if necessary.
+             Skips events with empty text content.
     -h, --help  Show this help.
 
 Algorithm per event:
@@ -41,7 +42,7 @@ Algorithm per event:
          - If overlap > 0 and overlap <= tolerance_ms, then correct:
              * move start forward to previous_end + 10ms
              * adjust end to preserve duration as much as possible (within lead_out bounds)
-    7. Finally, enforce min_duration: if duration < min_duration, extend end.
+    7. Finally, enforce min_duration (unless event text is empty): if duration < min_duration, extend end.
 """
 
 import argparse
@@ -168,7 +169,7 @@ def get_args():
         dest="min_duration",
         type=parse_min_duration,
         default=0.01,
-        help="Minimum display duration (seconds). Default: 0.01.",
+        help="Minimum display duration (seconds). Default: 0.01. Skips empty events.",
     )
     parser.add_argument(
         "-h", "--help", action="help", help="Show this help message and exit."
@@ -333,23 +334,28 @@ def apply_restoration(
                 lead_out_clamped = clamp(lead_out_required, lead_out_min, lo_max)
                 new_end = int(round(adj.end + lead_out_clamped * 1000.0))
 
-        # ---------- Minimum duration enforcement (highest priority) ----------
-        min_dur_ms = int(round(min_duration * 1000.0))
-        if new_end - new_start < min_dur_ms:
-            # Extend end to meet minimum
-            new_end = new_start + min_dur_ms
-            # Warn if this broke lead_out bounds
-            lead_out_actual = (new_end - adj.end) / 1000.0
-            if lead_out_max is not None and lead_out_actual > lead_out_max:
-                warnings.append(
-                    f"Event {i}: min_duration forced end beyond -O limit "
-                    f"(actual lead_out={lead_out_actual:.3f}s > {lead_out_max:.3f}s)"
-                )
-            elif lead_out_actual < lead_out_min:
-                warnings.append(
-                    f"Event {i}: min_duration forced end beyond -o limit "
-                    f"(actual lead_out={lead_out_actual:.3f}s < {lead_out_min:.3f}s)"
-                )
+        # ---------- Minimum duration enforcement (highest priority, but skip empty text) ----------
+        # Check if the event text is empty or only whitespace
+        if adj.text.strip() == "":
+            # Skip min_duration for empty events
+            pass
+        else:
+            min_dur_ms = int(round(min_duration * 1000.0))
+            if new_end - new_start < min_dur_ms:
+                # Extend end to meet minimum
+                new_end = new_start + min_dur_ms
+                # Warn if this broke lead_out bounds
+                lead_out_actual = (new_end - adj.end) / 1000.0
+                if lead_out_max is not None and lead_out_actual > lead_out_max:
+                    warnings.append(
+                        f"Event {i}: min_duration forced end beyond -O limit "
+                        f"(actual lead_out={lead_out_actual:.3f}s > {lead_out_max:.3f}s)"
+                    )
+                elif lead_out_actual < lead_out_min:
+                    warnings.append(
+                        f"Event {i}: min_duration forced end beyond -o limit "
+                        f"(actual lead_out={lead_out_actual:.3f}s < {lead_out_min:.3f}s)"
+                    )
 
         # Create new event
         new_event = adj.copy()
@@ -409,7 +415,7 @@ def write_output(adj_path: str, out_path: str,
         temp_subs.events = modified_events
 
         # Generate full ASS content in memory using to_string() with format "ass"
-        full_ass = temp_subs.to_string("ass")   # <-- 这里添加了 "ass" 参数
+        full_ass = temp_subs.to_string("ass")
 
         # Extract all Dialogue lines (they will be in the correct order)
         new_dialogue_lines = [
