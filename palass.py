@@ -390,8 +390,9 @@ def write_output(adj_path: str, out_path: str,
                  adj_subs: pysubs2.SSAFile) -> None:
     """
     Write modified subtitles.
-    For ASS, read original adjusted file line by line, preserve all lines
-    except Dialogue lines (replace with event.to_string(adj_subs.format)).
+    For ASS, use pysubs2's to_string() to generate correct Dialogue lines
+    (in memory), then replace only the Dialogue lines in the original file.
+    This preserves all comments and styles.
     For SRT, simply save using pysubs2.
     """
     ext = os.path.splitext(out_path)[1].lower()
@@ -402,29 +403,37 @@ def write_output(adj_path: str, out_path: str,
         except Exception as e:
             sys.exit(f"Error reading adjusted ASS file: {e}")
 
-        # Get the format fields
-        fields = adj_subs.format  # list of field names
+        # Create a temporary SSAFile with the modified events
+        temp_subs = pysubs2.SSAFile()
+        temp_subs.format = adj_subs.format  # Use the same field order
+        temp_subs.events = modified_events
 
+        # Generate full ASS content in memory using to_string() with format "ass"
+        full_ass = temp_subs.to_string("ass")   # <-- 这里添加了 "ass" 参数
+
+        # Extract all Dialogue lines (they will be in the correct order)
+        new_dialogue_lines = [
+            line.rstrip('\n') for line in full_ass.splitlines()
+            if line.strip().startswith("Dialogue:")
+        ]
+
+        # Replace Dialogue lines in the original file
         event_idx = 0
         with open(out_path, "w", encoding="utf-8") as f:
             for line in lines:
                 stripped = line.strip()
                 if stripped.startswith("Dialogue:"):
-                    if event_idx < len(modified_events):
-                        # Use pysubs2's official to_string method
-                        new_line = modified_events[event_idx].to_string(fields)
-                        if not new_line.endswith('\n'):
-                            new_line += '\n'
-                        f.write(new_line)
+                    if event_idx < len(new_dialogue_lines):
+                        f.write(new_dialogue_lines[event_idx] + '\n')
                         event_idx += 1
                     else:
-                        # Should not happen, but keep original line
+                        # Fallback (should not happen)
                         f.write(line)
                 else:
-                    # Copy all non-Dialogue lines verbatim (headers, comments, styles, etc.)
+                    # Preserve all other lines (comments, headers, styles, empty lines)
                     f.write(line)
     else:
-        # SRT or other: just save with pysubs2
+        # SRT output: just save with pysubs2
         new_file = pysubs2.SSAFile()
         new_file.events = modified_events
         new_file.save(out_path)
