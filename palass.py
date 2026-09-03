@@ -51,6 +51,7 @@ import math
 from typing import List, Optional, Tuple, Dict
 
 import pysubs2
+from pysubs2.ass import event_to_ass   # robust method to generate ASS lines
 
 
 # ---------- Argument parsing helpers ----------
@@ -268,7 +269,7 @@ def apply_restoration(
 
     if n == 0:
         print("No events to process.", file=sys.stderr)
-        write_output(adj_path, out_path, [], cross_style, is_ass)
+        write_output(adj_path, out_path, [], cross_style, is_ass, adj_subs)
         return
 
     modified_events = []
@@ -380,17 +381,18 @@ def apply_restoration(
         if len(warnings) > 10:
             print(f"  ... and {len(warnings)-10} more.", file=sys.stderr)
 
-    write_output(adj_path, out_path, modified_events, cross_style, is_ass)
+    write_output(adj_path, out_path, modified_events, cross_style, is_ass, adj_subs)
 
 
 # ---------- Output writer (preserves ASS comments) ----------
 def write_output(adj_path: str, out_path: str,
                  modified_events: List[pysubs2.SSAEvent],
-                 cross_style: bool, is_ass: bool) -> None:
+                 cross_style: bool, is_ass: bool,
+                 adj_subs: pysubs2.SSAFile) -> None:
     """
     Write modified subtitles.
     For ASS, read original adjusted file line by line, preserve all lines
-    except Dialogue lines (replace with modified event's to_ass()).
+    except Dialogue lines (replace with modified event using event_to_ass).
     For SRT, simply save using pysubs2.
     """
     ext = os.path.splitext(out_path)[1].lower()
@@ -401,13 +403,17 @@ def write_output(adj_path: str, out_path: str,
         except Exception as e:
             sys.exit(f"Error reading adjusted ASS file: {e}")
 
+        # Get format fields from adj_subs
+        format_fields = adj_subs.format  # list like ["Layer", "Start", "End", "Style", ...]
+
         event_idx = 0
         with open(out_path, "w", encoding="utf-8") as f:
             for line in lines:
                 stripped = line.strip()
                 if stripped.startswith("Dialogue:"):
                     if event_idx < len(modified_events):
-                        new_line = modified_events[event_idx].to_ass()
+                        # Generate ASS line using pysubs2's robust event_to_ass
+                        new_line = event_to_ass(modified_events[event_idx], format_fields)
                         if not new_line.endswith('\n'):
                             new_line += '\n'
                         f.write(new_line)
