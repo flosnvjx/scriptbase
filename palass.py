@@ -51,7 +51,6 @@ import math
 from typing import List, Optional, Tuple, Dict
 
 import pysubs2
-from pysubs2.ass import event_to_ass   # robust method to generate ASS lines
 
 
 # ---------- Argument parsing helpers ----------
@@ -392,7 +391,7 @@ def write_output(adj_path: str, out_path: str,
     """
     Write modified subtitles.
     For ASS, read original adjusted file line by line, preserve all lines
-    except Dialogue lines (replace with modified event using event_to_ass).
+    except Dialogue lines (replace with event.to_string(adj_subs.format)).
     For SRT, simply save using pysubs2.
     """
     ext = os.path.splitext(out_path)[1].lower()
@@ -403,8 +402,8 @@ def write_output(adj_path: str, out_path: str,
         except Exception as e:
             sys.exit(f"Error reading adjusted ASS file: {e}")
 
-        # Get format fields from adj_subs
-        format_fields = adj_subs.format  # list like ["Layer", "Start", "End", "Style", ...]
+        # Get the format fields
+        fields = adj_subs.format  # list of field names
 
         event_idx = 0
         with open(out_path, "w", encoding="utf-8") as f:
@@ -412,15 +411,17 @@ def write_output(adj_path: str, out_path: str,
                 stripped = line.strip()
                 if stripped.startswith("Dialogue:"):
                     if event_idx < len(modified_events):
-                        # Generate ASS line using pysubs2's robust event_to_ass
-                        new_line = event_to_ass(modified_events[event_idx], format_fields)
+                        # Use pysubs2's official to_string method
+                        new_line = modified_events[event_idx].to_string(fields)
                         if not new_line.endswith('\n'):
                             new_line += '\n'
                         f.write(new_line)
                         event_idx += 1
                     else:
+                        # Should not happen, but keep original line
                         f.write(line)
                 else:
+                    # Copy all non-Dialogue lines verbatim (headers, comments, styles, etc.)
                     f.write(line)
     else:
         # SRT or other: just save with pysubs2
