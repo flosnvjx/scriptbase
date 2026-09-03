@@ -18,8 +18,14 @@ Options:
     -o SEC   Minimum lead‑out offset. Default: -0.5 (allow end up to 0.5s earlier).
     -R RATIO Preferred proportion of total compensation assigned to lead‑in.
              Default: 0.5 (half to lead‑in, half to lead‑out).
-    -p, --prevent-overlap   Prevent subtitle overlap (force 10 ms gap).
-    -h, --help              Show this help.
+    -p [SEC] Prevent overlapping subtitles. Optional tolerance in seconds:
+             overlaps <= tolerance are ignored. Without value, tolerance = 0.
+             Default: no overlap prevention.
+    --cross-style  When -p is used, apply overlap prevention globally across
+                   all Styles (instead of per‑Style). Ignored for SRT.
+    -m SEC   Enforce a minimum display duration (seconds). Default: 0.01.
+             Must be >= 0.01. Overrides all other constraints if necessary.
+    -h, --help  Show this help.
 
 Algorithm per event:
     1. delta = duration(original) - duration(adjusted)
@@ -28,17 +34,19 @@ Algorithm per event:
     4. If lead_out was clamped, recompute lead_in = delta - clamped_lead_out
        and clamp again.
     5. new_start = adjusted_start - lead_in, new_end = adjusted_end + lead_out
-    6. Ensure duration >= 10 ms.
-    7. If --prevent-overlap, ensure new_start >= previous_end + 10 ms,
-       pushing start forward and recomputing end to preserve duration as much as
-       possible (respecting lead_out bounds).
+    6. If -p is active:
+         - For ASS, group by Style (unless --cross-style)
+         - Ensure new_start >= previous_end_of_same_group + 10ms
+         - If overlap > tolerance, move start forward and adjust end to
+           preserve duration as much as possible (within lead_out bounds)
+    7. Finally, enforce min_duration: if duration < min_duration, extend end.
 """
 
 import argparse
 import sys
 import os
 import math
-from typing import List, Optional, Tuple
+from typing import List, Optional, Tuple, Dict
 
 import pysubs2
 
@@ -66,6 +74,26 @@ def parse_finite_float(value: str) -> float:
     f = float(value)
     if not math.isfinite(f):
         raise argparse.ArgumentTypeError(f"Value must be finite, got {value}")
+    return f
+
+
+def parse_optional_float(value: str) -> Optional[float]:
+    """Parse an optional float; if empty or None, return None."""
+    if value is None:
+        return None
+    try:
+        f = float(value)
+        if f < 0:
+            raise argparse.ArgumentTypeError("Tolerance must be >= 0")
+        return f
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"Invalid tolerance value: {value}")
+
+
+def parse_min_duration(value: str) -> float:
+    f = float(value)
+    if f < 0.01:
+        raise argparse.ArgumentTypeError("Minimum duration must be at least 0.01 seconds")
     return f
 
 
@@ -113,9 +141,26 @@ def get_args():
         help="Preferred ratio for lead‑in vs lead‑out. Default: 0.5.",
     )
     parser.add_argument(
-        "-p", "--prevent-overlap",
+        "-p",
+        dest="overlap_tolerance",
+        nargs="?",
+        const=0.0,
+        default=None,
+        type=parse_optional_float,
+        help="Prevent overlap (optional tolerance in seconds). Default: no prevention.",
+    )
+    parser.add_argument(
+        "--cross-style",
+        dest="cross_style",
         action="store_true",
-        help="Prevent overlapping subtitles (enforce 10 ms gap)."
+        help="When -p is used, apply overlap prevention globally across all Styles.",
+    )
+    parser.add_argument(
+        "-m",
+        dest="min_duration",
+        type=parse_min_duration,
+        default=0.01,
+        help="Minimum display duration (seconds). Default: 0.01.",
     )
     parser.add_argument(
         "-h", "--help", action="help", help="Show this help message and exit."
@@ -191,7 +236,9 @@ def apply_restoration(
     lead_out_min: float,
     lead_out_max: Optional[float],
     ratio: float,
-    prevent_overlap: bool,
+    overlap_tolerance: Optional[float],
+    cross_style: bool,
+    min_duration: float,
 ) -> None:
     """Main processing pipeline."""
     try:
@@ -199,6 +246,9 @@ def apply_restoration(
         adj_subs = pysubs2.load(adj_path)
     except Exception as e:
         sys.exit(f"Error loading subtitle files: {e}")
+
+    # Determine if we are dealing with ASS (has style)
+    is_ass = os.path.splitext(adj_path)[1].lower() == ".ass"
 
     n = min(len(orig_subs), len(adj_subs))
     if len(orig_subs) != len(adj_subs):
@@ -210,12 +260,15 @@ def apply_restoration(
 
     if n == 0:
         print("No events to process.", file=sys.stderr)
-        # Still write output (preserving comments if ASS)
-        write_output(adj_path, out_path, [], prevent_overlap)
+        write_output(adj_path, out_path, [], cross_style, is_ass)
         return
 
     modified_events = []
-    previous_end_ms = -10  # for overlap prevention, initial sentinel
+    # For overlap prevention by style (if not cross_style and is_ass)
+    last_end_by_style: Dict[str, int] = {}
+    # Global last end (for cross_style or SRT)
+    global_previous_end = -10  # milliseconds
+
     warnings = []
 
     for i in range(n):
@@ -228,7 +281,6 @@ def apply_restoration(
 
         # Skip negligible differences (< 1 ms)
         if abs(delta) < 1.0:
-            # Still need to handle overlap for this event
             new_start = adj.start
             new_end = adj.end
         else:
@@ -244,39 +296,26 @@ def apply_restoration(
             new_start = int(round(adj.start - x * 1000.0))
             new_end = int(round(adj.end + y * 1000.0))
 
-        # ---------- Minimum duration protection ----------
-        if new_end - new_start < 10:
-            # Lengthen to 10 ms by moving start earlier (if possible) or end later.
-            # We prefer moving start earlier, but we don't know the bounds here
-            # because we already applied them. For simplicity, we center the 10 ms.
-            mid = (new_start + new_end) // 2
-            new_start = mid - 5
-            new_end = mid + 5
-            if new_start < 0:
-                new_start = 0
-                new_end = 10
+        # ---------- Overlap prevention (if enabled) ----------
+        if overlap_tolerance is not None:
+            # Determine which previous end to compare against
+            if cross_style or not is_ass:
+                prev_end = global_previous_end
+            else:
+                # Use style name; if style is empty, treat as common group?
+                style = adj.style if hasattr(adj, 'style') and adj.style else "_default_"
+                prev_end = last_end_by_style.get(style, -10)
 
-        # ---------- Overlap prevention (optional) ----------
-        if prevent_overlap:
-            gap = 10  # milliseconds
-            if new_start < previous_end_ms + gap:
-                # Push start forward to ensure gap
-                new_start = previous_end_ms + gap
-                # Recompute end to keep original duration as much as possible
-                # Desired end = new_start + dur_orig, but respect lead_out bounds.
-                # We already have a target lead_out from earlier, but we need to
-                # respect the allowed range. So we compute the required lead_out
-                # as (new_end - adj.end) and then clamp it.
-                # However, we might have already lost the original delta if we
-                # skipped due to small delta. In that case, we try to preserve
-                # the original duration of the adjusted event.
-                # Better: we use the original desired duration (dur_orig) if we
-                # have a delta, else use the adjusted duration.
+            overlap_ms = prev_end - new_start
+            if overlap_ms > 0 and overlap_ms > overlap_tolerance * 1000.0:
+                # Need to push start forward
+                new_start = prev_end + 10  # minimum gap
+                # Try to keep original duration (or adjusted if no delta)
                 if abs(delta) >= 1.0:
                     target_end = new_start + dur_orig
                 else:
-                    target_end = new_start + dur_adj   # keep adjusted duration
-                # Convert lead_out to seconds and clamp
+                    target_end = new_start + dur_adj
+                # Clamp lead_out to allowed range
                 lead_out_required = (target_end - adj.end) / 1000.0
                 if lead_out_max is None:
                     lo_max = float("inf")
@@ -284,9 +323,24 @@ def apply_restoration(
                     lo_max = lead_out_max
                 lead_out_clamped = clamp(lead_out_required, lead_out_min, lo_max)
                 new_end = int(round(adj.end + lead_out_clamped * 1000.0))
-                # Re-apply minimum duration (should already be ≥10ms)
-                if new_end - new_start < 10:
-                    new_end = new_start + 10
+
+        # ---------- Minimum duration enforcement (highest priority) ----------
+        min_dur_ms = int(round(min_duration * 1000.0))
+        if new_end - new_start < min_dur_ms:
+            # Extend end to meet minimum
+            new_end = new_start + min_dur_ms
+            # Warn if this broke lead_out bounds
+            lead_out_actual = (new_end - adj.end) / 1000.0
+            if lead_out_max is not None and lead_out_actual > lead_out_max:
+                warnings.append(
+                    f"Event {i}: min_duration forced end beyond -O limit "
+                    f"(actual lead_out={lead_out_actual:.3f}s > {lead_out_max:.3f}s)"
+                )
+            elif lead_out_actual < lead_out_min:
+                warnings.append(
+                    f"Event {i}: min_duration forced end beyond -o limit "
+                    f"(actual lead_out={lead_out_actual:.3f}s < {lead_out_min:.3f}s)"
+                )
 
         # Create new event
         new_event = adj.copy()
@@ -294,8 +348,13 @@ def apply_restoration(
         new_event.end = new_end
         modified_events.append(new_event)
 
-        # Update previous_end for next iteration
-        previous_end_ms = new_end
+        # Update previous end records
+        if overlap_tolerance is not None:
+            if cross_style or not is_ass:
+                global_previous_end = new_end
+            else:
+                style = adj.style if hasattr(adj, 'style') and adj.style else "_default_"
+                last_end_by_style[style] = new_end
 
         # Check if final duration differs significantly from original
         final_delta = (new_end - new_start) - dur_orig
@@ -312,13 +371,13 @@ def apply_restoration(
         if len(warnings) > 10:
             print(f"  ... and {len(warnings)-10} more.", file=sys.stderr)
 
-    write_output(adj_path, out_path, modified_events, prevent_overlap)
+    write_output(adj_path, out_path, modified_events, cross_style, is_ass)
 
 
 # ---------- Output writer (preserves ASS comments) ----------
 def write_output(adj_path: str, out_path: str,
                  modified_events: List[pysubs2.SSAEvent],
-                 prevent_overlap: bool) -> None:
+                 cross_style: bool, is_ass: bool) -> None:
     """
     Write modified subtitles.
     For ASS, read original adjusted file line by line, preserve all lines
@@ -367,7 +426,9 @@ def main():
         args.lead_out_min,
         args.lead_out_max,
         args.ratio,
-        args.prevent_overlap,
+        args.overlap_tolerance,
+        args.cross_style,
+        args.min_duration,
     )
 
 
