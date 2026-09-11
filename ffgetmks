@@ -30,7 +30,7 @@ Design summary
       -map 0:N ... (one per selected stream)
       -map_chapters 0
       -disposition:s:K ... (one per selected stream)
-      -c copy -n -f matroska                        (output side)
+      -c copy -f matroska                        (output side)
 
   Reconnect options (-reconnect, -reconnect_on_network_error,
   -reconnect_delay_max) are only injected when the input scheme is http or
@@ -38,8 +38,7 @@ Design summary
   sftp, or smb inputs would either error out or be silently ignored.
 
   User options are appended *after* the defaults in the corresponding
-  region, so passing ``-y`` overrides the built-in ``-n`` via ffmpeg's own
-  last-wins rule.  ffgetmks does not attempt to model ffmpeg's grammar; it
+  region. ffgetmks does not attempt to model ffmpeg's grammar; it
   relies on ffmpeg to complain about options placed in the wrong region.
 
 * ``-reconnect_streamed`` is deliberately absent.  Matroska parsing needs
@@ -55,8 +54,7 @@ Design summary
   wants to force a codec can append their own ``-c`` after the defaults and
   ffmpeg's last-wins rule will apply.  This is documented in ``--help``.
 
-* ``-n`` is pinned as the default overwrite policy.  A pre-existence check
-  on OUTPUT refuses early (before any network work) unless ``-y`` is
+* A pre-existence check on OUTPUT refuses early (before any network work) unless ``-y`` is
   supplied on the command line, so the wrapper never lets ffmpeg block on an
   interactive prompt.
 
@@ -161,17 +159,14 @@ Positional contract:
              <input-opts> -i INPUT
              -map 0:N ... -map_chapters 0
              -disposition:s:0 <flags> -disposition:s:1 <flags> ...
-             -c copy -n -f matroska
+             -c copy -f matroska
              <output-opts> OUTPUT
-
-  Because user options land after the defaults in their region, ffmpeg's
-  last-wins rule lets -y override -n.
 
 Supported protocols:
   http, https, ftp, sftp, smb (including libcurl variants), and local files
   via a bare path or a file: URL.  Local inputs are dereferenced and must
   point at a non-empty regular file or a block device (Linux).  FIFOs,
-  sockets, character devices, directories, zero-size regular files, and the
+  sockets, character devices, directories, and the
   special token '-' are rejected on both sides.
 
 Restrictions:
@@ -259,8 +254,7 @@ def _file_url_to_path(url: str) -> str:
 def _classify_local_path(path: str) -> str:
     """Classify a local path as ``missing``, ``regular`` or ``block``.
 
-    Anything else (FIFO, socket, character device, directory, or a zero-sized
-    regular file) raises FfgetmksError, because ffgetmks explicitly does not
+    Anything else (FIFO, socket, character device, or directory) raises FfgetmksError, because ffgetmks explicitly does not
     want to talk to pipes, streams, or empty inputs.
     """
     try:
@@ -272,8 +266,6 @@ def _classify_local_path(path: str) -> str:
 
     mode = st.st_mode
     if stat.S_ISREG(mode):
-        if st.st_size == 0:
-            raise FfgetmksError(f"{path!r} is a zero-sized regular file")
         return "regular"
     if stat.S_ISBLK(mode):
         return "block"
@@ -564,8 +556,7 @@ def build_ffmpeg_cmd(
             value = "<auto>"
         cmd.extend([f"-disposition:s:{out_idx}", value])
 
-    cmd.extend(["-c", "copy", "-n", "-f", "matroska"])
-    cmd.extend(["-avioflags", "buffer_size=33554432"])
+    cmd.extend(["-c", "copy", "-f", "matroska"])
     cmd.extend(parsed["post_i_args"])
     cmd.append(parsed["output_path"])
     return cmd
