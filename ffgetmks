@@ -1,0 +1,774 @@
+#!/usr/bin/env python3
+"""
+ffgetmks -- fetch a remote Matroska container and keep only its non-AV payload.
+
+ffgetmks is a thin wrapper around the ``ffmpeg`` and ``ffprobe`` command-line
+tools.  It downloads a Matroska (``.mkv``/``.mka``/``.mks``) file over a
+remote protocol, drops every video and audio stream, and writes a fresh
+Matroska container that preserves:
+
+  * subtitle, attachment, data, and unknown-type streams, in their original
+    relative order,
+  * global container metadata,
+  * chapter entries,
+  * per-stream disposition flags (default, forced, hearing_impaired, ...).
+
+Design summary
+--------------
+
+* The tool mirrors ffmpeg's own CLI surface: exactly one ``-i INPUT`` and one
+  OUTPUT positional are required, and any other flags the user provides are
+  re-emitted on the generated ffmpeg command at the position where they
+  appeared relative to ``-i``.  This preserves ffmpeg's "position matters"
+  semantics for last-wins option overriding, so a user who wants to override
+  a default simply writes the flag where ffmpeg itself would expect it.
+
+* The generated ffmpeg invocation always carries:
+
+      -hide_banner -nostdin
+      -f matroska                                   (input side)
+      -map 0:N ... (one per selected stream)
+      -map_chapters 0
+      -disposition:s:K ... (one per selected stream)
+      -c copy -n -f matroska                        (output side)
+
+  Reconnect options (-reconnect, -reconnect_on_network_error,
+  -reconnect_delay_max) are only injected when the input scheme is http or
+  https.  They are HTTP-protocol options; passing them alongside file, ftp,
+  sftp, or smb inputs would either error out or be silently ignored.
+
+  User options are appended *after* the defaults in the corresponding
+  region, so passing ``-y`` overrides the built-in ``-n`` via ffmpeg's own
+  last-wins rule.  ffgetmks does not attempt to model ffmpeg's grammar; it
+  relies on ffmpeg to complain about options placed in the wrong region.
+
+* ``-reconnect_streamed`` is deliberately absent.  Matroska parsing needs
+  random access; silently restarting a non-seekable stream would produce a
+  truncated or scrambled output.  A transport error on a non-seekable input
+  is allowed to bubble up as ffmpeg's own non-zero exit status.
+
+* ``-f matroska`` is pinned on both sides because a stripped Matroska
+  container is the only shape ffgetmks knows how to produce.  Passing ``-f``
+  from the command line is rejected outright rather than silently dropped.
+
+* ``-c copy`` is pinned as a default but not enforced: a user who really
+  wants to force a codec can append their own ``-c`` after the defaults and
+  ffmpeg's last-wins rule will apply.  This is documented in ``--help``.
+
+* ``-n`` is pinned as the default overwrite policy.  A pre-existence check
+  on OUTPUT refuses early (before any network work) unless ``-y`` is
+  supplied on the command line, so the wrapper never lets ffmpeg block on an
+  interactive prompt.
+
+* Disposition flags are copied explicitly, per output stream, with
+  ``-disposition:s:K <flags>``.  Without this, ffmpeg's auto-default rule
+  ("set 'default' on the first stream of each type when there are multiple
+  streams of that type and none is marked default") will stamp ``default``
+  onto the first attachment or subtitle stream, which does not match the
+  input.  The flags emitted for each output stream replicate the input
+  stream's disposition exactly; if the input had no flags, ``0`` is emitted
+  to clear all.
+
+  Known sharp edge: if the input has multiple streams of a type and *none*
+  is marked ``default``, ffmpeg's auto-default rule may still override the
+  explicit ``0`` because its trigger condition remains satisfied.  There is
+  no ffmpeg option that says "never auto-default this type".  When
+  ``--verify-ffprobe`` is active, a residual auto-set ``default`` is caught
+  by verification and reported as a failure (exit 65) rather than silently
+  accepted.
+
+Exit codes
+----------
+
+    0   success
+    1   wrapper validation error (bad scheme, unsupported file type,
+        missing ``-i``, ``-f`` present, no selectable streams, pre-existing
+        OUTPUT without ``-y``)
+    2   usage error (no arguments, malformed command line)
+    N   non-zero exit status propagated verbatim from ffprobe or ffmpeg
+    65  post-ffmpeg verification (``--verify-ffprobe``) reported a mismatch
+        even though ffmpeg returned 0
+
+ffmpeg's own exit codes are propagated unmodified so a consumer of ffgetmks
+can distinguish ffmpeg-level failures from wrapper-level failures.
+"""
+
+from __future__ import annotations
+
+import json
+import os
+import shlex
+import stat
+import subprocess
+import sys
+from typing import Any, Dict, List, Optional, Sequence, Tuple
+
+
+PROGRAM = "ffgetmks"
+
+EXIT_OK = 0
+EXIT_WRAPPER = 1
+EXIT_USAGE = 2
+EXIT_VERIFY_FAILED = 65  # mirrors os.EX_DATAERR on Unix
+
+# Matroska parsing on a flaky network benefits from one reconnect attempt;
+# more than one tends to mask genuine server problems, so keep it minimal.
+RECONNECT_DELAY_MAX_DEFAULT = 30
+
+# Schemes ffgetmks will accept as input or output.  The reconnect options
+# only make sense for the HTTP family, so they are gated on a narrower set.
+SUPPORTED_SCHEMES = frozenset({"http", "https", "ftp", "sftp", "smb", "file"})
+REMOTE_SCHEMES = frozenset({"http", "https", "ftp", "sftp", "smb"})
+HTTP_SCHEMES = frozenset({"http", "https"})
+
+SPECIAL_FLAGS = ("--dry-run", "--quiet", "--verbose", "--verify-ffprobe")
+
+
+HELP_TEXT = """\
+Usage:
+  ffgetmks [SPECIAL] [input-opts...] -i INPUT [output-opts...] OUTPUT
+
+With no arguments at all, this help screen is printed.
+
+SPECIAL (optional, must be the first argument, at most one):
+  --dry-run           Print the ffprobe and ffmpeg commands that would be
+                      executed, then exit without running them.  Stream
+                      indices and disposition values are shown as
+                      placeholders because they are only known after
+                      ffprobe has run.
+  --quiet             Suppress ffgetmks' own diagnostics on stderr.  Output
+                      from ffprobe and ffmpeg is still passed through.
+  --verbose           Emit extra diagnostics on stderr and, on success, print
+                      the path of the produced output file on stdout.
+  --verify-ffprobe    After ffmpeg succeeds, re-probe the produced file and
+                      compare stream types, attachment filenames, per-stream
+                      disposition flags, chapter count, and global metadata
+                      against the input.  A mismatch exits with status 65.
+
+Positional contract:
+  Exactly one -i INPUT and exactly one OUTPUT (the final argument) are
+  required.  All other tokens are forwarded to the underlying ffmpeg command
+  at the position where they appeared relative to -i:
+
+      ffgetmks <input-opts> -i INPUT <output-opts> OUTPUT
+
+  is executed as
+
+      ffmpeg -hide_banner -nostdin
+             [-reconnect 1 -reconnect_on_network_error 1
+              -reconnect_delay_max 30]   (http/https inputs only)
+             -f matroska
+             <input-opts> -i INPUT
+             -map 0:N ... -map_chapters 0
+             -disposition:s:0 <flags> -disposition:s:1 <flags> ...
+             -c copy -n -f matroska
+             <output-opts> OUTPUT
+
+  Because user options land after the defaults in their region, ffmpeg's
+  last-wins rule lets -y override -n.
+
+Supported protocols:
+  http, https, ftp, sftp, smb (including libcurl variants), and local files
+  via a bare path or a file: URL.  Local inputs are dereferenced and must
+  point at a non-empty regular file or a block device (Linux).  FIFOs,
+  sockets, character devices, directories, zero-size regular files, and the
+  special token '-' are rejected on both sides.
+
+Restrictions:
+  * -f may not appear on the command line; ffgetmks always emits -f matroska.
+  * Only a single output is supported.  ffmpeg itself accepts multiple
+    outputs; ffgetmks treats the final argument as THE output and forwards
+    everything before it as options, which will confuse ffmpeg if the user
+    supplies more than one.
+  * Auto-generated -map options are additive.  A user-supplied -map can add
+    additional streams, but cannot remove the ones ffgetmks selected, because
+    ffmpeg offers no mechanism to subtract an earlier -map.
+  * The pre-flight ffprobe may download attachment payloads in order to
+    report their metadata.  On files with large embedded fonts or cover art
+    this roughly doubles the network traffic compared to the ffmpeg pass
+    alone.  This is an accepted cost of doing stream selection up front.
+  * ffmpeg's auto-default rule can, in some configurations, stamp 'default'
+    onto the first stream of a type even when the input has no stream of
+    that type marked default.  ffgetmks emits explicit -disposition options
+    to counteract this, but there is no ffmpeg option to disable the
+    auto-default outright.  Run with --verify-ffprobe to catch the case
+    where the counteraction does not take.
+
+Exit codes:
+  0   success
+  1   wrapper validation error
+  2   usage error
+  N   non-zero status propagated verbatim from ffprobe or ffmpeg
+  65  post-ffmpeg verification failed
+
+Examples:
+  ffgetmks -i https://example.com/sample.mkv sample.mkv
+      Extract every non-video, non-audio stream from a remote Matroska file.
+
+  ffgetmks --dry-run -i https://example.com/sample.mkv sample.mkv
+      Show the exact ffprobe and ffmpeg invocations without executing them.
+
+  ffgetmks -i https://example.com/sample.mkv -y --verify-ffprobe sample.mkv
+      Overwrite sample.mkv if it exists, then cross-check the result.
+"""
+
+
+class FfgetmksError(Exception):
+    """A wrapper-level error carrying a specific process exit code."""
+
+    def __init__(self, message: str, exit_code: int = EXIT_WRAPPER) -> None:
+        super().__init__(message)
+        self.exit_code = exit_code
+
+
+class HelpRequested(Exception):
+    """Signal that the help screen should be printed instead of running."""
+
+    def __init__(self, exit_code: int, to_stderr: bool) -> None:
+        super().__init__()
+        self.exit_code = exit_code
+        self.to_stderr = to_stderr
+
+
+def _eprint(*args: Any) -> None:
+    print(*args, file=sys.stderr)
+
+
+def _get_scheme(url: str) -> Optional[str]:
+    """Return the lower-cased URL scheme, or None for a bare path."""
+    if "://" in url:
+        return url.split("://", 1)[0].lower()
+    return None
+
+
+def _file_url_to_path(url: str) -> str:
+    """Convert a file: URL into a local path.
+
+    Only the two local forms ``file:/abs/path`` and ``file:///abs/path`` are
+    accepted.  ``file://host/path`` is rejected because ffgetmks has no
+    business pretending to know what host that is.
+    """
+    rest = url[len("file:"):]
+    if rest.startswith("//"):
+        rest = rest[2:]
+        if not rest.startswith("/"):
+            raise FfgetmksError(f"non-local file: URL is not supported: {url!r}")
+    return rest
+
+
+def _classify_local_path(path: str) -> str:
+    """Classify a local path as ``missing``, ``regular`` or ``block``.
+
+    Anything else (FIFO, socket, character device, directory, or a zero-sized
+    regular file) raises FfgetmksError, because ffgetmks explicitly does not
+    want to talk to pipes, streams, or empty inputs.
+    """
+    try:
+        st = os.stat(path)
+    except FileNotFoundError:
+        return "missing"
+    except OSError as exc:
+        raise FfgetmksError(f"cannot stat {path!r}: {exc}") from exc
+
+    mode = st.st_mode
+    if stat.S_ISREG(mode):
+        if st.st_size == 0:
+            raise FfgetmksError(f"{path!r} is a zero-sized regular file")
+        return "regular"
+    if stat.S_ISBLK(mode):
+        return "block"
+    if stat.S_ISFIFO(mode):
+        raise FfgetmksError(f"{path!r} is a FIFO/pipe, which is not supported")
+    if stat.S_ISSOCK(mode):
+        raise FfgetmksError(f"{path!r} is a socket, which is not supported")
+    if stat.S_ISCHR(mode):
+        raise FfgetmksError(f"{path!r} is a character device, which is not supported")
+    if stat.S_ISDIR(mode):
+        raise FfgetmksError(f"{path!r} is a directory")
+    raise FfgetmksError(f"{path!r} is not a supported file type")
+
+
+def _local_path_of(url: str) -> Optional[str]:
+    """Return the local path designated by ``url``, or None if it is remote."""
+    scheme = _get_scheme(url)
+    if scheme is None:
+        return url
+    if scheme in REMOTE_SCHEMES:
+        return None
+    if scheme == "file":
+        return _file_url_to_path(url)
+    raise FfgetmksError(f"unsupported scheme {scheme!r} in {url!r}")
+
+
+def validate_input(url: str) -> None:
+    """Reject inputs that cannot possibly work, before touching the network."""
+    if url == "-":
+        raise FfgetmksError("'-' is not a valid INPUT (pipes are not supported)")
+    local = _local_path_of(url)
+    if local is None:
+        return
+    kind = _classify_local_path(local)
+    if kind == "missing":
+        raise FfgetmksError(f"INPUT file does not exist: {local!r}")
+
+
+def validate_output(url: str) -> Optional[str]:
+    """Validate OUTPUT and, if it resolves locally, return that local path."""
+    if url == "-":
+        raise FfgetmksError("'-' is not a valid OUTPUT (pipes are not supported)")
+    local = _local_path_of(url)
+    if local is None:
+        return None
+    # A missing output is fine; an existing one must be regular or block.
+    _classify_local_path(local)
+    return local
+
+
+def parse_argv(argv: Sequence[str]) -> Dict[str, Any]:
+    """Parse the ffgetmks command line into a structured dict.
+
+    Returned keys:
+      ``special``      -- active special flag, or None
+      ``input_url``    -- value supplied to ``-i``
+      ``output_path``  -- final positional argument
+      ``pre_i_args``   -- user arguments that appeared before ``-i``
+      ``post_i_args``  -- user arguments between INPUT and OUTPUT
+
+    The function deliberately does not try to understand ffmpeg's grammar.
+    It only enforces the structural contract that makes "pass-through at the
+    right position" meaningful: one ``-i``, one trailing OUTPUT, and no
+    conflicting ``-f``.
+
+    Known limitation: if a user argument happens to *be* the literal token
+    ``-i`` as a value (for example ``-metadata -i``), it will be miscounted
+    as an input marker.  ffmpeg's own parser has the same weakness; ffgetmks
+    simply inherits it.
+    """
+    argv = list(argv)
+
+    if not argv:
+        raise HelpRequested(exit_code=EXIT_USAGE, to_stderr=True)
+
+    # Special flags are allowed only at position 0.
+    for i, tok in enumerate(argv):
+        if tok in SPECIAL_FLAGS and i != 0:
+            raise FfgetmksError(
+                f"special flag {tok!r} must be the first argument"
+            )
+
+    special: Optional[str] = None
+    if argv[0] in SPECIAL_FLAGS:
+        special = argv[0]
+        argv = argv[1:]
+
+    if not argv:
+        raise HelpRequested(exit_code=EXIT_USAGE, to_stderr=True)
+
+    if argv == ["-h"] or argv == ["--help"]:
+        raise HelpRequested(exit_code=EXIT_OK, to_stderr=False)
+
+    i_positions = [i for i, tok in enumerate(argv) if tok == "-i"]
+    if len(i_positions) != 1:
+        raise FfgetmksError(
+            f"exactly one '-i INPUT' is required (found {len(i_positions)})"
+        )
+    i_pos = i_positions[0]
+    if i_pos + 1 >= len(argv):
+        raise FfgetmksError("'-i' must be followed by an input URL")
+
+    input_url = argv[i_pos + 1]
+
+    if len(argv) <= i_pos + 2:
+        raise FfgetmksError("OUTPUT is required after '-i INPUT'")
+
+    output_path = argv[-1]
+    if output_path.startswith("-"):
+        raise FfgetmksError(
+            f"OUTPUT must be a path, not {output_path!r} "
+            "(if the path really starts with '-', prefix it with './')"
+        )
+
+    pre_i_args = list(argv[:i_pos])
+    post_i_args = list(argv[i_pos + 2:-1])
+
+    for tok in pre_i_args + post_i_args:
+        if tok == "-f":
+            raise FfgetmksError(
+                "'-f' may not be supplied on the command line; "
+                "ffgetmks pins '-f matroska' on both sides"
+            )
+
+    return {
+        "special": special,
+        "input_url": input_url,
+        "output_path": output_path,
+        "pre_i_args": pre_i_args,
+        "post_i_args": post_i_args,
+    }
+
+
+def build_ffprobe_cmd(url: str, network: bool) -> List[str]:
+    """Build an ffprobe command for ``url``.
+
+    ``network=True`` inserts the HTTP reconnect options so a flaky server is
+    handled identically at every stage.  ``-v error`` keeps stdout clean JSON
+    while still letting genuine ffprobe errors reach the user's terminal via
+    stderr.
+    """
+    cmd: List[str] = [
+        "ffprobe",
+        "-hide_banner",
+        "-v", "error",
+        "-print_format", "json",
+        "-show_streams",
+        "-show_chapters",
+        "-show_format",
+    ]
+    if network:
+        cmd.extend([
+            "-reconnect", "1",
+            "-reconnect_on_network_error", "1",
+            "-reconnect_delay_max", str(RECONNECT_DELAY_MAX_DEFAULT),
+        ])
+    cmd.extend(["-f", "matroska", "-i", url])
+    return cmd
+
+
+def run_ffprobe(cmd: List[str]) -> Dict[str, Any]:
+    """Run ffprobe and parse its JSON output.
+
+    stdout is captured for parsing; stderr is inherited so the user sees any
+    diagnostics directly.  A non-zero exit from ffprobe is surfaced as an
+    FfgetmksError whose exit_code equals ffprobe's own status, so the top
+    level can propagate it verbatim.
+    """
+    try:
+        proc = subprocess.run(cmd, stdout=subprocess.PIPE, check=False)
+    except FileNotFoundError as exc:
+        raise FfgetmksError(f"{cmd[0]} not found in PATH") from exc
+
+    if proc.returncode != 0:
+        raise FfgetmksError(
+            f"{cmd[0]} exited with status {proc.returncode}",
+            exit_code=proc.returncode,
+        )
+
+    try:
+        return json.loads(proc.stdout.decode("utf-8", errors="replace"))
+    except json.JSONDecodeError as exc:
+        raise FfgetmksError(f"{cmd[0]} produced invalid JSON: {exc}") from exc
+
+
+def select_stream_indices(probe: Dict[str, Any]) -> List[int]:
+    """Return the sorted indices of non-video, non-audio streams.
+
+    Streams whose ``codec_type`` is missing or unrecognised are preserved, in
+    keeping with the rule "keep everything that is not explicitly video or
+    audio".  Sorting matters because ffmpeg emits output streams in the order
+    the -map options are given; sorting by input index reproduces the input's
+    relative ordering of the selected streams.
+    """
+    indices: List[int] = []
+    for stream in probe.get("streams") or []:
+        codec_type = stream.get("codec_type")
+        if codec_type in ("video", "audio"):
+            continue
+        idx = stream.get("index")
+        if isinstance(idx, int):
+            indices.append(idx)
+    indices.sort()
+    return indices
+
+
+def disposition_flags(stream: Optional[Dict[str, Any]]) -> List[str]:
+    """Return the sorted list of disposition flag names set on ``stream``.
+
+    ffprobe reports dispositions as a dict mapping flag name to 0/1; only the
+    keys with value 1 are meaningful.  Sorting makes the emitted option value
+    deterministic across runs.
+    """
+    if not stream:
+        return []
+    disp = stream.get("disposition") or {}
+    if not isinstance(disp, dict):
+        return []
+    return sorted(k for k, v in disp.items() if v)
+
+
+def disposition_value(flags: Sequence[str]) -> str:
+    """Render a disposition flag list as the value ffmpeg's -disposition wants.
+
+    Empty list means "no dispositions"; ffmpeg's syntax for that is the
+    literal token ``0``, which clears all flags on the stream.
+    """
+    return "+".join(flags) if flags else "0"
+
+
+def build_ffmpeg_cmd(
+    parsed: Dict[str, Any],
+    stream_indices: Sequence[Any],
+    input_probe: Optional[Dict[str, Any]] = None,
+) -> List[str]:
+    """Assemble the ffmpeg command executed by ffgetmks.
+
+    Layout: fixed defaults first, user options second, in each region.  That
+    ordering is what makes last-wins overriding work without ffgetmks having
+    to understand ffmpeg's option grammar.
+
+    Reconnect options are only emitted for HTTP/HTTPS inputs; other schemes
+    do not know them.
+
+    Per-stream ``-disposition`` is emitted for every mapped output stream,
+    replicating the input stream's disposition flags.  Without this, ffmpeg's
+    auto-default rule would stamp ``default`` onto the first stream of each
+    type, which does not match inputs that have no default of that type.
+
+    In dry-run mode, ``stream_indices`` and ``input_probe`` are absent; a
+    single ``<auto>`` placeholder is emitted for each per-stream option.
+    """
+    input_scheme = _get_scheme(parsed["input_url"])
+    input_is_http = input_scheme in HTTP_SCHEMES
+
+    cmd: List[str] = [
+        "ffmpeg",
+        "-hide_banner",
+        "-nostdin",
+    ]
+    # ---- input defaults ----
+    if input_is_http:
+        cmd.extend([
+            "-reconnect", "1",
+            "-reconnect_on_network_error", "1",
+            "-reconnect_delay_max", str(RECONNECT_DELAY_MAX_DEFAULT),
+        ])
+    cmd.extend(["-f", "matroska"])
+    cmd.extend(parsed["pre_i_args"])
+    cmd.extend(["-i", parsed["input_url"]])
+
+    # ---- output defaults ----
+    streams_by_idx: Dict[int, Dict[str, Any]] = {}
+    if input_probe is not None:
+        for s in input_probe.get("streams") or []:
+            idx = s.get("index")
+            if isinstance(idx, int):
+                streams_by_idx[idx] = s
+
+    for idx in stream_indices:
+        cmd.extend(["-map", f"0:{idx}"])
+    cmd.extend(["-map_chapters", "0"])
+
+    for out_idx, in_idx in enumerate(stream_indices):
+        if isinstance(in_idx, int) and in_idx in streams_by_idx:
+            value = disposition_value(disposition_flags(streams_by_idx[in_idx]))
+        else:
+            value = "<auto>"
+        cmd.extend([f"-disposition:s:{out_idx}", value])
+
+    cmd.extend(["-c", "copy", "-n", "-f", "matroska"])
+    cmd.extend(parsed["post_i_args"])
+    cmd.append(parsed["output_path"])
+    return cmd
+
+
+def verify_output(
+    input_probe: Dict[str, Any],
+    output_probe: Dict[str, Any],
+    stream_indices: Sequence[int],
+) -> List[str]:
+    """Compare input and output ffprobe results.
+
+    Returns a list of human-readable mismatches; an empty list means the
+    verification passed.  Checked properties:
+
+      * stream set, keyed by (codec_type, codec_name), with attachment
+        streams keyed by filename instead of codec_name;
+      * per-output-stream disposition flags, compared positionally in the
+        order the streams were mapped;
+      * chapter count;
+      * presence of every global metadata key from the input.
+
+    The positional disposition comparison assumes ffgetmks's own mapping:
+    output stream K corresponds to the K-th element of ``stream_indices``.
+    That assumption holds only because ffgetmks controls the -map options;
+    a user-supplied extra -map would break it, but in that case verification
+    is advisory rather than authoritative.
+    """
+    mismatches: List[str] = []
+
+    in_streams_by_idx: Dict[int, Dict[str, Any]] = {}
+    for s in input_probe.get("streams") or []:
+        idx = s.get("index")
+        if isinstance(idx, int):
+            in_streams_by_idx[idx] = s
+
+    in_selected = [in_streams_by_idx[i] for i in stream_indices if i in in_streams_by_idx]
+    out_streams = list(output_probe.get("streams") or [])
+
+    def key(stream: Dict[str, Any]) -> Tuple[str, str]:
+        ct = stream.get("codec_type") or ""
+        if ct == "attachment":
+            return (ct, (stream.get("tags") or {}).get("filename") or "")
+        return (ct, stream.get("codec_name") or "")
+
+    in_keys = sorted(key(s) for s in in_selected)
+    out_keys = sorted(key(s) for s in out_streams)
+    if in_keys != out_keys:
+        mismatches.append(f"stream set differs: input={in_keys} output={out_keys}")
+
+    for k in range(min(len(in_selected), len(out_streams))):
+        in_flags = set(disposition_flags(in_selected[k]))
+        out_flags = set(disposition_flags(out_streams[k]))
+        if in_flags != out_flags:
+            mismatches.append(
+                f"output stream {k}: disposition differs: "
+                f"input={sorted(in_flags)} output={sorted(out_flags)}"
+            )
+
+    in_chapters = len(input_probe.get("chapters") or [])
+    out_chapters = len(output_probe.get("chapters") or [])
+    if in_chapters != out_chapters:
+        mismatches.append(
+            f"chapter count differs: input={in_chapters} output={out_chapters}"
+        )
+
+    in_tags = (input_probe.get("format") or {}).get("tags") or {}
+    out_tags = (output_probe.get("format") or {}).get("tags") or {}
+    for k in in_tags:
+        if k not in out_tags:
+            mismatches.append(f"global metadata key {k!r} missing from output")
+
+    return mismatches
+
+
+def _print_help(to_stderr: bool) -> None:
+    stream = sys.stderr if to_stderr else sys.stdout
+    print(HELP_TEXT, file=stream)
+
+
+def main(argv: Optional[Sequence[str]] = None) -> int:
+    """Entry point.  Returns a process exit code rather than calling exit()."""
+    if argv is None:
+        argv = sys.argv[1:]
+
+    try:
+        parsed = parse_argv(argv)
+    except HelpRequested as help_req:
+        _print_help(help_req.to_stderr)
+        return help_req.exit_code
+    except FfgetmksError as exc:
+        _eprint(f"{PROGRAM}: error: {exc}")
+        return exc.exit_code
+
+    special = parsed["special"]
+    dry_run = special == "--dry-run"
+    quiet = special == "--quiet"
+    verbose = special == "--verbose"
+    verify = special == "--verify-ffprobe"
+
+    def err(message: str) -> None:
+        """Emit a wrapper diagnostic unless --quiet is active."""
+        if not quiet:
+            _eprint(f"{PROGRAM}: {message}")
+
+    # ---- input / output validation (cheap, no network) ----
+    try:
+        validate_input(parsed["input_url"])
+    except FfgetmksError as exc:
+        err(f"error: {exc}")
+        return exc.exit_code
+
+    try:
+        local_output = validate_output(parsed["output_path"])
+    except FfgetmksError as exc:
+        err(f"error: {exc}")
+        return exc.exit_code
+
+    input_scheme = _get_scheme(parsed["input_url"])
+    input_is_http = input_scheme in HTTP_SCHEMES
+
+    # ---- dry-run: print planned commands and stop ----
+    if dry_run:
+        ffprobe_cmd = build_ffprobe_cmd(parsed["input_url"], network=input_is_http)
+        ffmpeg_cmd = build_ffmpeg_cmd(parsed, ["<auto>"], input_probe=None)
+        print("# ffprobe:")
+        print(shlex.join(ffprobe_cmd))
+        print("# ffmpeg (stream indices and dispositions filled in after ffprobe):")
+        print(shlex.join(ffmpeg_cmd))
+        return EXIT_OK
+
+    # ---- pre-existence check: never let ffmpeg block on a prompt ----
+    user_args = parsed["pre_i_args"] + parsed["post_i_args"]
+    if (
+        local_output is not None
+        and os.path.exists(local_output)
+        and "-y" not in user_args
+    ):
+        err(
+            f"error: OUTPUT {local_output!r} exists; "
+            "pass '-y' to overwrite or '-n' to make ffmpeg refuse"
+        )
+        return EXIT_WRAPPER
+
+    # ---- pre-flight ffprobe (drives stream selection and dispositions) ----
+    try:
+        input_probe = run_ffprobe(
+            build_ffprobe_cmd(parsed["input_url"], network=input_is_http)
+        )
+    except FfgetmksError as exc:
+        err(f"error: {exc}")
+        return exc.exit_code
+
+    stream_indices = select_stream_indices(input_probe)
+    if not stream_indices:
+        err("error: input contains no non-video, non-audio streams")
+        return EXIT_WRAPPER
+
+    if verbose:
+        _eprint(
+            f"{PROGRAM}: selected stream indices: "
+            f"{', '.join(str(i) for i in stream_indices)}"
+        )
+
+    ffmpeg_cmd = build_ffmpeg_cmd(parsed, stream_indices, input_probe=input_probe)
+
+    if verbose:
+        _eprint(f"{PROGRAM}: exec: {shlex.join(ffmpeg_cmd)}")
+
+    # ---- ffmpeg ----
+    try:
+        proc = subprocess.run(ffmpeg_cmd, check=False)
+    except FileNotFoundError:
+        err("error: ffmpeg not found in PATH")
+        return EXIT_WRAPPER
+
+    if proc.returncode != 0:
+        # Propagate ffmpeg's exit status verbatim; the user's terminal has
+        # already seen ffmpeg's own stderr diagnostics.
+        return proc.returncode
+
+    # ---- optional post-ffmpeg verification ----
+    if verify:
+        output_scheme = _get_scheme(parsed["output_path"])
+        output_is_http = output_scheme in HTTP_SCHEMES
+        try:
+            output_probe = run_ffprobe(
+                build_ffprobe_cmd(parsed["output_path"], network=output_is_http)
+            )
+        except FfgetmksError as exc:
+            err(f"error: verification ffprobe failed: {exc}")
+            return EXIT_VERIFY_FAILED
+
+        mismatches = verify_output(input_probe, output_probe, stream_indices)
+        if mismatches:
+            for m in mismatches:
+                err(f"verify: {m}")
+            return EXIT_VERIFY_FAILED
+
+    if verbose:
+        print(parsed["output_path"])
+
+    return EXIT_OK
+
+
+if __name__ == "__main__":
+    sys.exit(main())
