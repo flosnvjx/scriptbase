@@ -565,6 +565,7 @@ def build_ffmpeg_cmd(
         cmd.extend([f"-disposition:s:{out_idx}", value])
 
     cmd.extend(["-c", "copy", "-n", "-f", "matroska"])
+    cmd.extend(["-avioflags", "buffer_size=33554432"])
     cmd.extend(parsed["post_i_args"])
     cmd.append(parsed["output_path"])
     return cmd
