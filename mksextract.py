@@ -7,7 +7,7 @@ Synopsis:
                                   [--overwrite] [--continue-on-error]
                                   [--subdir-regex PATTERN]
                                   [--subdir-replace REPL]
-                                  [--attachments-subdir NAME]
+                                  [--attachments-subdir NAME_OR_PATH]
                                   [--debug] [--]
 
 INPUT may be one or more MKV files and/or directories (searched recursively).
@@ -19,38 +19,38 @@ End-of-options marker:
 Output folder layout:
     Each MKV produces a folder under OUTDIR whose name is derived from the
     MKV stem. By default the stem is used verbatim; --subdir-regex and
-    --subdir-replace apply re.sub() to it. Examples:
+    --subdir-replace apply re.sub() to it:
 
-        # default: OUTDIR/Movie/
-        # strip a "Show - S01E01 - " prefix:
+        # strip a "Show - S01E01 - " prefix
         --subdir-regex '^Show - ' --subdir-replace ''
-        # rename everything into a subfolder:
-        --subdir-regex '.*' --subdir-replace 'movies/\\g<0>'
 
-    Subtitles are written directly into that folder. Attachments go into
-    a subfolder named by --attachments-subdir (default: "attachments");
-    pass "" to place them alongside the subtitles.
+        # regroup into a per-show subfolder (\\g<0> = whole match)
+        --subdir-regex '^(.*?) - S\\d+E\\d+.*$' --subdir-replace '\\g<1>'
+
+    Subtitles are written directly into that folder.
+
+    Attachments go into --attachments-subdir, interpreted as follows:
+
+        ""            flat, alongside subtitles
+        relative      subfolder under the per-MKV folder
+        absolute      honored as-is (shared across all MKVs)
+
+    Relative values have '.', '..', and empty components stripped so a
+    subfolder cannot escape OUTDIR.
 
 Extraction strategy:
     For each MKV, this script invokes mkvextract ONCE with both the
     'tracks' and 'attachments' modes combined, so the container is read
     only a single pass. mkvextract natively supports mode chaining:
 
-        mkvextract source.mkv tracks TID1:out1 TID2:out2 \
+        mkvextract source.mkv tracks TID1:out1 TID2:out2 \\
                                attachments AID1:outA AID2:outB
+
+    Attachment specs are always AID:path, never path:AID.
 
 Debug:
     --debug prints the reconstructed argv, the parsed argument namespace,
     and every external command run (with its working directory) to stderr.
-
-Output layout:
-    OUTDIR/Movie/
-        2(Full Subs).eng[en].ass
-        3.Signs.jpn[ja].srt
-        4.und.sup
-        attachments/
-            font.ttf
-            cover.jpg
 
 Subtitle filename format:
     trackid(trackname).LegacyLanguageTag[ietfLanguageTag].extension
@@ -223,8 +223,8 @@ def sanitize_attachment_name(name: str) -> str:
 def safe_relpath(s: str) -> str:
     """Normalize a user-derived relative path.
 
-    Drops empty, '.', and '..' components so a regex replacement cannot
-    escape OUTDIR. Returns '' if nothing usable remains.
+    Drops empty, '.', and '..' components so a regex replacement or a
+    subfolder name cannot escape OUTDIR. Returns '' if nothing remains.
     """
     parts = [p for p in re.split(r"[\\/]+", s) if p and p not in (".", "..")]
     return "/".join(parts)
@@ -245,6 +245,30 @@ def output_subdir(mkv: Path, pattern: str | None, replacement: str) -> str:
             f"--subdir-regex {pattern!r} produced an empty folder for {mkv}"
         )
     return result
+
+
+def resolve_attachments_dir(value: str, dest: Path) -> tuple[Path, str]:
+    """Resolve --attachments-subdir against the per-MKV folder.
+
+    Returns (absolute_dir, spec_prefix).
+
+      ""            -> (dest, "")             flat, alongside subtitles
+      absolute path -> (normpath(value), normpath(value))
+                                             honored as-is
+      relative path -> (dest/safe, safe)      '.', '..', '' stripped
+    """
+    if value == "":
+        return dest, ""
+
+    p = Path(value)
+    if p.is_absolute():
+        normalized = os.path.normpath(value)
+        return Path(normalized), normalized
+
+    safe = safe_relpath(value)
+    if not safe:
+        return dest, ""
+    return dest / safe, safe
 
 
 def subtitle_extension(track: dict) -> str:
@@ -281,7 +305,6 @@ def subtitle_filename(track: dict) -> str:
 # --------------------------------------------------------------------------- #
 
 def run_mkvextract(args: list[str], cwd: Path) -> None:
-    """Run one mkvextract invocation. Raise ExtractError on any failure."""
     debug_run(args, cwd=cwd)
     try:
         proc = subprocess.run(args, cwd=cwd, text=True, capture_output=True)
@@ -298,14 +321,17 @@ def run_mkvextract(args: list[str], cwd: Path) -> None:
 def plan_all(
     info: dict,
     dest: Path,
-    att_name: str,
+    att_dir: Path,
+    att_prefix: str,
     overwrite: bool,
 ):
     """Return planning tuples.
 
-    sub_pairs are 'TID:filename' relative to dest.
-    att_pairs are 'AID:relpath' relative to dest, where relpath is
-    att_name + '/' + filename (or just filename when att_name is empty).
+    sub_pairs entries are 'TID:filename' — the filename is relative to dest.
+    att_pairs entries are 'AID:path' where path is one of:
+      - bare filename              (flat: att_prefix == "")
+      - relative path under dest   (att_prefix is relative)
+      - absolute path              (att_prefix is absolute)
     """
     sub_pairs: list[str] = []
     sub_targets: list[Path] = []
@@ -333,13 +359,16 @@ def plan_all(
             or f"attachment_{att_id}"
         )
         filename = sanitize_attachment_name(original)
-        relpath = f"{att_name}/{filename}" if att_name else filename
-        target = dest / relpath
+
+        # AID:path — never path:AID.
+        spec_path = f"{att_prefix}/{filename}" if att_prefix else filename
+        target = att_dir / filename
+
         if target.exists() and not overwrite:
             print(f"  skip existing attachment: {target}")
             continue
-        # NOTE: order is AID:path, never path:AID.
-        att_pairs.append(f"{att_id}:{relpath}")
+
+        att_pairs.append(f"{att_id}:{spec_path}")
         att_targets.append(target)
 
     return sub_pairs, sub_targets, att_pairs, att_targets
@@ -382,15 +411,21 @@ def process(
     dest.mkdir(parents=True, exist_ok=True)
     debug(f"output folder: {dest.resolve()}")
 
+    att_dir, att_prefix = resolve_attachments_dir(attachments_subdir, dest)
+
     info = identify(mkv)
 
     sub_pairs, sub_targets, att_pairs, att_targets = plan_all(
-        info, dest, attachments_subdir, overwrite,
+        info, dest, att_dir, att_prefix, overwrite,
     )
 
     if not sub_pairs and not att_pairs:
         debug("nothing to extract")
         return 0
+
+    if att_pairs:
+        att_dir.mkdir(parents=True, exist_ok=True)
+        debug(f"attachments folder: {att_dir.resolve()}")
 
     ensure_parents(sub_targets)
     ensure_parents(att_targets)
@@ -441,7 +476,8 @@ def _process_per_item(
     """Fallback when combined argv is too large, or to isolate a failure.
 
     Runs each pair as its own mkvextract invocation from dest, so the
-    relative paths inside the pairs resolve identically.
+    relative paths inside the pairs resolve identically to the combined
+    call. Absolute attachment paths in pairs remain absolute either way.
     """
     count = 0
 
@@ -521,10 +557,11 @@ def main() -> int:
              "in the shell to keep the matched text)",
     )
     ap.add_argument(
-        "--attachments-subdir", default="attachments", metavar="NAME",
-        help="Subfolder (relative to the per-MKV folder) for attachments. "
-             "Pass '' to place attachments alongside subtitles "
-             "(default: %(default)s)",
+        "--attachments-subdir", default="attachments", metavar="NAME_OR_PATH",
+        help="Where to write attachments, relative to the per-MKV folder "
+             "(default: %(default)s). Pass '' to place them alongside "
+             "subtitles. An absolute path is honored as-is; relative paths "
+             "have '.', '..', and empty components stripped for safety.",
     )
     ap.add_argument(
         "--debug", action="store_true",
@@ -550,14 +587,13 @@ def main() -> int:
     out_root.mkdir(parents=True, exist_ok=True)
     debug(f"output root: {out_root.resolve()}")
 
-    att_subdir = safe_relpath(args.attachments_subdir)
-
     total = 0
     for mkv in mkv_files:
         try:
             total += process(
                 mkv, out_root, args.overwrite, args.continue_on_error,
-                args.subdir_regex, args.subdir_replace, att_subdir,
+                args.subdir_regex, args.subdir_replace,
+                args.attachments_subdir,
             )
         except ExtractError as e:
             print(f"  error: {e}", file=sys.stderr)
