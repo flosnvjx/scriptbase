@@ -6,8 +6,9 @@ restore_all_fonts.py
   - Style 字体名
   - Dialogue 行内 {\fnXXX} / {\fn@XXX} 字体名
 并删除 ; Font Subset 注释行
+
 Usage:
-    python restore_all_fonts.py <dir> [--no-backup]
+    python restore_all_fonts.py <dir_or_file> [<dir_or_file> ...] [--no-backup]
 """
 
 import argparse
@@ -18,6 +19,7 @@ SUBSET_RE   = re.compile(r'^; Font Subset:\s*([A-Z0-9]+)\s*-\s*(.+)$', re.I)
 STYLE_RE    = re.compile(r'^(Style:\s*)(.+)$', re.I)
 DIALOGUE_RE = re.compile(r'^(Dialogue:\s*)(.+)$', re.I)
 FN_TAG_RE   = re.compile(r'(\\fn@?)([A-Z0-9]+)(?=[\\}])', re.I)  # 支持 @ 前缀
+
 
 def build_map_and_filter(lines):
     """返回 (mapping, 删除 Subset 行后的新行列表)"""
@@ -32,12 +34,14 @@ def build_map_and_filter(lines):
             new_lines.append(ln)
     return mapping, new_lines
 
+
 def replace_fn_tags(text, mapping):
     """替换 {\fn[@]子集ID} -> {\fn真实名}"""
     def _repl(m):
         prefix, sid = m.groups()
         return prefix + mapping.get(sid, sid)
     return FN_TAG_RE.sub(_repl, text)
+
 
 def process_file(path, backup=True):
     with open(path, encoding='utf-8-sig') as f:
@@ -97,20 +101,63 @@ def process_file(path, backup=True):
     print(f'[OK] 已处理: {path}')
     return True
 
+
+def collect_files(targets):
+    """收集所有需要处理的 .ass/.ssa 文件，支持目录递归和直接文件。"""
+    files = []
+    seen = set()
+
+    for target in targets:
+        p = Path(target)
+
+        if p.is_dir():
+            candidates = [
+                x for x in p.rglob('*')
+                if x.is_file() and x.suffix.lower() in ('.ass', '.ssa')
+            ]
+        elif p.is_file():
+            if p.suffix.lower() in ('.ass', '.ssa'):
+                candidates = [p]
+            else:
+                print(f'[SKIP] 非 ASS/SSA 文件: {p}')
+                continue
+        else:
+            print(f'[SKIP] 路径不存在: {p}')
+            continue
+
+        for fp in candidates:
+            try:
+                key = fp.resolve()
+            except OSError:
+                key = fp
+
+            if key in seen:
+                continue
+            seen.add(key)
+            files.append(fp)
+
+    files.sort(key=lambda x: str(x).lower())
+    return files
+
+
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('target', help='目标目录（递归）')
+    parser.add_argument(
+        'targets',
+        nargs='+',
+        help='目标目录或 ASS/SSA 文件（可多个，目录会递归）'
+    )
     parser.add_argument('--no-backup', action='store_true', help='不生成 .bak')
     args = parser.parse_args()
 
-    root = Path(args.target)
-    files = list(root.rglob('*.ass')) + list(root.rglob('*.ssa'))
+    files = collect_files(args.targets)
     if not files:
         print('未找到 .ass/.ssa 文件')
         return
 
     for fp in files:
         process_file(fp, backup=not args.no_backup)
+
 
 if __name__ == '__main__':
     main()
