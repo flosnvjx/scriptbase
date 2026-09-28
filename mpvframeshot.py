@@ -24,6 +24,21 @@ FRAME SPEC
     frame-number items are rejected; timestamp items remain valid and
     require no ffprobe call at all.
 
+INPUT
+    Each videofile argument is either a local filesystem path or a
+    protocol URI supported by both mpv and ffmpeg, such as:
+
+        http://  https://  rtmp://  rtmps://  rtsp://  rtsps://
+        ftp://   ftps://   sftp://  smb://    file://
+
+    URI detection is heuristic (presence of '://'); schemes not listed
+    above but accepted by both backends will also work. For URIs, the
+    local-file existence check is skipped.
+
+    In OUTPUT PATTERN, {stem} and {ext} for a URI are derived from the
+    last path component of the URI, after percent-decoding. If the URI
+    has no filename component, {stem} is "input".
+
 OUTPUT PATTERN
     Python str.format substitution over these keys:
 
@@ -48,6 +63,9 @@ EXAMPLES
     # two files; second file overrides verbosity and pattern
     mpvframeshot.py -s 100,200 -v video1.mkv \\
                     -s 00:05:00 -vv -o '/tmp/{stem}_{index}.png' video2.mkv
+
+    # remote input over HTTP
+    mpvframeshot.py -s 1000 https://example.com/video.mkv
 
     # dry run
     mpvframeshot.py -n -s 500 video.mkv
@@ -87,6 +105,7 @@ from dataclasses import dataclass, field
 from fractions import Fraction
 from pathlib import Path
 from typing import List, Optional, Tuple
+from urllib.parse import unquote, urlparse
 
 HELP = __doc__
 
@@ -99,6 +118,17 @@ def die(msg: str) -> "None":
     """Print an error to stderr and terminate with exit code 1."""
     sys.stderr.write(f"error: {msg}\n")
     sys.exit(1)
+
+
+def is_url(path: str) -> bool:
+    """
+    True if path looks like a protocol URI rather than a local filesystem
+    path. Heuristic: presence of '://'. This intentionally does not
+    enumerate schemes, since mpv and ffmpeg between them accept far more
+    than any hardcoded list, and the fallback on an unrecognized scheme is
+    a clear error from the underlying tool.
+    """
+    return "://" in path
 
 
 _TS_RE = re.compile(r"^(?:(\d+):)?(?:(\d+):)?(\d+)(?:\.(\d+))?$")
@@ -211,13 +241,27 @@ def render_output_path(pattern: str, job: FileJob, item: FrameItem,
     """
     Python str.format substitution; supported keys are documented in the
     file-scope docstring. Braces are escaped by doubling, per str.format.
+
+    For URL inputs, the stem/ext come from the last path component of the
+    URI, after percent-decoding. If no filename component exists, the stem
+    falls back to "input".
     """
-    p = Path(job.path)
+    if is_url(job.path):
+        parsed = urlparse(job.path)
+        path_part = unquote(parsed.path) or ""
+        p = Path(path_part)
+        stem = p.stem or "input"
+        ext = p.suffix.lstrip(".")
+    else:
+        p = Path(job.path)
+        stem = p.stem
+        ext = p.suffix.lstrip(".")
+
     frame_val = str(item.frame) if item.frame is not None else ""
     time_val = f"{float(item.seconds):.3f}" if item.seconds is not None else ""
     try:
         return pattern.format(
-            stem=p.stem, ext=p.suffix.lstrip("."), index=index,
+            stem=stem, ext=ext, index=index,
             frame=frame_val, time=time_val, n=n,
         )
     except KeyError as e:
@@ -668,7 +712,7 @@ def main(argv: List[str]) -> int:
         if not job.frames_spec:
             sys.stderr.write(f"error: no -s specified for {job.path}\n")
             return 1
-        if not os.path.isfile(job.path):
+        if not is_url(job.path) and not os.path.isfile(job.path):
             sys.stderr.write(f"error: file not found: {job.path}\n")
             return 1
         if not job.output_pattern:
