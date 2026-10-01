@@ -8,6 +8,7 @@ SYNOPSIS
 
     -s SPEC       comma-separated frame spec (REQUIRED per file)
     -o PATTERN    screenshot output path pattern
+    -t SECONDS    timeout for network-sensitive waits (default: 15)
     -v            increase verbosity (repeatable; global or per-file)
     -n, --dry-run print mpv invocations without executing
     -h, --help    show this help
@@ -39,6 +40,10 @@ INPUT
     last path component of the URI, after percent-decoding. If the URI
     has no filename component, {stem} is "input".
 
+    Remote inputs may require a larger timeout. -t sets the maximum wait
+    for file load, seek settle, screenshot write, and ffprobe; local IPC
+    operations keep a short floor so a hung mpv is still reported quickly.
+
 OUTPUT PATTERN
     Python str.format substitution over these keys:
 
@@ -67,6 +72,9 @@ EXAMPLES
     # remote input over HTTP
     mpvframeshot.py -s 1000 https://example.com/video.mkv
 
+    # slow remote origin
+    mpvframeshot.py -t 120 -s 500 https://archive.example/old.mkv
+
     # dry run
     mpvframeshot.py -n -s 500 video.mkv
 
@@ -81,8 +89,8 @@ ARCHITECTURE
     2. IPC (used when a file has >1 frame, or >1 file is given)
        One mpv in idle mode with a Unix domain socket located directly
        under $TMPDIR (or /tmp). For each frame: loadfile, seek absolute+exact,
-       wait for playback-restart, screenshot-to-file. Any IPC reply whose
-       "error" field is not "success" aborts the run.
+       wait for playback-restart and core-idle, screenshot-to-file. Any IPC
+       reply whose "error" field is not "success" aborts the run.
 
     Engine selection is fixed before any process starts:
         needs_ipc = (len(files) > 1) or any(len(f.frames) > 1)
@@ -109,6 +117,9 @@ from urllib.parse import unquote, urlparse
 
 HELP = __doc__
 
+DEFAULT_TIMEOUT = 15.0
+LOCAL_IPC_TIMEOUT = 10.0
+
 
 class UsageError(Exception):
     """Raised for malformed command line. Printed without traceback."""
@@ -129,6 +140,20 @@ def is_url(path: str) -> bool:
     a clear error from the underlying tool.
     """
     return "://" in path
+
+
+def parse_timeout(s: str) -> float:
+    """
+    Parse a positive float number of seconds. Raises UsageError on
+    non-numeric input or a non-positive value.
+    """
+    try:
+        v = float(s)
+    except ValueError:
+        raise UsageError(f"invalid timeout: {s!r}")
+    if v <= 0:
+        raise UsageError(f"timeout must be positive: {s!r}")
+    return v
 
 
 _TS_RE = re.compile(r"^(?:(\d+):)?(?:(\d+):)?(\d+)(?:\.(\d+))?$")
@@ -190,6 +215,7 @@ class FileJob:
     path: str
     frames_spec: Optional[str] = None
     output_pattern: Optional[str] = None
+    timeout: Optional[float] = None
     verbosity: int = 0
     fps: Optional[Fraction] = None
     is_vfr: bool = False
@@ -205,13 +231,16 @@ def parse_rational(s: str) -> Fraction:
     return Fraction(int(s))
 
 
-def probe_fps(path: str) -> Tuple[Fraction, Fraction, bool]:
+def probe_fps(path: str, timeout: float) -> Tuple[Fraction, Fraction, bool]:
     """
     Run ffprobe and return (r_frame_rate, avg_frame_rate, is_vfr).
 
     The VFR heuristic compares r_frame_rate (FFmpeg's ideal base rate) to
     avg_frame_rate (total frames / duration). They can coincide on some
     VFR content, but this is the standard cheap check.
+
+    timeout bounds the ffprobe subprocess; a stalled remote connection
+    raises RuntimeError rather than blocking forever.
     """
     cmd = [
         "ffprobe", "-v", "error",
@@ -221,9 +250,13 @@ def probe_fps(path: str) -> Tuple[Fraction, Fraction, bool]:
         path,
     ]
     try:
-        out = subprocess.run(cmd, capture_output=True, check=True, text=True)
+        out = subprocess.run(cmd, capture_output=True, check=True,
+                             text=True, timeout=timeout)
     except FileNotFoundError:
         raise RuntimeError("ffprobe not found in PATH")
+    except subprocess.TimeoutExpired:
+        raise RuntimeError(
+            f"ffprobe timed out after {timeout:.1f}s for {path}")
     except subprocess.CalledProcessError as e:
         raise RuntimeError(f"ffprobe failed for {path}: {e.stderr.strip()}")
     data = json.loads(out.stdout)
@@ -279,15 +312,18 @@ def run_direct(job: FileJob, item: FrameItem, out_path: str,
     """
     Attempt single-frame extraction via mpv --vo=image --o=PATH.
 
-    Returns True on success. Returns False if mpv exited non-zero or
-    produced no file at out_path; the caller then falls back to the IPC
-    engine for the same frame. This lets older mpv builds that do not
-    support --o= still work, without paying the IPC cost when they aren't
-    needed.
+    Returns True on success. Returns False if mpv exited non-zero, timed
+    out, or produced no file at out_path; the caller then falls back to
+    the IPC engine for the same frame. This lets older mpv builds that do
+    not support --o= still work, without paying the IPC cost when they
+    aren't needed.
 
     @note The pre-existing file at out_path (if any) is unlinked before
     invocation and again on failure, so a stale file can never be mistaken
     for a fresh capture.
+
+    @note timeout is job.timeout, propagated from -t. It bounds the entire
+    mpv subprocess, which for a remote input may include a slow fetch.
     """
     out_ext = (Path(out_path).suffix.lower().lstrip(".") or "png")
     img_format = "jpg" if out_ext == "jpeg" else (
@@ -314,8 +350,23 @@ def run_direct(job: FileJob, item: FrameItem, out_path: str,
     except FileNotFoundError:
         pass
 
-    r = subprocess.run(cmd, stdout=subprocess.DEVNULL,
-                       stderr=subprocess.PIPE, text=True)
+    try:
+        r = subprocess.run(cmd, stdout=subprocess.DEVNULL,
+                           stderr=subprocess.PIPE, text=True,
+                           timeout=job.timeout)
+    except subprocess.TimeoutExpired as e:
+        if verbosity >= 2:
+            sys.stderr.write(
+                f"[direct] mpv timed out after {job.timeout:.1f}s\n")
+            if e.stderr:
+                sys.stderr.write(
+                    f"[direct] stderr:\n{e.stderr.decode('utf-8', 'replace')}\n")
+        try:
+            os.unlink(out_path)
+        except FileNotFoundError:
+            pass
+        return False
+
     if r.returncode == 0 and os.path.isfile(out_path):
         return True
     if verbosity >= 2:
@@ -337,10 +388,16 @@ class MpvIPC:
     are queued and can be retrieved with wait_event. Malformed JSON lines
     are dropped (mpv is documented to occasionally emit invalid UTF-8 in
     corner cases) and logged at verbosity >= 2.
+
+    default_timeout is the fallback for calls that do not pass an explicit
+    timeout. It is kept short (LOCAL_IPC_TIMEOUT) because every IPC
+    operation other than file-loaded and seek is a local round-trip that
+    should return instantly; the caller passes per-file -t values
+    explicitly to the network-sensitive calls.
     """
 
     def __init__(self, sockpath: str, verbosity: int = 1,
-                 default_timeout: float = 10.0):
+                 default_timeout: float = LOCAL_IPC_TIMEOUT):
         self.sockpath = sockpath
         self.verbosity = verbosity
         self.default_timeout = default_timeout
@@ -350,8 +407,14 @@ class MpvIPC:
         self.event_queue: List[dict] = []
 
     def connect(self, timeout: Optional[float] = None) -> None:
-        """Poll the socket path until mpv creates it, up to timeout."""
-        deadline = time.time() + (timeout or self.default_timeout)
+        """
+        Poll the socket path until mpv creates it. Bounded by
+        min(timeout or default_timeout, LOCAL_IPC_TIMEOUT): a hung mpv
+        launch should be reported quickly regardless of any -t value the
+        user set for remote reads.
+        """
+        bound = min(timeout or self.default_timeout, LOCAL_IPC_TIMEOUT)
+        deadline = time.time() + bound
         last_err: Optional[Exception] = None
         while time.time() < deadline:
             try:
@@ -402,11 +465,16 @@ class MpvIPC:
         self.sock.sendall((json.dumps(obj) + "\n").encode("utf-8"))
 
     def command(self, cmd: list, timeout: Optional[float] = None) -> dict:
-        """Send a command and wait for its reply."""
+        """
+        Send a command and wait for its reply. Commands are acknowledged
+        instantly by mpv, so this uses min(timeout, LOCAL_IPC_TIMEOUT)
+        rather than the full -t value.
+        """
+        eff = min(timeout or self.default_timeout, LOCAL_IPC_TIMEOUT)
         self.rid += 1
         rid = self.rid
         self._send_raw({"command": cmd, "request_id": rid})
-        return self.wait_reply(rid, timeout)
+        return self.wait_reply(rid, eff)
 
     def wait_reply(self, rid: int, timeout: Optional[float] = None) -> dict:
         """
@@ -473,20 +541,33 @@ class MpvIPC:
             self.sock.settimeout(None)
         self.event_queue.clear()
 
-    def seek_and_wait(self, seconds: float, timeout: float = 15.0) -> None:
+    def seek_and_wait(self, seconds: float, timeout: float) -> None:
         """
-        Seek to an absolute timestamp and wait for mpv to finish decoding
-        the target frame. Waits for the playback-restart event; if that
-        does not arrive (paused-idle corner case), falls back to polling
-        core-idle until it becomes true.
+        Seek to an absolute timestamp and wait for mpv to settle.
+
+        A prior implementation returned as soon as the playback-restart
+        event fired. That event marks the beginning of the internal resume
+        that a seek triggers, not the moment the decode/render/display
+        pipeline has settled on the target frame. A screenshot issued
+        right after it can therefore capture the pre-seek frame on one run
+        and the target frame on another, giving non-deterministic output.
+
+        This implementation waits for playback-restart first (a positive
+        signal that the seek was accepted and started), then polls
+        core-idle until it is true. core-idle=true means the pipeline has
+        fully drained and the displayed frame is the seek target, so a
+        subsequent screenshot-to-file is deterministic.
+
+        playback-restart is not guaranteed to fire for every seek in a
+        paused-idle mpv; the short timeout accommodates that without
+        blocking the core-idle path, which is the actual settling signal.
         """
         self.drain()
         r = self.command(["seek", f"{seconds:.6f}", "absolute+exact"], timeout)
         if r.get("error") != "success":
             raise RuntimeError(f"seek failed: {r}")
         try:
-            self.wait_event("playback-restart", timeout)
-            return
+            self.wait_event("playback-restart", timeout=2.0)
         except RuntimeError:
             pass
         deadline = time.time() + timeout
@@ -514,8 +595,13 @@ def run_ipc(jobs: List[FileJob], globals_: dict) -> int:
             --input-ipc-server=SOCKET --pause
 
     For each file: loadfile PATH replace, then wait for file-loaded.
-    For each frame: seek T absolute+exact, wait for playback-restart,
-    screenshot-to-file PATH video.
+    For each frame: seek T absolute+exact, wait for playback-restart and
+    core-idle, screenshot-to-file PATH video.
+
+    Timeouts: the IPC instance is created with LOCAL_IPC_TIMEOUT so a
+    dead mpv is reported quickly. Per-file -t values (job.timeout) are
+    passed explicitly to the network-sensitive waits: file-loaded,
+    seek_and_wait, and screenshot-to-file.
 
     IPC error handling: every command reply is a JSON object whose "error"
     field is "success" or an error string. A reply with "error" != "success",
@@ -552,7 +638,8 @@ def run_ipc(jobs: List[FileJob], globals_: dict) -> int:
 
         proc = subprocess.Popen(cmd, stdout=subprocess.DEVNULL,
                                 stderr=subprocess.PIPE)
-        ipc = MpvIPC(sockpath, verbosity=verbosity)
+        ipc = MpvIPC(sockpath, verbosity=verbosity,
+                     default_timeout=LOCAL_IPC_TIMEOUT)
         ipc.connect()
 
         n = 0
@@ -562,7 +649,7 @@ def run_ipc(jobs: List[FileJob], globals_: dict) -> int:
             if r.get("error") != "success":
                 sys.stderr.write(f"error: loadfile failed for {job.path}: {r}\n")
                 return 1
-            ipc.wait_event("file-loaded", timeout=30.0)
+            ipc.wait_event("file-loaded", timeout=job.timeout)
             ipc.command(["set_property", "pause", True])
 
             for idx, item in enumerate(job.items):
@@ -574,7 +661,7 @@ def run_ipc(jobs: List[FileJob], globals_: dict) -> int:
                         f"[{n}] {job.path} frame={item.frame} "
                         f"t={float(item.seconds):.3f}s -> {out}\n")
                 try:
-                    ipc.seek_and_wait(float(item.seconds), timeout=15.0)
+                    ipc.seek_and_wait(float(item.seconds), timeout=job.timeout)
                 except RuntimeError as e:
                     sys.stderr.write(f"error: {e}\n")
                     return 1
@@ -585,7 +672,7 @@ def run_ipc(jobs: List[FileJob], globals_: dict) -> int:
                 except FileNotFoundError:
                     pass
                 r = ipc.command(["screenshot-to-file", str(out), "video"],
-                                timeout=30.0)
+                                timeout=job.timeout)
                 if r.get("error") != "success":
                     sys.stderr.write(f"error: screenshot-to-file failed: {r}\n")
                     return 1
@@ -629,11 +716,13 @@ def parse_args(argv: List[str]) -> Tuple[dict, List[FileJob]]:
     Inheritance:
         -v  inherits from GLOBALS if not present in the group
         -o  inherits from GLOBALS if not present in the group
+        -t  inherits from GLOBALS if not present in the group
         -s  NEVER inherits; required in every group (including group 0)
     """
-    globals_ = {"verbosity": 0, "output": None, "dry_run": False}
+    globals_ = {"verbosity": 0, "output": None, "timeout": DEFAULT_TIMEOUT,
+                "dry_run": False}
     jobs: List[FileJob] = []
-    pending = {"verbosity": None, "output": None, "spec": None}
+    pending = {"verbosity": None, "output": None, "timeout": None, "spec": None}
     first_file_seen = False
 
     i = 0
@@ -653,6 +742,20 @@ def parse_args(argv: List[str]) -> Tuple[dict, List[FileJob]]:
             pending["output"] = argv[i]
         elif arg.startswith("-o") and len(arg) > 2:
             pending["output"] = arg[2:]
+        elif arg == "--timeout":
+            i += 1
+            if i >= len(argv):
+                raise UsageError("--timeout requires an argument")
+            pending["timeout"] = parse_timeout(argv[i])
+        elif arg.startswith("--timeout="):
+            pending["timeout"] = parse_timeout(arg.split("=", 1)[1])
+        elif arg == "-t":
+            i += 1
+            if i >= len(argv):
+                raise UsageError("-t requires an argument")
+            pending["timeout"] = parse_timeout(argv[i])
+        elif arg.startswith("-t") and len(arg) > 2:
+            pending["timeout"] = parse_timeout(arg[2:])
         elif arg == "-s":
             i += 1
             if i >= len(argv):
@@ -671,8 +774,11 @@ def parse_args(argv: List[str]) -> Tuple[dict, List[FileJob]]:
                     globals_["verbosity"] = pending["verbosity"]
                 if pending["output"] is not None:
                     globals_["output"] = pending["output"]
+                if pending["timeout"] is not None:
+                    globals_["timeout"] = pending["timeout"]
                 job.verbosity = globals_["verbosity"]
                 job.output_pattern = globals_["output"]
+                job.timeout = globals_["timeout"]
                 first_file_seen = True
             else:
                 job.verbosity = (pending["verbosity"]
@@ -681,12 +787,17 @@ def parse_args(argv: List[str]) -> Tuple[dict, List[FileJob]]:
                 job.output_pattern = (pending["output"]
                                       if pending["output"] is not None
                                       else globals_["output"])
+                job.timeout = (pending["timeout"]
+                               if pending["timeout"] is not None
+                               else globals_["timeout"])
 
-            pending = {"verbosity": None, "output": None, "spec": None}
+            pending = {"verbosity": None, "output": None, "timeout": None,
+                       "spec": None}
             jobs.append(job)
         i += 1
 
     if (pending["spec"] is not None or pending["output"] is not None
+            or pending["timeout"] is not None
             or pending["verbosity"] is not None):
         raise UsageError("options specified without a following videofile")
 
@@ -737,7 +848,7 @@ def main(argv: List[str]) -> int:
 
             needs_fps = any(it.kind == "frame" for it in raw_items)
             if needs_fps:
-                r, _avg, is_vfr = probe_fps(job.path)
+                r, _avg, is_vfr = probe_fps(job.path, job.timeout)
                 if r == 0:
                     raise RuntimeError(
                         f"could not determine fps for {job.path}")
