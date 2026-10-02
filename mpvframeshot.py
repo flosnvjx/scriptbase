@@ -79,17 +79,27 @@ EXAMPLES
     mpvframeshot.py -n -s 500 video.mkv
 
 ARCHITECTURE
-    Two execution engines.
+    Both engines use mpv's image writer, invoked as --vo=image. This
+    writer ignores any single-file path option and always writes
+    "<counter>.<format>" into the directory it is run in. The program
+    works with that behavior rather than against it: before mpv runs, it
+    snapshots the target directory; after mpv exits (or after each seek
+    in IPC mode), it finds the newly created numbered file and renames it
+    into place. No temporary directory is ever created; every file the
+    program produces lives in its final directory.
 
     1. DIRECT CLI (default for one file, one frame)
-       Runs a single mpv with --vo=image --o=PATH. No temporary directory.
-       If mpv exits non-zero or produces no file at PATH, the program
-       retries that frame through IPC.
+       One mpv process is launched with its working directory set to the
+       target's parent, --frames=1, --hr-seek=yes, --start=T, and
+       --vo=image. After exit, the numbered file is renamed to the
+       requested output path. If no new file appeared, the program
+       retries the same frame through the IPC engine.
 
     2. IPC (used when a file has >1 frame, or >1 file is given)
-       One mpv in idle mode with a Unix domain socket located directly
-       under $TMPDIR (or /tmp). For each frame: loadfile, seek absolute+exact,
-       wait for playback-restart and core-idle, screenshot-to-file. Any IPC
+       One mpv process in idle mode, --pause=yes, --vo=image, and
+       --input-ipc-server=SOCKET. For each frame: seek absolute+exact,
+       wait until core-idle is true, then rename the newest numbered file
+       in the capture directory to the requested output path. Any IPC
        reply whose "error" field is not "success" aborts the run.
 
     Engine selection is fixed before any process starts:
@@ -119,6 +129,7 @@ HELP = __doc__
 
 DEFAULT_TIMEOUT = 15.0
 LOCAL_IPC_TIMEOUT = 10.0
+IMAGE_SETTLE_SECONDS = 0.15
 
 
 class UsageError(Exception):
@@ -307,27 +318,84 @@ def _ensure_parent(path: str) -> None:
         os.makedirs(parent, exist_ok=True)
 
 
+def _image_format_for(path: str) -> Tuple[str, str]:
+    """
+    Map a target filename extension to (vo_image_format, expected_ext).
+    Unknown extensions default to png. jpeg normalizes to jpg because
+    that is the value vo_image accepts.
+    """
+    ext = (Path(path).suffix.lower().lstrip(".") or "png")
+    if ext == "jpeg":
+        return "jpg", "jpg"
+    if ext in ("jpg", "png", "webp"):
+        return ext, ext
+    return "png", "png"
+
+
+def _resolve_input(path: str) -> str:
+    """
+    Return an absolute path for local inputs so the child mpv's working
+    directory can be set freely without breaking relative input paths.
+    URLs are returned unchanged.
+    """
+    return path if is_url(path) else os.path.abspath(path)
+
+
+def _find_new_numbered(dirpath: str, before: set,
+                       expected_ext: str) -> Optional[str]:
+    """
+    Return the path of the newest file in dirpath that (a) ends with
+    .expected_ext and (b) did not exist in the before snapshot. Returns
+    None if no such file exists. The before snapshot comparison guards
+    against pre-existing numbered files; the extension guards against
+    unrelated files that might appear concurrently.
+    """
+    try:
+        after = set(os.listdir(dirpath))
+    except OSError:
+        return None
+    candidates = sorted(
+        f for f in (after - before)
+        if f.lower().endswith(f".{expected_ext}"))
+    if not candidates:
+        return None
+    return os.path.join(dirpath, candidates[-1])
+
+
+def _rename_into_place(src: str, dst: str) -> None:
+    """
+    Move src to dst, replacing any existing file at dst. Raises OSError
+    on failure, having removed src only if the move fully succeeded.
+    """
+    dst_abs = os.path.abspath(dst)
+    _ensure_parent(dst_abs)
+    os.replace(src, dst_abs)
+
+
 def run_direct(job: FileJob, item: FrameItem, out_path: str,
                dry_run: bool, verbosity: int) -> bool:
     """
-    Attempt single-frame extraction via mpv --vo=image --o=PATH.
+    Extract a single frame via mpv's --vo=image writer.
+
+    mpv's image writer ignores any single-file path option and always
+    writes "<counter>.<format>" into the directory it runs in. This
+    function sets the child mpv's working directory to the target's
+    parent via cwd=, snapshots that directory before launch, and renames
+    the newly created numbered file into place after mpv exits. No
+    temporary directory is used; the only file the program ever creates
+    is the requested output.
 
     Returns True on success. Returns False if mpv exited non-zero, timed
-    out, or produced no file at out_path; the caller then falls back to
-    the IPC engine for the same frame. This lets older mpv builds that do
-    not support --o= still work, without paying the IPC cost when they
-    aren't needed.
+    out, produced no new file, or the rename failed; the caller then
+    falls back to the IPC engine for the same frame.
 
-    @note The pre-existing file at out_path (if any) is unlinked before
-    invocation and again on failure, so a stale file can never be mistaken
-    for a fresh capture.
-
-    @note timeout is job.timeout, propagated from -t. It bounds the entire
-    mpv subprocess, which for a remote input may include a slow fetch.
+    @note The input path is resolved to an absolute path for local files
+    before launch, so changing the child's cwd does not break it.
     """
-    out_ext = (Path(out_path).suffix.lower().lstrip(".") or "png")
-    img_format = "jpg" if out_ext == "jpeg" else (
-        out_ext if out_ext in ("jpg", "png", "webp") else "png")
+    img_format, expected_ext = _image_format_for(out_path)
+    out_abs = os.path.abspath(out_path)
+    out_dir = os.path.dirname(out_abs)
+    input_abs = _resolve_input(job.path)
 
     cmd = [
         "mpv", "--no-config", "--no-audio", "--hr-seek=yes",
@@ -335,49 +403,65 @@ def run_direct(job: FileJob, item: FrameItem, out_path: str,
         "--frames=1",
         "--vo=image",
         f"--vo-image-format={img_format}",
-        f"--o={out_path}",
-        job.path,
+        input_abs,
     ]
+
     if dry_run:
-        print("[direct] " + " ".join(shlex.quote(c) for c in cmd))
+        print(f"[direct] cwd={out_dir} " +
+              " ".join(shlex.quote(c) for c in cmd))
         return True
     if verbosity >= 2:
-        sys.stderr.write("[direct] " + " ".join(shlex.quote(c) for c in cmd) + "\n")
+        sys.stderr.write(f"[direct] cwd={out_dir} " +
+                         " ".join(shlex.quote(c) for c in cmd) + "\n")
 
-    _ensure_parent(out_path)
+    _ensure_parent(out_abs)
     try:
-        os.unlink(out_path)
+        os.unlink(out_abs)
     except FileNotFoundError:
         pass
+
+    try:
+        before = set(os.listdir(out_dir))
+    except OSError as e:
+        if verbosity >= 2:
+            sys.stderr.write(f"[direct] cannot list {out_dir}: {e}\n")
+        return False
 
     try:
         r = subprocess.run(cmd, stdout=subprocess.DEVNULL,
                            stderr=subprocess.PIPE, text=True,
-                           timeout=job.timeout)
-    except subprocess.TimeoutExpired as e:
+                           cwd=out_dir, timeout=job.timeout)
+    except subprocess.TimeoutExpired:
+        if verbosity >= 2:
+            sys.stderr.write(f"[direct] mpv timed out after "
+                             f"{job.timeout:.1f}s\n")
+        return False
+    except OSError as e:
+        if verbosity >= 2:
+            sys.stderr.write(f"[direct] spawn failed: {e}\n")
+        return False
+
+    new_path = _find_new_numbered(out_dir, before, expected_ext)
+    if new_path is None:
         if verbosity >= 2:
             sys.stderr.write(
-                f"[direct] mpv timed out after {job.timeout:.1f}s\n")
-            if e.stderr:
-                sys.stderr.write(
-                    f"[direct] stderr:\n{e.stderr.decode('utf-8', 'replace')}\n")
+                f"[direct] mpv rc={r.returncode}, no new image in "
+                f"{out_dir} (looking for .{expected_ext})\n"
+                f"[direct] stderr:\n{r.stderr}\n")
+        return False
+
+    try:
+        _rename_into_place(new_path, out_abs)
+    except OSError as e:
+        if verbosity >= 2:
+            sys.stderr.write(f"[direct] rename failed: {e}\n")
         try:
-            os.unlink(out_path)
-        except FileNotFoundError:
+            os.unlink(new_path)
+        except OSError:
             pass
         return False
 
-    if r.returncode == 0 and os.path.isfile(out_path):
-        return True
-    if verbosity >= 2:
-        sys.stderr.write(
-            f"[direct] mpv rc={r.returncode}, no usable output.\n"
-            f"[direct] stderr:\n{r.stderr}\n")
-    try:
-        os.unlink(out_path)
-    except FileNotFoundError:
-        pass
-    return False
+    return True
 
 
 class MpvIPC:
@@ -548,19 +632,14 @@ class MpvIPC:
         A prior implementation returned as soon as the playback-restart
         event fired. That event marks the beginning of the internal resume
         that a seek triggers, not the moment the decode/render/display
-        pipeline has settled on the target frame. A screenshot issued
-        right after it can therefore capture the pre-seek frame on one run
-        and the target frame on another, giving non-deterministic output.
+        pipeline has settled on the target frame. A capture issued right
+        after it can therefore grab the pre-seek frame on one run and the
+        target frame on another, giving non-deterministic output.
 
         This implementation waits for playback-restart first (a positive
         signal that the seek was accepted and started), then polls
         core-idle until it is true. core-idle=true means the pipeline has
-        fully drained and the displayed frame is the seek target, so a
-        subsequent screenshot-to-file is deterministic.
-
-        playback-restart is not guaranteed to fire for every seek in a
-        paused-idle mpv; the short timeout accommodates that without
-        blocking the core-idle path, which is the actual settling signal.
+        fully drained and the displayed frame is the seek target.
         """
         self.drain()
         r = self.command(["seek", f"{seconds:.6f}", "absolute+exact"], timeout)
@@ -592,23 +671,34 @@ def run_ipc(jobs: List[FileJob], globals_: dict) -> int:
 
     Launch:
         mpv --no-config --no-audio --idle=yes --hr-seek=yes
-            --input-ipc-server=SOCKET --pause
+            --input-ipc-server=SOCKET --pause=yes
+            --vo=image --vo-image-format=FMT
 
-    For each file: loadfile PATH replace, then wait for file-loaded.
-    For each frame: seek T absolute+exact, wait for playback-restart and
-    core-idle, screenshot-to-file PATH video.
+    The image writer's working directory is the target directory of the
+    first frame in the first job. Every frame mpv displays is written
+    there as "<counter>.<FMT>". For each requested frame, the program
+    snapshots that directory, seeks, waits for core-idle, then renames
+    the newly created file to the requested output path.
 
-    Timeouts: the IPC instance is created with LOCAL_IPC_TIMEOUT so a
-    dead mpv is reported quickly. Per-file -t values (job.timeout) are
-    passed explicitly to the network-sensitive waits: file-loaded,
-    seek_and_wait, and screenshot-to-file.
+    FMT is derived from the first target's extension. If later targets
+    use a different extension, the file content matches the first
+    target's format; this is a documented limitation of mpv's writer,
+    which cannot change format between frames within one process.
 
-    IPC error handling: every command reply is a JSON object whose "error"
-    field is "success" or an error string. A reply with "error" != "success",
-    or a missing output file after screenshot-to-file, aborts the run with
-    exit code 1 (per agreed policy). Socket and mpv child are cleaned up in
-    the finally block regardless of how we exit.
+    IPC error handling: every command reply is a JSON object whose
+    "error" field is "success" or an error string. A reply with "error"
+    != "success", or a missing output file after seek settle, aborts the
+    run with exit code 1. Socket and mpv child are cleaned up in the
+    finally block regardless of how we exit.
     """
+    first_out = render_output_path(jobs[0].output_pattern, jobs[0],
+                                   jobs[0].items[0], 0, 1)
+    first_out_abs = os.path.abspath(first_out)
+    capture_dir = os.path.dirname(first_out_abs)
+    _ensure_parent(first_out_abs)
+
+    img_format, expected_ext = _image_format_for(first_out_abs)
+
     sockpath = _sockpath()
     proc: Optional[subprocess.Popen] = None
     ipc: Optional[MpvIPC] = None
@@ -620,24 +710,30 @@ def run_ipc(jobs: List[FileJob], globals_: dict) -> int:
             "--idle=yes", "--hr-seek=yes",
             f"--input-ipc-server={sockpath}",
             "--pause=yes",
-            "--vo=null", "--ao=null",
+            "--vo=image",
+            f"--vo-image-format={img_format}",
         ]
 
         if globals_["dry_run"]:
-            print("[ipc] " + " ".join(shlex.quote(c) for c in cmd))
+            print(f"[ipc] cwd={capture_dir} " +
+                  " ".join(shlex.quote(c) for c in cmd))
             n = 0
             for job in jobs:
-                print(f"[ipc] loadfile {shlex.quote(job.path)} replace")
+                print(f"[ipc] loadfile {shlex.quote(_resolve_input(job.path))} "
+                      f"replace")
                 for idx, item in enumerate(job.items):
                     n += 1
                     out = render_output_path(job.output_pattern, job,
                                              item, idx, n)
-                    print(f"[ipc] seek {float(item.seconds):.6f} absolute+exact")
-                    print(f"[ipc] screenshot-to-file {shlex.quote(out)} video")
+                    print(f"[ipc] seek {float(item.seconds):.6f} "
+                          f"absolute+exact")
+                    print(f"[ipc] rename newest .{expected_ext} in "
+                          f"{capture_dir} -> {shlex.quote(out)}")
             return 0
 
         proc = subprocess.Popen(cmd, stdout=subprocess.DEVNULL,
-                                stderr=subprocess.PIPE)
+                                stderr=subprocess.DEVNULL,
+                                cwd=capture_dir)
         ipc = MpvIPC(sockpath, verbosity=verbosity,
                      default_timeout=LOCAL_IPC_TIMEOUT)
         ipc.connect()
@@ -645,9 +741,11 @@ def run_ipc(jobs: List[FileJob], globals_: dict) -> int:
         n = 0
         for job in jobs:
             ipc.drain()
-            r = ipc.command(["loadfile", job.path, "replace"])
+            input_abs = _resolve_input(job.path)
+            r = ipc.command(["loadfile", input_abs, "replace"])
             if r.get("error") != "success":
-                sys.stderr.write(f"error: loadfile failed for {job.path}: {r}\n")
+                sys.stderr.write(f"error: loadfile failed for {job.path}: "
+                                 f"{r}\n")
                 return 1
             ipc.wait_event("file-loaded", timeout=job.timeout)
             ipc.command(["set_property", "pause", True])
@@ -656,29 +754,45 @@ def run_ipc(jobs: List[FileJob], globals_: dict) -> int:
                 n += 1
                 out = render_output_path(job.output_pattern, job,
                                          item, idx, n)
+                out_abs = os.path.abspath(out)
+                _ensure_parent(out_abs)
+
                 if job.verbosity >= 1:
                     sys.stderr.write(
                         f"[{n}] {job.path} frame={item.frame} "
-                        f"t={float(item.seconds):.3f}s -> {out}\n")
+                        f"t={float(item.seconds):.3f}s -> {out_abs}\n")
+
                 try:
-                    ipc.seek_and_wait(float(item.seconds), timeout=job.timeout)
+                    before = set(os.listdir(capture_dir))
+                except OSError as e:
+                    sys.stderr.write(f"error: cannot list {capture_dir}: "
+                                     f"{e}\n")
+                    return 1
+
+                try:
+                    ipc.seek_and_wait(float(item.seconds),
+                                      timeout=job.timeout)
                 except RuntimeError as e:
                     sys.stderr.write(f"error: {e}\n")
                     return 1
 
-                _ensure_parent(out)
+                time.sleep(IMAGE_SETTLE_SECONDS)
+
+                src = _find_new_numbered(capture_dir, before, expected_ext)
+                if src is None:
+                    sys.stderr.write(
+                        f"error: no frame captured in {capture_dir} "
+                        f"(expected .{expected_ext})\n")
+                    return 1
+
                 try:
-                    os.unlink(out)
+                    os.unlink(out_abs)
                 except FileNotFoundError:
                     pass
-                r = ipc.command(["screenshot-to-file", str(out), "video"],
-                                timeout=job.timeout)
-                if r.get("error") != "success":
-                    sys.stderr.write(f"error: screenshot-to-file failed: {r}\n")
-                    return 1
-                if not os.path.exists(out):
-                    sys.stderr.write(
-                        f"error: screenshot file not created: {out}\n")
+                try:
+                    _rename_into_place(src, out_abs)
+                except OSError as e:
+                    sys.stderr.write(f"error: rename failed: {e}\n")
                     return 1
 
         try:
