@@ -3,15 +3,39 @@
 mpvframeshot.py — frame-accurate screenshot extraction from video using mpv.
 
 SYNOPSIS
-    mpvframeshot.py [globaloptions] [fileoptions] videofile
-                    [[fileoptions] videofile ...]
+    mpvframeshot.py [options] videofile [options] [videofile ...]
 
-    -s SPEC       comma-separated frame spec (REQUIRED per file)
-    -o PATTERN    screenshot output path pattern
-    -t SECONDS    timeout for network-sensitive waits (default: 15)
-    -v            increase verbosity (repeatable; global or per-file)
-    -n, --dry-run print mpv invocations without executing
-    -h, --help    show this help
+    Global options (persist, apply to all subsequent videofiles):
+        -S SPEC       default frame spec
+        -O PATTERN    default output pattern
+        -T SECONDS    default timeout (initial default: 15)
+        -V            increase default verbosity (repeatable)
+
+    Per-file options (apply only to the next videofile):
+        -s SPEC       frame spec
+        -o PATTERN    output pattern
+        -t SECONDS    timeout
+        -v            increase verbosity (repeatable)
+
+    Global-only options:
+        -n, -N, --dry-run    print mpv invocations without executing
+        -h, -H, --help       show this help
+
+OPTION SCOPE
+    Scope is determined by case, not position. Uppercase options set
+    global defaults that persist across the whole invocation and may be
+    updated mid-stream to affect only subsequent files. Lowercase options
+    apply only to the next videofile and are discarded after it.
+
+    On each videofile, the effective value of a field is the per-file
+    value if set for that file, otherwise the current global value. If
+    neither -o nor -O is given anywhere, the default pattern
+    {stem}_{index:04d}.png applies. Every videofile must resolve to a
+    non-empty spec; a file with no -s and no -S is an error.
+
+    An uppercase option takes effect immediately; files processed after
+    it use the new value as their default. Files processed before it are
+    unaffected.
 
 FRAME SPEC
     Each comma-separated item is one of:
@@ -40,9 +64,15 @@ INPUT
     last path component of the URI, after percent-decoding. If the URI
     has no filename component, {stem} is "input".
 
-    Remote inputs may require a larger timeout. -t sets the maximum wait
-    for file load, seek settle, screenshot write, and ffprobe; local IPC
-    operations keep a short floor so a hung mpv is still reported quickly.
+    Remote inputs may require a larger timeout. -t or -T sets the maximum
+    wait for file load, seek settle, screenshot write, and ffprobe; local
+    IPC operations keep a short floor so a hung mpv is still reported
+    quickly.
+
+    For remote HTTP/HTTPS inputs, the program enables libavformat's
+    reconnection logic (reconnect, reconnect_on_network_error,
+    reconnect_streamed) to survive transient TCP RST and similar network
+    errors.
 
 OUTPUT PATTERN
     Python str.format substitution over these keys:
@@ -58,49 +88,50 @@ OUTPUT PATTERN
 
     Default: {stem}_{index:04d}.png  (written to the current directory)
 
+    PNG output uses maximum compression (level 9). JPEG output uses
+    maximum quality (100). WebP output uses lossless mode when the target
+    extension is .webp, otherwise quality 100.
+
 EXAMPLES
-    # one frame, frame number, direct CLI (fast path)
+    # one frame from one file
     mpvframeshot.py -s 12345 video.mkv
 
     # one frame, timestamp, custom output pattern
     mpvframeshot.py -s 00:01:30.500 -o '/tmp/{stem}-{time}.png' video.mkv
 
-    # two files; second file overrides verbosity and pattern
-    mpvframeshot.py -s 100,200 -v video1.mkv \\
-                    -s 00:05:00 -vv -o '/tmp/{stem}_{index}.png' video2.mkv
+    # one spec applies to both files; second file overrides verbosity
+    mpvframeshot.py -S 100,200 video1.mkv \\
+                    -v -o '/tmp/{stem}_{index}.png' video2.mkv
 
     # remote input over HTTP
     mpvframeshot.py -s 1000 https://example.com/video.mkv
 
-    # slow remote origin
-    mpvframeshot.py -t 120 -s 500 https://archive.example/old.mkv
+    # slow remote origin, globally
+    mpvframeshot.py -T 120 -s 500 https://archive.example/old.mkv
 
     # dry run
     mpvframeshot.py -n -s 500 video.mkv
 
 ARCHITECTURE
-    Both engines use mpv's image writer, invoked as --vo=image. This
-    writer ignores any single-file path option and always writes
-    "<counter>.<format>" into the directory it is run in. The program
-    works with that behavior rather than against it: before mpv runs, it
-    snapshots the target directory; after mpv exits (or after each seek
-    in IPC mode), it finds the newly created numbered file and renames it
-    into place. No temporary directory is ever created; every file the
-    program produces lives in its final directory.
+    Both engines use mpv's image writer via --vo=image. The writer always
+    produces files named "<counter>.<format>" in a directory selected by
+    --vo-image-outdir. Before mpv runs, the program snapshots the target
+    directory; after mpv exits (or after each seek in IPC mode), it finds
+    the newly created numbered file and renames it into place.
 
     1. DIRECT CLI (default for one file, one frame)
-       One mpv process is launched with its working directory set to the
-       target's parent, --frames=1, --hr-seek=yes, --start=T, and
-       --vo=image. After exit, the numbered file is renamed to the
-       requested output path. If no new file appeared, the program
-       retries the same frame through the IPC engine.
+       One mpv process is launched with --frames=1, --hr-seek=yes,
+       --start=T, --vo=image, and --vo-image-outdir=<dir>. After exit, the
+       numbered file is renamed to the requested output path. If no new
+       file appeared, the program retries the same frame through IPC.
 
     2. IPC (used when a file has >1 frame, or >1 file is given)
-       One mpv process in idle mode, --pause=yes, --vo=image, and
-       --input-ipc-server=SOCKET. For each frame: seek absolute+exact,
-       wait until core-idle is true, then rename the newest numbered file
-       in the capture directory to the requested output path. Any IPC
-       reply whose "error" field is not "success" aborts the run.
+       One mpv process in idle mode, --pause=yes, --vo=image,
+       --vo-image-outdir=<dir>, and --input-ipc-server=SOCKET. For each
+       frame: seek absolute+exact, wait until core-idle is true, then
+       rename the newest numbered file in the capture directory to the
+       requested output path. Any IPC reply whose "error" field is not
+       "success" aborts the run.
 
     Engine selection is fixed before any process starts:
         needs_ipc = (len(files) > 1) or any(len(f.frames) > 1)
@@ -130,6 +161,13 @@ HELP = __doc__
 DEFAULT_TIMEOUT = 15.0
 LOCAL_IPC_TIMEOUT = 10.0
 IMAGE_SETTLE_SECONDS = 0.15
+DEFAULT_OUTPUT_PATTERN = "{stem}_{index:04d}.png"
+
+NETWORK_OPTS = [
+    "reconnect=1",
+    "reconnect_on_network_error=1",
+    "reconnect_streamed=1",
+]
 
 
 class UsageError(Exception):
@@ -334,9 +372,7 @@ def _image_format_for(path: str) -> Tuple[str, str]:
 
 def _resolve_input(path: str) -> str:
     """
-    Return an absolute path for local inputs so the child mpv's working
-    directory can be set freely without breaking relative input paths.
-    URLs are returned unchanged.
+    Return an absolute path for local inputs. URLs are returned unchanged.
     """
     return path if is_url(path) else os.path.abspath(path)
 
@@ -365,11 +401,36 @@ def _find_new_numbered(dirpath: str, before: set,
 def _rename_into_place(src: str, dst: str) -> None:
     """
     Move src to dst, replacing any existing file at dst. Raises OSError
-    on failure, having removed src only if the move fully succeeded.
+    on failure.
     """
     dst_abs = os.path.abspath(dst)
     _ensure_parent(dst_abs)
     os.replace(src, dst_abs)
+
+
+def _add_network_opts(cmd: list, path: str) -> None:
+    """
+    Append libavformat reconnection options to cmd when path looks like a
+    network URI. These enable reconnect, reconnect_on_network_error, and
+    reconnect_streamed, which together let libavformat survive transient
+    TCP RST and similar errors without surfacing them to mpv.
+    """
+    if is_url(path):
+        cmd.extend([f"--stream-lavf-o={opt}" for opt in NETWORK_OPTS])
+
+
+def _add_image_quality_opts(cmd: list, img_format: str) -> None:
+    """
+    Append max-quality options for the given image writer format. PNG uses
+    compression level 9 (highest). JPEG uses quality 100. WebP uses
+    lossless mode.
+    """
+    if img_format == "png":
+        cmd.append("--vo-image-png-compression=9")
+    elif img_format == "jpg":
+        cmd.append("--vo-image-jpeg-quality=100")
+    elif img_format == "webp":
+        cmd.append("--vo-image-webp-lossless=yes")
 
 
 def run_direct(job: FileJob, item: FrameItem, out_path: str,
@@ -377,13 +438,11 @@ def run_direct(job: FileJob, item: FrameItem, out_path: str,
     """
     Extract a single frame via mpv's --vo=image writer.
 
-    mpv's image writer ignores any single-file path option and always
-    writes "<counter>.<format>" into the directory it runs in. This
-    function sets the child mpv's working directory to the target's
-    parent via cwd=, snapshots that directory before launch, and renames
-    the newly created numbered file into place after mpv exits. No
-    temporary directory is used; the only file the program ever creates
-    is the requested output.
+    mpv's image writer writes "<counter>.<format>" into the directory
+    selected by --vo-image-outdir. This function snapshots the target
+    directory before launch, and renames the newly created numbered file
+    into place after mpv exits. No temporary directory is used; the only
+    file the program ever creates is the requested output.
 
     Returns True on success. Returns False if mpv exited non-zero, timed
     out, produced no new file, or the rename failed; the caller then
@@ -403,16 +462,17 @@ def run_direct(job: FileJob, item: FrameItem, out_path: str,
         "--frames=1",
         "--vo=image",
         f"--vo-image-format={img_format}",
-        input_abs,
+        f"--vo-image-outdir={out_dir}",
     ]
+    _add_image_quality_opts(cmd, img_format)
+    _add_network_opts(cmd, job.path)
+    cmd.append(input_abs)
 
     if dry_run:
-        print(f"[direct] cwd={out_dir} " +
-              " ".join(shlex.quote(c) for c in cmd))
+        print("[direct] " + " ".join(shlex.quote(c) for c in cmd))
         return True
     if verbosity >= 2:
-        sys.stderr.write(f"[direct] cwd={out_dir} " +
-                         " ".join(shlex.quote(c) for c in cmd) + "\n")
+        sys.stderr.write("[direct] " + " ".join(shlex.quote(c) for c in cmd) + "\n")
 
     _ensure_parent(out_abs)
     try:
@@ -430,7 +490,7 @@ def run_direct(job: FileJob, item: FrameItem, out_path: str,
     try:
         r = subprocess.run(cmd, stdout=subprocess.DEVNULL,
                            stderr=subprocess.PIPE, text=True,
-                           cwd=out_dir, timeout=job.timeout)
+                           timeout=job.timeout)
     except subprocess.TimeoutExpired:
         if verbosity >= 2:
             sys.stderr.write(f"[direct] mpv timed out after "
@@ -494,7 +554,7 @@ class MpvIPC:
         """
         Poll the socket path until mpv creates it. Bounded by
         min(timeout or default_timeout, LOCAL_IPC_TIMEOUT): a hung mpv
-        launch should be reported quickly regardless of any -t value the
+        launch should be reported quickly regardless of any -T value the
         user set for remote reads.
         """
         bound = min(timeout or self.default_timeout, LOCAL_IPC_TIMEOUT)
@@ -552,7 +612,7 @@ class MpvIPC:
         """
         Send a command and wait for its reply. Commands are acknowledged
         instantly by mpv, so this uses min(timeout, LOCAL_IPC_TIMEOUT)
-        rather than the full -t value.
+        rather than the full -T value.
         """
         eff = min(timeout or self.default_timeout, LOCAL_IPC_TIMEOUT)
         self.rid += 1
@@ -672,9 +732,9 @@ def run_ipc(jobs: List[FileJob], globals_: dict) -> int:
     Launch:
         mpv --no-config --no-audio --idle=yes --hr-seek=yes
             --input-ipc-server=SOCKET --pause=yes
-            --vo=image --vo-image-format=FMT
+            --vo=image --vo-image-format=FMT --vo-image-outdir=DIR
 
-    The image writer's working directory is the target directory of the
+    The image writer's output directory is the target directory of the
     first frame in the first job. Every frame mpv displays is written
     there as "<counter>.<FMT>". For each requested frame, the program
     snapshots that directory, seeks, waits for core-idle, then renames
@@ -712,11 +772,12 @@ def run_ipc(jobs: List[FileJob], globals_: dict) -> int:
             "--pause=yes",
             "--vo=image",
             f"--vo-image-format={img_format}",
+            f"--vo-image-outdir={capture_dir}",
         ]
+        _add_image_quality_opts(cmd, img_format)
 
         if globals_["dry_run"]:
-            print(f"[ipc] cwd={capture_dir} " +
-                  " ".join(shlex.quote(c) for c in cmd))
+            print("[ipc] " + " ".join(shlex.quote(c) for c in cmd))
             n = 0
             for job in jobs:
                 print(f"[ipc] loadfile {shlex.quote(_resolve_input(job.path))} "
@@ -732,8 +793,7 @@ def run_ipc(jobs: List[FileJob], globals_: dict) -> int:
             return 0
 
         proc = subprocess.Popen(cmd, stdout=subprocess.DEVNULL,
-                                stderr=subprocess.DEVNULL,
-                                cwd=capture_dir)
+                                stderr=subprocess.DEVNULL)
         ipc = MpvIPC(sockpath, verbosity=verbosity,
                      default_timeout=LOCAL_IPC_TIMEOUT)
         ipc.connect()
@@ -821,105 +881,114 @@ def run_ipc(jobs: List[FileJob], globals_: dict) -> int:
 
 def parse_args(argv: List[str]) -> Tuple[dict, List[FileJob]]:
     """
-    Sequential group parser.
+    Case determines scope, not position.
 
-    Scanning is left-to-right. A new group starts at every videofile token.
-    Options seen before the first videofile populate GLOBALS. Options seen
-    after a videofile populate that file's overrides only.
+    Uppercase paired options (-S, -O, -T, -V) update a persistent G dict
+    of global defaults. Lowercase paired options (-s, -o, -t, -v) update
+    a P dict of pending per-file overrides that is consumed and reset at
+    every videofile. On a videofile, each field resolves to P's value if
+    set, else G's value.
 
-    Inheritance:
-        -v  inherits from GLOBALS if not present in the group
-        -o  inherits from GLOBALS if not present in the group
-        -t  inherits from GLOBALS if not present in the group
-        -s  NEVER inherits; required in every group (including group 0)
+    Mixed-case verbosity bundles such as -Vv are rejected as ambiguous.
+    Global-only options (-n/-N/--dry-run, -h/-H/--help) are recognized by
+    exact match and are not affected by the case rule.
+
+    At end of argv, a non-empty P is an error: per-file options must be
+    followed by a videofile.
     """
-    globals_ = {"verbosity": 0, "output": None, "timeout": DEFAULT_TIMEOUT,
-                "dry_run": False}
+    G = {"spec": None, "output": None, "timeout": DEFAULT_TIMEOUT,
+         "verbosity": 0, "dry_run": False}
+    P = {"spec": None, "output": None, "timeout": None, "verbosity": None}
     jobs: List[FileJob] = []
-    pending = {"verbosity": None, "output": None, "timeout": None, "spec": None}
-    first_file_seen = False
 
     i = 0
     while i < len(argv):
         arg = argv[i]
 
-        if arg in ("-n", "--dry-run"):
-            globals_["dry_run"] = True
-        elif arg == "-v":
-            pending["verbosity"] = (pending["verbosity"] or 0) + 1
+        if arg in ("-n", "-N", "--dry-run"):
+            G["dry_run"] = True
         elif arg.startswith("-") and len(arg) > 1 and set(arg[1:]) == {"v"}:
-            pending["verbosity"] = (pending["verbosity"] or 0) + len(arg) - 1
-        elif arg == "-o":
-            i += 1
-            if i >= len(argv):
-                raise UsageError("-o requires an argument")
-            pending["output"] = argv[i]
-        elif arg.startswith("-o") and len(arg) > 2:
-            pending["output"] = arg[2:]
-        elif arg == "--timeout":
-            i += 1
-            if i >= len(argv):
-                raise UsageError("--timeout requires an argument")
-            pending["timeout"] = parse_timeout(argv[i])
-        elif arg.startswith("--timeout="):
-            pending["timeout"] = parse_timeout(arg.split("=", 1)[1])
-        elif arg == "-t":
-            i += 1
-            if i >= len(argv):
-                raise UsageError("-t requires an argument")
-            pending["timeout"] = parse_timeout(argv[i])
-        elif arg.startswith("-t") and len(arg) > 2:
-            pending["timeout"] = parse_timeout(arg[2:])
+            P["verbosity"] = (P["verbosity"] or 0) + len(arg) - 1
+        elif arg.startswith("-") and len(arg) > 1 and set(arg[1:]) == {"V"}:
+            G["verbosity"] += len(arg) - 1
+        elif (arg.startswith("-") and len(arg) > 1
+              and set(arg[1:]) <= {"v", "V"}):
+            raise UsageError(f"mixed-case verbosity bundle not allowed: {arg}")
         elif arg == "-s":
             i += 1
             if i >= len(argv):
                 raise UsageError("-s requires an argument")
-            pending["spec"] = argv[i]
+            P["spec"] = argv[i]
         elif arg.startswith("-s") and len(arg) > 2:
-            pending["spec"] = arg[2:]
+            P["spec"] = arg[2:]
+        elif arg == "-S":
+            i += 1
+            if i >= len(argv):
+                raise UsageError("-S requires an argument")
+            G["spec"] = argv[i]
+        elif arg.startswith("-S") and len(arg) > 2:
+            G["spec"] = arg[2:]
+        elif arg == "-o":
+            i += 1
+            if i >= len(argv):
+                raise UsageError("-o requires an argument")
+            P["output"] = argv[i]
+        elif arg.startswith("-o") and len(arg) > 2:
+            P["output"] = arg[2:]
+        elif arg == "-O":
+            i += 1
+            if i >= len(argv):
+                raise UsageError("-O requires an argument")
+            G["output"] = argv[i]
+        elif arg.startswith("-O") and len(arg) > 2:
+            G["output"] = arg[2:]
+        elif arg == "-t":
+            i += 1
+            if i >= len(argv):
+                raise UsageError("-t requires an argument")
+            P["timeout"] = parse_timeout(argv[i])
+        elif arg.startswith("-t") and len(arg) > 2:
+            P["timeout"] = parse_timeout(arg[2:])
+        elif arg == "-T":
+            i += 1
+            if i >= len(argv):
+                raise UsageError("-T requires an argument")
+            G["timeout"] = parse_timeout(argv[i])
+        elif arg.startswith("-T") and len(arg) > 2:
+            G["timeout"] = parse_timeout(arg[2:])
         elif arg.startswith("-"):
             raise UsageError(f"unknown option: {arg}")
         else:
             job = FileJob(path=arg)
-            job.frames_spec = pending["spec"]
-
-            if not first_file_seen:
-                if pending["verbosity"] is not None:
-                    globals_["verbosity"] = pending["verbosity"]
-                if pending["output"] is not None:
-                    globals_["output"] = pending["output"]
-                if pending["timeout"] is not None:
-                    globals_["timeout"] = pending["timeout"]
-                job.verbosity = globals_["verbosity"]
-                job.output_pattern = globals_["output"]
-                job.timeout = globals_["timeout"]
-                first_file_seen = True
-            else:
-                job.verbosity = (pending["verbosity"]
-                                 if pending["verbosity"] is not None
-                                 else globals_["verbosity"])
-                job.output_pattern = (pending["output"]
-                                      if pending["output"] is not None
-                                      else globals_["output"])
-                job.timeout = (pending["timeout"]
-                               if pending["timeout"] is not None
-                               else globals_["timeout"])
-
-            pending = {"verbosity": None, "output": None, "timeout": None,
-                       "spec": None}
+            job.frames_spec = (P["spec"] if P["spec"] is not None
+                               else G["spec"])
+            job.output_pattern = (P["output"] if P["output"] is not None
+                                  else G["output"])
+            job.timeout = (P["timeout"] if P["timeout"] is not None
+                           else G["timeout"])
+            job.verbosity = (P["verbosity"] if P["verbosity"] is not None
+                             else G["verbosity"])
             jobs.append(job)
+            P = {"spec": None, "output": None, "timeout": None,
+                 "verbosity": None}
         i += 1
 
-    if (pending["spec"] is not None or pending["output"] is not None
-            or pending["timeout"] is not None
-            or pending["verbosity"] is not None):
-        raise UsageError("options specified without a following videofile")
+    if (P["spec"] is not None or P["output"] is not None
+            or P["timeout"] is not None or P["verbosity"] is not None):
+        raise UsageError("per-file options specified without a following "
+                         "videofile")
 
+    globals_ = {
+        "verbosity": G["verbosity"],
+        "output": G["output"],
+        "timeout": G["timeout"],
+        "dry_run": G["dry_run"],
+    }
     return globals_, jobs
 
 
 def main(argv: List[str]) -> int:
-    if not argv or "-h" in argv or "--help" in argv:
+    if not argv or "-h" in argv or "-H" in argv or "--help" in argv:
         sys.stdout.write(HELP)
         return 0
 
@@ -935,13 +1004,14 @@ def main(argv: List[str]) -> int:
 
     for job in jobs:
         if not job.frames_spec:
-            sys.stderr.write(f"error: no -s specified for {job.path}\n")
+            sys.stderr.write(f"error: no frame spec for {job.path} "
+                             f"(use -s or -S)\n")
             return 1
         if not is_url(job.path) and not os.path.isfile(job.path):
             sys.stderr.write(f"error: file not found: {job.path}\n")
             return 1
         if not job.output_pattern:
-            job.output_pattern = "{stem}_{index:04d}.png"
+            job.output_pattern = DEFAULT_OUTPUT_PATTERN
 
     try:
         for job in jobs:
