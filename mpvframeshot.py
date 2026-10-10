@@ -29,9 +29,9 @@ OPTION SCOPE
 
     On each videofile, the effective value of a field is the per-file
     value if set for that file, otherwise the current global value. If
-    neither -o nor -O is given anywhere, the default pattern
-    {stem}_{index:04d}.png applies. Every videofile must resolve to a
-    non-empty spec; a file with no -s and no -S is an error.
+    neither -o nor -O is given anywhere, the default pattern applies.
+    Every videofile must resolve to a non-empty spec; a file with no -s
+    and no -S is an error.
 
     An uppercase option takes effect immediately; files processed after
     it use the new value as their default. Files processed before it are
@@ -70,9 +70,10 @@ INPUT
     quickly.
 
     For remote HTTP/HTTPS inputs, the program enables libavformat's
-    reconnection logic (reconnect, reconnect_on_network_error,
-    reconnect_streamed) to survive transient TCP RST and similar network
-    errors.
+    reconnect and reconnect_on_network_error. reconnect_streamed is not
+    enabled: it is only meaningful for non-seekable streams, and forcing
+    it on a seekable source can re-download large regions on every
+    network hiccup.
 
 OUTPUT PATTERN
     Python str.format substitution over these keys:
@@ -86,22 +87,31 @@ OUTPUT PATTERN
 
     Literal braces: {{ and }} produce { and }.
 
-    Default: {stem}_{index:04d}.png  (written to the current directory)
+    The image format is determined by the pattern's extension. If the
+    pattern ends with .png, .jpg, .jpeg, or .webp (case-insensitive), that
+    extension selects the format. Otherwise .png is appended and png is
+    used. There is no separate format option; the extension is the
+    format.
+
+    Default: {stem}_{index:04d}  (renders to {stem}_{index:04d}.png)
 
     PNG output uses maximum compression (level 9). JPEG output uses
-    maximum quality (100). WebP output uses lossless mode when the target
-    extension is .webp, otherwise quality 100.
+    maximum quality (100). WebP output uses lossless mode.
+
+    In multi-file runs, all files must share the same image format,
+    because mpv cannot change the writer format within a single process.
+    A mismatch is a usage error.
 
 EXAMPLES
     # one frame from one file
     mpvframeshot.py -s 12345 video.mkv
 
-    # one frame, timestamp, custom output pattern
-    mpvframeshot.py -s 00:01:30.500 -o '/tmp/{stem}-{time}.png' video.mkv
+    # one frame, timestamp, jpeg output
+    mpvframeshot.py -s 00:01:30.500 -o '/tmp/{stem}-{time}.jpg' video.mkv
 
-    # one spec applies to both files; second file overrides verbosity
-    mpvframeshot.py -S 100,200 video1.mkv \\
-                    -v -o '/tmp/{stem}_{index}.png' video2.mkv
+    # one spec applies to both files; second file overrides output
+    mpvframeshot.py -S 100,200 -O '/tmp/{stem}_{n}' video1.mkv \\
+                    -o '/tmp/override_{n}.png' video2.mkv
 
     # remote input over HTTP
     mpvframeshot.py -s 1000 https://example.com/video.mkv
@@ -161,12 +171,13 @@ HELP = __doc__
 DEFAULT_TIMEOUT = 15.0
 LOCAL_IPC_TIMEOUT = 10.0
 IMAGE_SETTLE_SECONDS = 0.15
-DEFAULT_OUTPUT_PATTERN = "{stem}_{index:04d}.png"
+DEFAULT_OUTPUT_PATTERN = "{stem}_{index:04d}"
+
+IMAGE_EXTS = {"png", "jpg", "jpeg", "webp"}
 
 NETWORK_OPTS = [
     "reconnect=1",
     "reconnect_on_network_error=1",
-    "reconnect_streamed=1",
 ]
 
 
@@ -264,6 +275,7 @@ class FileJob:
     path: str
     frames_spec: Optional[str] = None
     output_pattern: Optional[str] = None
+    image_format: str = "png"
     timeout: Optional[float] = None
     verbosity: int = 0
     fps: Optional[Fraction] = None
@@ -318,6 +330,32 @@ def probe_fps(path: str, timeout: float) -> Tuple[Fraction, Fraction, bool]:
     return r, avg, r != avg
 
 
+def normalize_output_pattern(pattern: str) -> Tuple[str, str]:
+    """
+    Ensure pattern ends with a recognized image extension and return
+    (pattern, img_format).
+
+    If the last '.' in the pattern is followed by a plain alphanumeric
+    string that is one of png / jpg / jpeg / webp (case-insensitive), the
+    pattern is returned unchanged and that extension selects the format.
+    'jpeg' maps to mpv's 'jpg' format string, since mpv names its output
+    files by the format string; the user's pattern is not rewritten, so a
+    .jpeg target still ends up with a .jpeg name.
+
+    Otherwise .png is appended and png is the format. This rule makes
+    patterns like '{stem}_{n}' and 'dir.with.dots/{stem}' append .png,
+    because the trailing candidate after the last '.' is either empty or
+    contains non-alphanumeric characters such as / or { } :.
+    """
+    last_dot = pattern.rfind(".")
+    if last_dot != -1:
+        cand = pattern[last_dot + 1:]
+        if cand.isalnum() and cand.lower() in IMAGE_EXTS:
+            ext = cand.lower()
+            return pattern, ("jpg" if ext == "jpeg" else ext)
+    return pattern + ".png", "png"
+
+
 def render_output_path(pattern: str, job: FileJob, item: FrameItem,
                        index: int, n: int) -> str:
     """
@@ -354,20 +392,6 @@ def _ensure_parent(path: str) -> None:
     parent = os.path.dirname(os.path.abspath(path))
     if parent:
         os.makedirs(parent, exist_ok=True)
-
-
-def _image_format_for(path: str) -> Tuple[str, str]:
-    """
-    Map a target filename extension to (vo_image_format, expected_ext).
-    Unknown extensions default to png. jpeg normalizes to jpg because
-    that is the value vo_image accepts.
-    """
-    ext = (Path(path).suffix.lower().lstrip(".") or "png")
-    if ext == "jpeg":
-        return "jpg", "jpg"
-    if ext in ("jpg", "png", "webp"):
-        return ext, ext
-    return "png", "png"
 
 
 def _resolve_input(path: str) -> str:
@@ -411,9 +435,11 @@ def _rename_into_place(src: str, dst: str) -> None:
 def _add_network_opts(cmd: list, path: str) -> None:
     """
     Append libavformat reconnection options to cmd when path looks like a
-    network URI. These enable reconnect, reconnect_on_network_error, and
-    reconnect_streamed, which together let libavformat survive transient
-    TCP RST and similar errors without surfacing them to mpv.
+    network URI. reconnect and reconnect_on_network_error let libavformat
+    survive transient TCP RST and similar errors without surfacing them to
+    mpv. reconnect_streamed is intentionally not set: it is only
+    meaningful for non-seekable streams, and forcing it on a seekable
+    source can re-download large regions on every hiccup.
     """
     if is_url(path):
         cmd.extend([f"--stream-lavf-o={opt}" for opt in NETWORK_OPTS])
@@ -444,6 +470,9 @@ def run_direct(job: FileJob, item: FrameItem, out_path: str,
     into place after mpv exits. No temporary directory is used; the only
     file the program ever creates is the requested output.
 
+    The image format is job.image_format, derived at parse time from the
+    output pattern's extension by normalize_output_pattern.
+
     Returns True on success. Returns False if mpv exited non-zero, timed
     out, produced no new file, or the rename failed; the caller then
     falls back to the IPC engine for the same frame.
@@ -451,7 +480,7 @@ def run_direct(job: FileJob, item: FrameItem, out_path: str,
     @note The input path is resolved to an absolute path for local files
     before launch, so changing the child's cwd does not break it.
     """
-    img_format, expected_ext = _image_format_for(out_path)
+    img_format = job.image_format
     out_abs = os.path.abspath(out_path)
     out_dir = os.path.dirname(out_abs)
     input_abs = _resolve_input(job.path)
@@ -501,12 +530,12 @@ def run_direct(job: FileJob, item: FrameItem, out_path: str,
             sys.stderr.write(f"[direct] spawn failed: {e}\n")
         return False
 
-    new_path = _find_new_numbered(out_dir, before, expected_ext)
+    new_path = _find_new_numbered(out_dir, before, img_format)
     if new_path is None:
         if verbosity >= 2:
             sys.stderr.write(
                 f"[direct] mpv rc={r.returncode}, no new image in "
-                f"{out_dir} (looking for .{expected_ext})\n"
+                f"{out_dir} (looking for .{img_format})\n"
                 f"[direct] stderr:\n{r.stderr}\n")
         return False
 
@@ -740,10 +769,9 @@ def run_ipc(jobs: List[FileJob], globals_: dict) -> int:
     snapshots that directory, seeks, waits for core-idle, then renames
     the newly created file to the requested output path.
 
-    FMT is derived from the first target's extension. If later targets
-    use a different extension, the file content matches the first
-    target's format; this is a documented limitation of mpv's writer,
-    which cannot change format between frames within one process.
+    FMT is jobs[0].image_format. mpv cannot change the writer format
+    within one process, so all jobs must agree on it; a mismatch is a
+    usage error reported before launch.
 
     IPC error handling: every command reply is a JSON object whose
     "error" field is "success" or an error string. A reply with "error"
@@ -751,13 +779,21 @@ def run_ipc(jobs: List[FileJob], globals_: dict) -> int:
     run with exit code 1. Socket and mpv child are cleaned up in the
     finally block regardless of how we exit.
     """
+    img_format = jobs[0].image_format
+    for j in jobs[1:]:
+        if j.image_format != img_format:
+            sys.stderr.write(
+                f"error: image format mismatch across files: "
+                f"{jobs[0].path} uses .{img_format}, {j.path} uses "
+                f".{j.image_format}; mpv cannot change format within one "
+                f"process, split into separate invocations\n")
+            return 1
+
     first_out = render_output_path(jobs[0].output_pattern, jobs[0],
                                    jobs[0].items[0], 0, 1)
     first_out_abs = os.path.abspath(first_out)
     capture_dir = os.path.dirname(first_out_abs)
     _ensure_parent(first_out_abs)
-
-    img_format, expected_ext = _image_format_for(first_out_abs)
 
     sockpath = _sockpath()
     proc: Optional[subprocess.Popen] = None
@@ -788,7 +824,7 @@ def run_ipc(jobs: List[FileJob], globals_: dict) -> int:
                                              item, idx, n)
                     print(f"[ipc] seek {float(item.seconds):.6f} "
                           f"absolute+exact")
-                    print(f"[ipc] rename newest .{expected_ext} in "
+                    print(f"[ipc] rename newest .{img_format} in "
                           f"{capture_dir} -> {shlex.quote(out)}")
             return 0
 
@@ -838,11 +874,11 @@ def run_ipc(jobs: List[FileJob], globals_: dict) -> int:
 
                 time.sleep(IMAGE_SETTLE_SECONDS)
 
-                src = _find_new_numbered(capture_dir, before, expected_ext)
+                src = _find_new_numbered(capture_dir, before, img_format)
                 if src is None:
                     sys.stderr.write(
                         f"error: no frame captured in {capture_dir} "
-                        f"(expected .{expected_ext})\n")
+                        f"(expected .{img_format})\n")
                     return 1
 
                 try:
@@ -1012,6 +1048,12 @@ def main(argv: List[str]) -> int:
             return 1
         if not job.output_pattern:
             job.output_pattern = DEFAULT_OUTPUT_PATTERN
+        try:
+            job.output_pattern, job.image_format = normalize_output_pattern(
+                job.output_pattern)
+        except UsageError as e:
+            sys.stderr.write(f"error: {e}\n")
+            return 1
 
     try:
         for job in jobs:
