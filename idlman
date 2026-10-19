@@ -14,8 +14,8 @@ lines=("${(@f)input}")
 local matched_lines=()
 for line in $lines; do
   line=${line%$'\r'}                     # strip trailing CR
-  if [[ $line = (#b)idman\ /d\ \"([^\"]##)\"\ /p\ \"[^\"]##\"\ /f\ \"([^\"]##)\" ]]; then
-    matched_lines+=("$line")
+  if [[ $line = (#b)idman\ /d\ \"([^\"]##)\"\ /p\ \"[^\"]##\"\ /f\ \"([^\"]##)\"[ ]# ]]; then
+    matched_lines+=("${line%% #}")
   fi
 done
 
