@@ -69,7 +69,7 @@ fi
 
 # Run the resumable download loop
 while [[ -v commands[curl] && -v fn && -v url ]]; do
-  if curl -qgsfLC "$(stat -c %s -- "$fn")" --url "$url" -w "%{stderr}$fn\n" --retry 0 -y185 -Y10240 >> "$fn"; then
+  if curl -qgsfL"$(stat -c C%s -- "$fn")" --url "$url" -w "%{stderr}$fn\n" --retry 0 -y185 -Y10240 >> "$fn"; then
     :
   else
     if [[ $? != (6|52|35|18|56|28) ]]; then
