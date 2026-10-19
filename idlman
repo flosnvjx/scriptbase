@@ -1,80 +1,81 @@
 #!/usr/bin/env shorthandzsh
+# Enable extended globbing locally
+setopt localoptions extendedglob
 
-setopt pipefail errexit
+# Read all input until EOF
+local input
+input="$(cat)"
 
-declare -A already_existing_outfn_sz
-if [[ "$1" = get && $# = 3 ]]; then
-  declare i=1
-  if [[ "$SLEEP" -gt 0 ]]; then
-    sleep $((SLEEP))
+# Split into lines (handle possible CRLF)
+local lines line
+lines=("${(@f)input}")
+
+# Collect lines matching the required pattern
+local matched_lines=()
+for line in $lines; do
+  line=${line%$'\r'}                     # strip trailing CR
+  if [[ $line = (#b)idman\ /d\ \"([^\"]##)\"\ /p\ \"[^\"]##\"\ /f\ \"([^\"]##)\" ]]; then
+    matched_lines+=("$line")
   fi
-  until {
-    if [[ -e "$3.ing" ]]; then already_existing_outfn_sz+=("$3" "$(stat -c %s -- "$3.ing")"); fi
-    stdbuf -o 32M curl -q --no-progress-meter -gfL"${${already_existing_outfn_sz[$3]:#0}:+C${already_existing_outfn_sz[$3]}}" -y 185 -Y 10240 --retry 0 --url "$2" <&- >>"$3.ing"
-  }; do
-    case "$?" in
-     (52|35|18|56|28) sleep $((RANDOM%30+60*i))
-     let i++
-     ;;
-     (*) exit $? ;;
-    esac
-  done
-  mv -vT -- "$3"{".ing",}
-  exit $?
-fi
-
-declare +x idlpaste=
-if (( !$# )); then
-vared -chp idlpaste: idlpaste
-
-declare -a idlargv=("${(@M)${(@f)idlpaste}:# #idman( ##/[dpf] ##\"[^\"]##\")## #}")
-else
-declare -a idlargv=("${(@M)${(@f)argv}:# #idman( ##/[dpf] ##\"[^\"]##\")## #}")
-fi
-env -v true "${(@)idlargv}"
-
-((#idlargv))
-declare -a idltriplet=() urls=() outfns=()
-while ((#idlargv)); do
-  idltriplet=("${(@z)idlargv[1]## #idman #}")
-  local url= outfn=
-  while ((#idltriplet)); do
-    case "${idltriplet[1]}" in
-    (/d) url=${${idltriplet[2]%\"}#\"} ;;
-    (/p) ;;
-    (/f) outfn=${${idltriplet[2]%\"}#\"} ;;
-    (*) return 1 ;;
-    esac
-    shift 2 idltriplet
-  done
-  urls+=("$url")
-  outfns+=("$outfn")
-  shift idlargv
 done
 
-if [[ -n "$1" && -d "$1/" ]]; then
-  declare +x outdir=$1
-else
-  declare +x outdir=.
+# Abort if nothing matched
+if (( ${#matched_lines} == 0 )); then
+  print -u2 "No matching line found."
+  return 1
 fi
 
-#builtin zmodload -Fa zsh/stat b:zstat
-while ((#urls)); do
-  declare k=0
-  local pgrep="$outdir/${outfns[1]}"
-  function {
-    setopt localoptions histsubstpattern extendedglob
-    local match=()
-    pgrep=${pgrep:gs/(#b)([.+^[|$]|\{|[\(])(#B)/'\\${match[1]}'/}
-  }
-  if pgrep -fcn -- '(^curl\.idlman:| +)'$pgrep'( .+|$)' >/dev/null; then
-    : running
-  elif [[ -e "$outdir/${outfns[1]}" ]]; then
-    : downloaded
-  else
-    k=$((k+1))
-    local SLEEP=$((RANDOM%10+10*k))
-    SLEEP=$SLEEP $0 get "${urls[1]}" "$outdir/${outfns[1]}" & disown
+# Choose a line (auto-select if only one)
+local selected_full
+if (( ${#matched_lines} == 1 )); then
+  selected_full=$matched_lines[1]
+else
+  # Build fzf input: each line is "full_line<TAB>filename"
+  local display_lines=()
+  local full_line fname
+  for full_line in $matched_lines; do
+    if [[ $full_line = (#b)idman\ /d\ \"([^\"]##)\"\ /p\ \"[^\"]##\"\ /f\ \"([^\"]##)\" ]]; then
+      fname=$match[2]
+    else
+      fname="???" # shouldn't happen
+    fi
+    display_lines+=("${full_line}"$'\t'"${fname}")
+  done
+
+  local chosen
+  chosen=$(print -l -- $display_lines | fzf --prompt="Select file: " --delimiter=$'\t' --with-nth=2 --no-multi)
+  if [[ -z $chosen ]]; then
+    print -u2 "No selection made."
+    return 1
   fi
-  shift urls outfns
+  # Extract full line (everything before the first TAB)
+  selected_full=${chosen%%$'\t'*}
+fi
+
+# Extract URL and filename from the selected full line
+local url fn
+if [[ $selected_full = (#b)idman\ /d\ \"([^\"]##)\"\ /p\ \"[^\"]##\"\ /f\ \"([^\"]##)\" ]]; then
+  url=$match[1]
+  fn=$match[2]
+else
+  print -u2 "Selected line unexpectedly does not match pattern."
+  return 1
+fi
+
+if [[ -z $fn || -z $url ]]; then
+  print -u2 "Failed to extract filename or URL from the selected line."
+  return 1
+fi
+
+# Run the resumable download loop
+while [[ -v commands[curl] && -v fn && -v url ]]; do
+  if curl -qgsfLC "$(stat -c %s -- "$fn")" --url "$url" -w "%{stderr}$fn\n" --retry 0 -y185 -Y10240 >> "$fn"; then
+    :
+  else
+    if [[ $? != (6|52|35|18|56|28) ]]; then
+      sleep 10
+    else
+      return 1
+    fi
+  fi
 done
