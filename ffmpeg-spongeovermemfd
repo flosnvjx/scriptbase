@@ -1,0 +1,154 @@
+#!/usr/bin/env perl
+# ffmpeg-spongeovermemfd — drop-in wrapper: replaces trailing '-' output with a
+# seekable memfd so that muxers (e.g. Matroska) can write duration/cues,
+# then dumps the result to stdout. No format detection, no temp files.
+use strict;
+use warnings;
+use POSIX ();
+use File::Spec;
+
+# ─── memfd_create syscall number cache ───
+my $_memfd_nr;
+
+sub detect_memfd_syscall {
+    return $_memfd_nr if defined $_memfd_nr;
+
+    my $arch = (POSIX::uname())[4];
+
+    if    ($arch eq 'x86_64' || $arch eq 'amd64') { $_memfd_nr = 319 }
+    elsif ($arch =~ /^aarch64/i)                  { $_memfd_nr = 279 }
+    elsif ($arch =~ /^armv[78]/i)                 { $_memfd_nr = 385 }
+    else {
+        # Fallback probe for unknown architectures
+        my $test_fd = syscall(279, "probe\0", 0);
+        if ($test_fd >= 0) {
+            POSIX::close($test_fd);
+            $_memfd_nr = 279;
+        } else {
+            die "ffmpeg-spongeovermemfd: unsupported arch '$arch'\n";
+        }
+    }
+    return $_memfd_nr;
+}
+
+sub memfd_create {
+    my ($name) = @_;
+    my $nr = detect_memfd_syscall();
+    # flags=0 → no CLOEXEC so child inherits the fd via /proc/self/fd/N
+    my $fd = syscall($nr, $name . "\0", 0);
+    die "ffmpeg-spongeovermemfd: memfd_create failed: $!\n" if $fd < 0;
+    return $fd;
+}
+
+# ─── Locate real binary in PATH ───
+sub find_binary {
+    my ($name) = @_;
+    $name = $ENV{FFPIPE_REAL_FFMPEG} if $ENV{FFPIPE_REAL_FFMPEG};
+    for my $dir (split /:/, $ENV{PATH} // '') {
+        my $candidate = File::Spec->catfile($dir, $name);
+        return $candidate if -x $candidate;
+    }
+    die "ffmpeg-spongeovermemfd: cannot find '$name' in PATH\n";
+}
+
+# ─── Dump memfd to stdout in binary-safe chunks ───
+sub dump_memfd_to_stdout {
+    my ($fd) = @_;
+
+    # Bind integer fd to a Perl filehandle for seek/read operations
+    open my $fh, '+<&=', $fd
+        or die "ffmpeg-spongeovermemfd: fdopen($fd) failed: $!\n";
+    binmode $fh;
+
+    seek($fh, 0, POSIX::SEEK_SET)
+        or die "ffmpeg-spongeovermemfd: seek memfd failed: $!\n";
+
+    binmode STDOUT or die "ffmpeg-spongeovermemfd: binmode STDOUT: $!\n";
+
+    my $buf;
+    while (sysread($fh, $buf, 1048576)) {
+        my $written = 0;
+        while ($written < length($buf)) {
+            my $n = syswrite(STDOUT, $buf, length($buf) - $written, $written);
+            die "ffmpeg-spongeovermemfd: write to stdout failed: $!\n"
+                unless defined $n && $n > 0;
+            $written += $n;
+        }
+    }
+    close $fh;
+}
+
+# ─── Main ───
+sub main {
+    my @argv = @ARGV;
+
+    # Determine which binary to exec
+    my $bin = 'ffmpeg';
+    if (@argv && ($argv[0] eq 'ffmpeg' || $argv[0] eq 'ffprobe')) {
+        $bin = shift @argv;
+    }
+    my $real_path = find_binary($bin);
+
+    # Only activate when the LAST argument is exactly '-'
+    my $activated = (@argv && $argv[-1] eq '-');
+
+    my $memfd = -1;
+    if ($activated) {
+        eval {
+            $memfd = memfd_create("ffpipe_out");
+            $argv[-1] = "/proc/self/fd/$memfd";
+
+            # Inject -y if user hasn't explicitly chosen -y or -n
+            my $has_y = grep { $_ eq '-y' } @argv;
+            my $has_n = grep { $_ eq '-n' } @argv;
+
+            if (!$has_y && !$has_n) {
+                # -y is a global option; insert before the first -i
+                my $insert_at = 0;
+                for my $i (0 .. $#argv) {
+                    if ($argv[$i] eq '-i') {
+                        $insert_at = $i;
+                        last;
+                    }
+                }
+                splice @argv, $insert_at, 0, '-y';
+            }
+        };
+        if ($@) {
+            print STDERR "ffmpeg-spongeovermemfd: memfd setup failed, passing '-' as-is: $@\n";
+            POSIX::close($memfd) if $memfd >= 0;
+            $memfd = -1;
+            $argv[-1] = '-';   # restore
+        }
+    }
+
+    if ($ENV{FFPIPE_DEBUG}) {
+        print STDERR "ffmpeg-spongeovermemfd: exec $real_path @argv\n";
+    }
+
+    # Fork so we can dump memfd after ffmpeg exits
+    my $pid = fork();
+    die "ffmpeg-spongeovermemfd: fork failed: $!\n" unless defined $pid;
+
+    if ($pid == 0) {
+        # Child: exec ffmpeg
+        exec { $real_path } $real_path, @argv
+            or die "ffmpeg-spongeovermemfd: exec failed: $!\n";
+    }
+
+    # Parent: wait for child, then dump if activated
+    waitpid($pid, 0);
+    my $exit_code = $? >> 8;
+
+    if ($activated && $memfd >= 0) {
+        eval { dump_memfd_to_stdout($memfd) };
+        if ($@) {
+            print STDERR "ffmpeg-spongeovermemfd: dump failed: $@\n";
+        }
+        POSIX::close($memfd);
+    }
+
+    exit $exit_code;
+}
+
+main();
