@@ -5,7 +5,7 @@ yt-dlp-httpd: A zero-file reverse proxy for yt-dlp streams.
 SYNOPSIS
     Default Mode (Read from JSON/JSONL file or stdin):
         python yt_dlp_httpd.py <metadata.json|jsonl|- >
-        
+
     Wrapper Mode (Invoke yt-dlp directly):
         yt-dlp-httpd [yt-dlp options] <URL>
         (Note: The executable/script name must be 'yt-dlp-httpd' to trigger this mode)
@@ -14,16 +14,19 @@ DESCRIPTION
     A memory-only reverse proxy that serves streams extracted by yt-dlp.
     It supports HTTP Range requests (for video seeking), automatically maps
     MIME types, and handles upstream HTTP headers (Cookies, Referer, etc.).
-    
     In Wrapper Mode, it intercepts yt-dlp CLI arguments, injects `--dump-json`
     if missing, and parses the output on the fly. If an upstream URL expires
     (e.g., HTTP 403), it automatically re-invokes yt-dlp in the background to
     refresh the routing table without interrupting the client.
+
 ENVIRONMENT VARIABLES
-    YT_DLP_HTTPD_HOST       Bind address (default: 127.0.0.1)
-    YT_DLP_HTTPD_PORT       Bind port (default: 8000)
-    YT_DLP_HTTPD_RETRIES    Max retries for network/connection errors (default: 9)
+    YT_DLP_HTTPD_HOST        Bind address (default: 127.0.0.1)
+    YT_DLP_HTTPD_PORT        Bind port (default: 8000)
+    YT_DLP_HTTPD_RETRIES     Max retries for network/connection errors (default: 9)
     YT_DLP_HTTPD_RETRY_DELAY Delay in seconds between network retries (default: 10)
+
+REQUIREMENTS
+    pip install starlette aiohttp uvicorn
 """
 
 import sys
@@ -34,18 +37,22 @@ import mimetypes
 import logging
 import html as html_module
 from contextlib import asynccontextmanager
-from urllib.parse import quote
 
 import aiohttp
 import uvicorn
 from starlette.applications import Starlette
 from starlette.requests import Request
-from starlette.responses import StreamingResponse, JSONResponse, HTMLResponse
+from starlette.responses import (
+    Response,
+    StreamingResponse,
+    JSONResponse,
+    HTMLResponse,
+)
 from starlette.routing import Route
 
 logging.basicConfig(
     level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(message)s"
+    format="%(asctime)s [%(levelname)s] %(message)s",
 )
 logger = logging.getLogger("yt-dlp-httpd")
 
@@ -53,10 +60,13 @@ MAX_RETRIES = int(os.environ.get("YT_DLP_HTTPD_RETRIES", 9))
 RETRY_DELAY = int(os.environ.get("YT_DLP_HTTPD_RETRY_DELAY", 10))
 HOST = os.environ.get("YT_DLP_HTTPD_HOST", "127.0.0.1")
 PORT = int(os.environ.get("YT_DLP_HTTPD_PORT", 8000))
+CHUNK = 65536
 
 routes = {}
 ytdlp_args = []
 is_wrapper_mode = False
+_refresh_lock = asyncio.Lock()
+_session = None  # shared, long-lived aiohttp session, created in lifespan
 
 
 def format_size(size_bytes):
@@ -73,18 +83,24 @@ def format_size(size_bytes):
 def process_entry(data):
     downloads = data.get("requested_downloads") or [data]
     for dl in downloads:
-        fname = dl.get("filename") or dl.get("_filename") or f"{data.get('id', 'video')}.{dl.get('ext', 'mp4')}"
+        fname = (
+            dl.get("filename")
+            or dl.get("_filename")
+            or f"{data.get('id', 'video')}.{dl.get('ext', 'mp4')}"
+        )
         path = "/" + fname.replace("\\", "/").lstrip("/")
-        
         routes[path] = {
             "url": dl.get("url"),
             "headers": dl.get("http_headers", {}),
             "ext": dl.get("ext", "mp4"),
             "filesize": dl.get("filesize") or dl.get("filesize_approx"),
             "webpage_url": data.get("webpage_url"),
-            "last_error": None
+            "last_error": None,
         }
-    logger.info(f"Loaded/Updated {len(downloads)} route(s) from entry ID: {data.get('id', 'unknown')}")
+    logger.info(
+        f"Loaded/Updated {len(downloads)} route(s) "
+        f"from entry ID: {data.get('id', 'unknown')}"
+    )
 
 
 async def parse_jsonl_stream(reader):
@@ -93,8 +109,7 @@ async def parse_jsonl_stream(reader):
         if not line:
             break
         try:
-            data = json.loads(line)
-            process_entry(data)
+            process_entry(json.loads(line))
         except json.JSONDecodeError:
             continue
 
@@ -104,16 +119,16 @@ def parse_jsonl_sync(text):
         if not line.strip():
             continue
         try:
-            data = json.loads(line)
-            process_entry(data)
+            process_entry(json.loads(line))
         except json.JSONDecodeError:
             continue
 
 
 def parse_single_json(text):
     data = json.loads(text)
-    if "entries" in data and isinstance(data["entries"], list):
-        for entry in data["entries"]:
+    entries = data.get("entries")
+    if isinstance(entries, list):
+        for entry in entries:
             if entry:
                 process_entry(entry)
     else:
@@ -122,97 +137,133 @@ def parse_single_json(text):
 
 async def invoke_ytdlp(args):
     cmd = ["yt-dlp"] + args
-    has_dump = any(arg in args for arg in ["-j", "--dump-json", "-J", "--dump-single-json"])
+    has_dump = any(a in args for a in ["-j", "--dump-json", "-J", "--dump-single-json"])
     if not has_dump:
         cmd.append("--dump-json")
     if "--no-warnings" not in args:
         cmd.append("--no-warnings")
 
     logger.info(f"Invoking: {' '.join(cmd)}")
-    use_single_json = ("-J" in cmd or "--dump-single-json" in cmd)
-    
+    use_single_json = "-J" in cmd or "--dump-single-json" in cmd
+
     proc = await asyncio.create_subprocess_exec(
         *cmd,
         stdout=asyncio.subprocess.PIPE,
-        stderr=sys.stderr
+        stderr=sys.stderr,
     )
-    
     if use_single_json:
         stdout, _ = await proc.communicate()
         if stdout:
             parse_single_json(stdout.decode("utf-8"))
     else:
         await parse_jsonl_stream(proc.stdout)
-        
     await proc.wait()
     if proc.returncode != 0 and not routes:
-        logger.error(f"yt-dlp exited with code {proc.returncode} and no routes were loaded.")
+        logger.error(
+            f"yt-dlp exited with code {proc.returncode} and no routes were loaded."
+        )
 
 
-@asynccontextmanager
-async def lifespan(app):
-    if is_wrapper_mode:
+async def _locked_refresh(path, before):
+    """Serialize refreshes across concurrent requests for the same path.
+    Uses a double-check under the lock so only the first waiter re-invokes
+    yt-dlp; the rest reuse the already-refreshed entry."""
+    async with _refresh_lock:
+        cur = routes.get(path, {}).get("url")
+        if cur and cur != before:
+            logger.info("Refresh already performed by a peer coroutine.")
+            return
+        logger.info("Acquired refresh lock, invoking yt-dlp...")
         await invoke_ytdlp(ytdlp_args)
-    yield
+        logger.info("Refresh complete, lock released.")
 
 
-async def stream_generator(session, method, url, headers, target, is_head=False):
-    """
-    Async generator that streams upstream content.
-    KEY FEATURE: Synchronizes Content-Length from upstream into the routing table
-    on both HEAD and GET requests when upstream provides a non-zero value.
-    """
+async def open_upstream(method, headers, path):
+    """Issue the upstream request, handling expiry-refresh and transient network
+    errors. Returns a LIVE aiohttp.ClientResponse (the caller must release or
+    close it). Uses the shared global session, which stays open for the whole
+    app lifetime, so it is safe to consume the body after the handler returns."""
     retries = 0
     while True:
+        target = routes.get(path)
+        if target is None:
+            raise RuntimeError(f"Route vanished: {path}")
+        url = target.get("url")
+        if not url:
+            raise RuntimeError(f"No upstream URL for {path}")
+
         try:
-            async with session.request(method, url, headers=headers, allow_redirects=True) as resp:
-                target["last_error"] = None
-                
-                # === SIZE SYNCHRONIZATION ===
-                # Update routing table with precise size from upstream
-                upstream_cl = resp.headers.get("Content-Length")
-                if upstream_cl and upstream_cl.isdigit():
-                    precise_size = int(upstream_cl)
-                    if precise_size > 0 and precise_size != target.get("filesize"):
-                        old_size = target.get("filesize")
-                        target["filesize"] = precise_size
-                        logger.info(
-                            f"Size updated for {url}: "
-                            f"{format_size(old_size)} -> {format_size(precise_size)}"
-                        )
-                
-                # Handle expired URLs in wrapper mode
-                if resp.status in (403, 401, 410, 404) and is_wrapper_mode:
-                    if target["last_error"] == resp.status:
-                        logger.error(f"Continuous {resp.status} for {url}, giving up.")
-                        return
-                    logger.warning(f"Upstream returned {resp.status}. Re-invoking yt-dlp to refresh URLs...")
-                    target["last_error"] = resp.status
-                    await invoke_ytdlp(ytdlp_args)
-                    return  # Signal handler to retry lookup
-
-                if resp.status >= 400:
-                    logger.error(f"Upstream error: {resp.status}")
-                    return
-
-                if is_head:
-                    return  # HEAD: only needed headers (already synced above)
-
-                async for chunk in resp.content.iter_chunked(65536):
-                    yield chunk
-            break
-            
+            resp = await _session.request(
+                method, url, headers=headers, allow_redirects=True
+            )
         except (aiohttp.ClientError, asyncio.TimeoutError) as e:
             retries += 1
             if retries > MAX_RETRIES:
-                logger.error(f"Max retries ({MAX_RETRIES}) exceeded for network error: {e}")
-                return
-            logger.warning(f"Network error: {e}. Retrying {retries}/{MAX_RETRIES} in {RETRY_DELAY}s...")
+                logger.error(f"Max retries ({MAX_RETRIES}) exceeded: {e}")
+                raise
+            logger.warning(
+                f"Network error: {e}. Retrying {retries}/{MAX_RETRIES} "
+                f"in {RETRY_DELAY}s..."
+            )
             await asyncio.sleep(RETRY_DELAY)
+            continue
+
+        target = routes[path]  # re-fetch: refresh may have swapped the dict
+
+        # SIZE SYNCHRONIZATION from the real upstream response
+        cl = resp.headers.get("Content-Length")
+        if cl and cl.isdigit() and int(cl) > 0 and int(cl) != target.get("filesize"):
+            old = target.get("filesize")
+            target["filesize"] = int(cl)
+            logger.info(
+                f"Size updated for {path}: "
+                f"{format_size(old)} -> {format_size(int(cl))}"
+            )
+
+        # EXPIRED-URL HANDLING (wrapper mode)
+        if resp.status in (401, 403, 410, 404) and is_wrapper_mode:
+            if target.get("last_error") == resp.status:
+                await resp.release()
+                logger.error(
+                    f"Continuous {resp.status} for {path}, honestly reporting it."
+                )
+                return await _session.request(
+                    method, url, headers=headers, allow_redirects=True
+                )
+            logger.warning(f"Upstream returned {resp.status}. Triggering refresh...")
+            target["last_error"] = resp.status
+            before = target.get("url")
+            await _locked_refresh(path, before)
+            await resp.release()
+            new_url = routes.get(path, {}).get("url")
+            if new_url and new_url != before:
+                logger.info("Retrying upstream with refreshed URL.")
+                continue
+            logger.error("Refresh did not yield a new URL; reporting upstream status.")
+            return await _session.request(
+                method, before, headers=headers, allow_redirects=True
+            )
+
+        if target.get("last_error") is not None:
+            target["last_error"] = None
+        return resp
+
+
+async def body_iterator(resp, method):
+    """Yield upstream bytes, then release the connection. Runs against the
+    shared session, so it is safe even though Starlette consumes it after the
+    handler returns. No temp files are ever written."""
+    if method == "HEAD":
+        await resp.release()
+        return
+    try:
+        async for chunk in resp.content.iter_chunked(CHUNK):
+            yield chunk
+    finally:
+        resp.close()
 
 
 async def directory_listing(request: Request):
-    """HTML directory listing of all available streams."""
     rows = []
     for path in sorted(routes.keys()):
         target = routes[path]
@@ -224,17 +275,15 @@ async def directory_listing(request: Request):
         webpage = target.get("webpage_url", "")
         source_link = ""
         if webpage:
-            safe_url = html_module.escape(webpage)
-            source_link = f'<a href="{safe_url}" target="_blank" rel="noopener">source</a>'
-        
-        rows.append(f"""
-            <tr>
-                <td><a href="{safe_path}">{safe_name}</a></td>
-                <td style="text-align:right">{size_str}</td>
-                <td>{mime_str}</td>
-                <td>{source_link}</td>
-            </tr>""")
-    
+            source_link = (
+                f'<a href="{html_module.escape(webpage)}" '
+                f'target="_blank" rel="noopener">source</a>'
+            )
+        rows.append(
+            f'<tr><td><a href="{safe_path}">{safe_name}</a></td>'
+            f'<td style="text-align:right">{size_str}</td>'
+            f"<td>{mime_str}</td><td>{source_link}</td></tr>"
+        )
     html_content = f"""<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -254,11 +303,11 @@ async def directory_listing(request: Request):
 </style>
 </head>
 <body>
-<h1>📡 yt-dlp-httpd Stream Directory</h1>
-<p class="count">{len(routes)} stream(s) available &middot; Sizes are updated live via upstream HEAD/GET probes.</p>
+<h1>yt-dlp-httpd Stream Directory</h1>
+<p class="count">{len(routes)} stream(s) available &middot; Sizes are updated live from real upstream responses.</p>
 <table>
 <thead><tr><th>Filename</th><th style="text-align:right">Size</th><th>MIME Type</th><th>Source</th></tr></thead>
-<tbody>{''.join(rows)}</tbody>
+<tbody>{"".join(rows)}</tbody>
 </table>
 </body>
 </html>"""
@@ -267,82 +316,102 @@ async def directory_listing(request: Request):
 
 async def proxy_handler(request: Request):
     path = request.url.path
-    
-    # Root path serves directory listing
-    if path == "/" or path == "":
+
+    if path in ("/", ""):
         return await directory_listing(request)
-    
+
     if path not in routes:
-        return JSONResponse({"detail": "Stream not found in routing table"}, status_code=404)
-        
+        return JSONResponse(
+            {"detail": "Stream not found in routing table"}, status_code=404
+        )
+
     target = routes[path]
-    is_head = request.method == "HEAD"
-    
-    # Build upstream headers
+
+    # build upstream headers (yt-dlp headers take precedence)
     upstream_headers = {}
-    for key in ["user-agent", "accept", "accept-language", "accept-encoding", "range"]:
+    for key in ["user-agent", "accept", "accept-language", "range"]:
         if key in request.headers:
             upstream_headers[key] = request.headers[key]
+    # NOTE: accept-encoding is intentionally NOT forwarded so the streamed
+    # byte count matches the Content-Length we publish.
     for k, v in target["headers"].items():
         upstream_headers[k.lower()] = str(v)
-        
+
     mime_type, _ = mimetypes.guess_type(f"file.{target['ext']}")
     if not mime_type:
         mime_type = "application/octet-stream"
 
-    response_headers = {"Content-Type": mime_type}
-    # Use potentially-updated filesize from routing table
-    if target.get("filesize"):
-        response_headers["Content-Length"] = str(target["filesize"])
-    if "range" in request.headers:
-        response_headers["Accept-Ranges"] = "bytes"
+    # open upstream (handles refresh + network retries); resp is LIVE here
+    try:
+        resp = await open_upstream(request.method, upstream_headers, path)
+    except (aiohttp.ClientError, asyncio.TimeoutError, RuntimeError) as e:
+        logger.error(f"Upstream open failed for {path}: {e}")
+        return JSONResponse({"detail": f"Upstream error: {e}"}, status_code=502)
 
+    # reflect the real upstream status and range semantics
+    status_code = resp.status
+    out_headers = {"Content-Type": mime_type, "Accept-Ranges": "bytes"}
+    content_range = resp.headers.get("Content-Range")
+
+    if status_code == 206 and content_range:
+        out_headers["Content-Range"] = content_range
+        partial_len = content_range.rsplit("/", 1)[-1]
+        if partial_len.isdigit():
+            out_headers["Content-Length"] = partial_len
+    elif status_code == 416:
+        if content_range:
+            out_headers["Content-Range"] = content_range
+    else:
+        cl = resp.headers.get("Content-Length")
+        if cl and cl.isdigit():
+            out_headers["Content-Length"] = cl
+        elif routes[path].get("filesize"):
+            out_headers["Content-Length"] = str(routes[path]["filesize"])
+
+    # HEAD: headers only, release the connection, no streaming generator
+    if request.method == "HEAD":
+        await resp.release()
+        return Response(
+            content=b"", status_code=status_code, headers=out_headers,
+            media_type=mime_type,
+        )
+
+    return StreamingResponse(
+        body_iterator(resp, request.method),
+        status_code=status_code,
+        headers=out_headers,
+        media_type=mime_type,
+    )
+
+
+@asynccontextmanager
+async def lifespan(app):
+    global _session
     timeout = aiohttp.ClientTimeout(total=None, sock_connect=30, sock_read=None)
-    async with aiohttp.ClientSession(timeout=timeout) as session:
-        gen = stream_generator(
-            session, request.method, target["url"], 
-            upstream_headers, target, is_head=is_head
-        )
-        
-        if is_head:
-            # Consume generator to trigger size sync and potential URL refresh
-            async for _ in gen:
-                pass
-            # After potential refresh, re-check if URL changed
-            if path in routes and routes[path].get("last_error"):
-                target = routes[path]
-                gen = stream_generator(
-                    session, request.method, target["url"],
-                    upstream_headers, target, is_head=True
-                )
-                async for _ in gen:
-                    pass
-            # Rebuild headers with potentially updated size
-            if target.get("filesize"):
-                response_headers["Content-Length"] = str(target["filesize"])
-            return StreamingResponse(
-                iter([]), 
-                status_code=200, 
-                headers=response_headers, 
-                media_type=mime_type
-            )
-        
-        return StreamingResponse(
-            gen, 
-            status_code=200, 
-            headers=response_headers, 
-            media_type=mime_type
-        )
+    connector = aiohttp.TCPConnector(limit=0, ttl_dns_cache=300)
+    # Shared, long-lived session: survives past the handler return so streaming
+    # bodies always execute against a live session.
+    _session = aiohttp.ClientSession(timeout=timeout, connector=connector)
+    try:
+        if is_wrapper_mode:
+            await invoke_ytdlp(ytdlp_args)
+        yield
+    finally:
+        await _session.close()
+        _session = None
 
 
 app = Starlette(
     routes=[Route("/{path:path}", proxy_handler, methods=["GET", "HEAD"])],
-    lifespan=lifespan
+    lifespan=lifespan,
 )
+
 
 if __name__ == "__main__":
     basename = os.path.basename(sys.argv[0])
-    if basename == "yt-dlp-httpd" or (len(sys.argv) > 1 and sys.argv[1] == "--wrapper-mode"):
+    if basename == "yt-dlp-httpd" or (
+        len(sys.argv) > 1 and sys.argv[1] == "--wrapper-mode"
+    ):
         is_wrapper_mode = True
         ytdlp_args = sys.argv[1:] if basename == "yt-dlp-httpd" else sys.argv[2:]
         logger.info("Starting in Wrapper Mode...")
@@ -357,9 +426,9 @@ if __name__ == "__main__":
         else:
             with open(source, "r", encoding="utf-8") as f:
                 content = f.read()
-                try:
-                    parse_single_json(content)
-                except json.JSONDecodeError:
-                    parse_jsonl_sync(content)
-                    
+            try:
+                parse_single_json(content)
+            except json.JSONDecodeError:
+                parse_jsonl_sync(content)
+
     uvicorn.run(app, host=HOST, port=PORT, log_level="info")
