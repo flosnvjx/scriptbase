@@ -8,7 +8,6 @@ SYNOPSIS
 
     Wrapper Mode (Invoke yt-dlp directly):
         yt-dlp-httpd [yt-dlp options] <URL>
-        (Note: The executable/script name must be 'yt-dlp-httpd' to trigger this mode)
 
 DESCRIPTION
     A memory-only reverse proxy that serves streams extracted by yt-dlp.
@@ -19,11 +18,50 @@ DESCRIPTION
     (e.g., HTTP 403), it automatically re-invokes yt-dlp in the background to
     refresh the routing table without interrupting the client.
 
+ROBUST STREAM HANDLING (this revision)
+    Two failure modes that a naive proxy silently mis-serves are now handled:
+
+    1. Empty / early-closed reply. The upstream accepts the request (200/206)
+       but closes the connection before delivering the byte count it declared
+       (Content-Length / Content-Range). Because Starlette emits the response
+       headers the moment the handler returns, a mid-stream break cannot change
+       the status any more -- so the break is repaired, not reported:
+         * Before any header is sent, _acquire() primes the connection by
+           reading the first data chunk. If that first chunk never arrives
+           (immediate EOF while bytes are expected, or a stall), the client
+           has not been answered yet, so we simply reconnect / refresh here.
+         * After headers are sent, body_iterator() watches the byte count. On
+           truncation, a read error, or a stall it closes the connection and
+           re-opens it with a Range resuming at the byte already delivered,
+           stitching the remaining bytes back into the SAME stream. The client
+           sees one continuous, correctly-sized response and notices nothing.
+
+    2. Live-but-stalled connection. The socket is open yet transfers no data
+       (or only absurdly little) within a given window -- the curl -y/-Y case.
+       Per-read asyncio timeouts catch pure silence (STALL_TIMEOUT), and a
+       sliding-window rate check catches the "few bytes trickling" case
+       (SPEED_LIMIT over SPEED_TIME; SPEED_LIMIT=0 disables rate checking).
+
+    In BOTH cases we first retry the SAME upstream URL, because a stall or an
+    early close is usually a transient CDN/network hiccup that a fresh
+       connection to the same URL clears. Re-invoking yt-dlp for a new URL is
+    only an escalation, used after the same-URL reconnect budget is spent, and
+    is further capped by MAX_URL_REFRESHES to avoid pathological loops.
+
 ENVIRONMENT VARIABLES
-    YT_DLP_HTTPD_HOST        Bind address (default: 127.0.0.1)
-    YT_DLP_HTTPD_PORT        Bind port (default: 8000)
-    YT_DLP_HTTPD_RETRIES     Max retries for network/connection errors (default: 9)
-    YT_DLP_HTTPD_RETRY_DELAY Delay in seconds between network retries (default: 10)
+    YT_DLP_HTTPD_HOST           Bind address (default: 127.0.0.1)
+    YT_DLP_HTTPD_PORT           Bind port (default: 8000)
+    YT_DLP_HTTPD_RETRIES        Max same-URL reconnects for stream errors (default: 9)
+    YT_DLP_HTTPD_RETRY_DELAY    Delay in seconds between reconnects (default: 10)
+    YT_DLP_HTTPD_STALL_TIMEOUT  Max silence for one read / header fetch, in
+                                seconds; 0 disables the silence timeout (default: 30)
+    YT_DLP_HTTPD_SPEED_LIMIT    Min throughput in bytes/s before a stream is
+                                considered stalled (curl -Y); 0 disables rate
+                                checking (default: 0)
+    YT_DLP_HTTPD_SPEED_TIME     Sliding window in seconds for the speed check
+                                (curl -y) (default: 10)
+    YT_DLP_HTTPD_MAX_REFRESH    Cap on yt-dlp URL refreshes per proxied request
+                                in wrapper mode (default: 3)
 
 REQUIREMENTS
     pip install starlette aiohttp uvicorn
@@ -32,6 +70,7 @@ REQUIREMENTS
 import sys
 import os
 import json
+import time
 import asyncio
 import mimetypes
 import logging
@@ -57,7 +96,11 @@ logging.basicConfig(
 logger = logging.getLogger("yt-dlp-httpd")
 
 MAX_RETRIES = int(os.environ.get("YT_DLP_HTTPD_RETRIES", 9))
-RETRY_DELAY = int(os.environ.get("YT_DLP_HTTPD_RETRY_DELAY", 10))
+RETRY_DELAY = float(os.environ.get("YT_DLP_HTTPD_RETRY_DELAY", 10))
+STALL_TIMEOUT = float(os.environ.get("YT_DLP_HTTPD_STALL_TIMEOUT", 30))
+SPEED_LIMIT = int(os.environ.get("YT_DLP_HTTPD_SPEED_LIMIT", 0))
+SPEED_TIME = float(os.environ.get("YT_DLP_HTTPD_SPEED_TIME", 10))
+MAX_REFRESH = int(os.environ.get("YT_DLP_HTTPD_MAX_REFRESH", 3))
 HOST = os.environ.get("YT_DLP_HTTPD_HOST", "127.0.0.1")
 PORT = int(os.environ.get("YT_DLP_HTTPD_PORT", 8000))
 CHUNK = 65536
@@ -78,6 +121,12 @@ def format_size(size_bytes):
             return f"{size_bytes:.1f} {unit}"
         size_bytes /= 1024.0
     return f"{size_bytes:.1f} PB"
+
+
+def _read_timeout():
+    """Per-read / per-connect ceiling derived from STALL_TIMEOUT. None means the
+    caller awaits indefinitely (only used when STALL_TIMEOUT is disabled)."""
+    return STALL_TIMEOUT if STALL_TIMEOUT and STALL_TIMEOUT > 0 else None
 
 
 def process_entry(data):
@@ -166,8 +215,7 @@ async def invoke_ytdlp(args):
 
 async def _locked_refresh(path, before):
     """Serialize refreshes across concurrent requests for the same path.
-    Uses a double-check under the lock so only the first waiter re-invokes
-    yt-dlp; the rest reuse the already-refreshed entry."""
+    Double-check under the lock so only the first waiter re-invokes yt-dlp."""
     async with _refresh_lock:
         cur = routes.get(path, {}).get("url")
         if cur and cur != before:
@@ -178,12 +226,68 @@ async def _locked_refresh(path, before):
         logger.info("Refresh complete, lock released.")
 
 
-async def open_upstream(method, headers, path):
-    """Issue the upstream request, handling expiry-refresh and transient network
-    errors. Returns a LIVE aiohttp.ClientResponse (the caller must release or
-    close it). Uses the shared global session, which stays open for the whole
-    app lifetime, so it is safe to consume the body after the handler returns."""
-    retries = 0
+def _seg_expect(resp, status):
+    """Bytes this response segment should deliver, or None if unknown (chunked)."""
+    cr = resp.headers.get("Content-Range")
+    if status == 206 and cr and "/" in cr:
+        rng, _, total = cr.partition("/")
+        span = rng.split("-")
+        if len(span) == 2 and span[0].isdigit() and span[1].isdigit():
+            return int(span[1]) - int(span[0]) + 1
+    cl = resp.headers.get("Content-Length")
+    if cl and cl.isdigit():
+        return int(cl)
+    return None
+
+
+async def _request_with_timeout(method, url, headers):
+    """session.request bounded by the stall timeout on connect + header receipt.
+    Raises asyncio.TimeoutError if the server accepts nothing/headers too slowly."""
+    to = _read_timeout()
+    coro = _session.request(method, url, headers=headers, allow_redirects=True)
+    if to:
+        return await asyncio.wait_for(coro, timeout=to)
+    return await coro
+
+
+async def _read_first_chunk(resp, status):
+    """Read the first data chunk from a live 200/206 response, honoring the stall
+    timeout. Returns (chunk, reason) where reason in {'ok','eof','stall','error'}
+    and chunk is the bytes read (may be b'' for eof). Errors release nothing; the
+    caller closes the response."""
+    expect = _seg_expect(resp, status)
+    to = _read_timeout()
+    try:
+        if to:
+            data = await asyncio.wait_for(resp.content.read(CHUNK), timeout=to)
+        else:
+            data = await resp.content.read(CHUNK)
+    except asyncio.TimeoutError:
+        return b"", "stall"
+    except aiohttp.ClientPayloadError:
+        # Content-Length not satisfied -> the connection was closed early.
+        return b"", "eof"
+    except aiohttp.ClientError:
+        return b"", "error"
+    if not data and (expect is None or expect > 0):
+        return b"", "eof"
+    return data, "ok"
+
+
+async def _acquire(method, base_headers, path, abs_start, abs_end, is_head):
+    """Obtain a HEALTHY upstream connection for the byte range beginning at
+    abs_start. For GET this means a live response whose first data chunk has
+    already been read (returned as ), so empty / stalled / early-closed
+    replies are caught BEFORE the client is answered.
+
+    Strategy: retry the SAME URL first (transient hiccups); only escalate to a
+    yt-dlp refresh once the same-URL budget is spent.  is None for HEAD.
+
+    Returns (resp, first). The caller owns resp (must close/release)."""
+    range_val = f"bytes={abs_start}-" if abs_end is None else f"bytes={abs_start}-{abs_end}"
+    reconnects = 0
+    refreshes = 0
+
     while True:
         target = routes.get(path)
         if target is None:
@@ -192,75 +296,232 @@ async def open_upstream(method, headers, path):
         if not url:
             raise RuntimeError(f"No upstream URL for {path}")
 
+        headers = dict(base_headers)
+        # A resume offset of 0 for a full GET means the client sent no Range;
+        # only add an explicit Range when resuming mid-stream or when the
+        # original request already carried one.
+        if method == "GET" and (abs_start > 0 or "range" in base_headers):
+            headers["range"] = range_val
+
         try:
-            resp = await _session.request(
-                method, url, headers=headers, allow_redirects=True
-            )
+            resp = await _request_with_timeout(method, url, headers)
         except (aiohttp.ClientError, asyncio.TimeoutError) as e:
-            retries += 1
-            if retries > MAX_RETRIES:
-                logger.error(f"Max retries ({MAX_RETRIES}) exceeded: {e}")
+            reason = "stalled header fetch" if isinstance(e, asyncio.TimeoutError) else f"network error: {e}"
+            # cannot escalate via refresh from here reliably; reconnect same URL
+            reconnects += 1
+            if reconnects > MAX_RETRIES:
+                logger.error(f"Acquire failed after {MAX_RETRIES} reconnects: {reason}")
                 raise
-            logger.warning(
-                f"Network error: {e}. Retrying {retries}/{MAX_RETRIES} "
-                f"in {RETRY_DELAY}s..."
-            )
+            logger.warning(f"{reason}. Same-URL reconnect {reconnects}/{MAX_RETRIES} in {RETRY_DELAY}s...")
             await asyncio.sleep(RETRY_DELAY)
             continue
 
-        target = routes[path]  # re-fetch: refresh may have swapped the dict
+        status = resp.status
+        target = routes[path]
 
-        # SIZE SYNCHRONIZATION from the real upstream response
-        cl = resp.headers.get("Content-Length")
-        if cl and cl.isdigit() and int(cl) > 0 and int(cl) != target.get("filesize"):
-            old = target.get("filesize")
-            target["filesize"] = int(cl)
-            logger.info(
-                f"Size updated for {path}: "
-                f"{format_size(old)} -> {format_size(int(cl))}"
-            )
-
-        # EXPIRED-URL HANDLING (wrapper mode)
-        if resp.status in (401, 403, 410, 404) and is_wrapper_mode:
-            if target.get("last_error") == resp.status:
-                await resp.release()
-                logger.error(
-                    f"Continuous {resp.status} for {path}, honestly reporting it."
-                )
-                return await _session.request(
-                    method, url, headers=headers, allow_redirects=True
-                )
-            logger.warning(f"Upstream returned {resp.status}. Triggering refresh...")
-            target["last_error"] = resp.status
+        # EXPIRED-URL: escalate to refresh (this is the one case a new URL helps)
+        if status in (401, 403, 410, 404) and is_wrapper_mode:
+            if target.get("last_error") == status and refreshes >= MAX_REFRESH:
+                logger.error(f"Continuous {status} for {path}; reporting it honestly.")
+                return resp, None
+            target["last_error"] = status
             before = target.get("url")
             await _locked_refresh(path, before)
             await resp.release()
             new_url = routes.get(path, {}).get("url")
             if new_url and new_url != before:
-                logger.info("Retrying upstream with refreshed URL.")
+                refreshes += 1
+                reconnects = 0
+                logger.info(f"Refreshed URL (#{refreshes}); re-acquiring at byte {abs_start}.")
                 continue
+            # refresh produced nothing new; keep old status for honest report
             logger.error("Refresh did not yield a new URL; reporting upstream status.")
-            return await _session.request(
-                method, before, headers=headers, allow_redirects=True
-            )
+            return resp, None
 
-        if target.get("last_error") is not None:
-            target["last_error"] = None
-        return resp
+        if status >= 400:
+            # Non-retryable upstream error (e.g. real 416, 500): hand back as-is.
+            return resp, None
 
+        if is_head:
+            if target.get("last_error") is not None:
+                target["last_error"] = None
+            # Sync size from the real HEAD response.
+            cl = resp.headers.get("Content-Length")
+            if cl and cl.isdigit() and int(cl) > 0 and int(cl) != target.get("filesize"):
+                target["filesize"] = int(cl)
+                logger.info(f"Size updated via HEAD for {path}: {format_size(int(cl))}")
+            return resp, None
 
-async def body_iterator(resp, method):
-    """Yield upstream bytes, then release the connection. Runs against the
-    shared session, so it is safe even though Starlette consumes it after the
-    handler returns. No temp files are ever written."""
-    if method == "HEAD":
+        # 200/206: prime the first chunk; catch empty / stall / early close here.
+        first, why = await _read_first_chunk(resp, status)
+        if why == "ok":
+            if target.get("last_error") is not None:
+                target["last_error"] = None
+            return resp, first
+
+        # first chunk failed -> connection is unusable, not yet answered to client
         await resp.release()
-        return
-    try:
-        async for chunk in resp.content.iter_chunked(CHUNK):
-            yield chunk
-    finally:
-        resp.close()
+        logger.warning(f"Upstream {why} at byte {abs_start} (status {status}).")
+        reconnects += 1
+        if reconnects <= MAX_RETRIES:
+            logger.info(f"Same-URL reconnect {reconnects}/{MAX_RETRIES} in {RETRY_DELAY}s...")
+            await asyncio.sleep(RETRY_DELAY)
+            continue
+        # same-URL budget spent: escalate to refresh (wrapper mode only)
+        if is_wrapper_mode and refreshes < MAX_REFRESH:
+            before = routes.get(path, {}).get("url")
+            await _locked_refresh(path, before)
+            new_url = routes.get(path, {}).get("url")
+            if new_url and new_url != before:
+                refreshes += 1
+                reconnects = 0
+                logger.info(f"Escalated to URL refresh (#{refreshes}); re-acquiring at byte {abs_start}.")
+                continue
+        # Nothing more we can do without answering a broken stream: return a
+        # freshly-opened response so the handler at least has a valid status to
+        # mirror to the client (it will end up looking like an early EOF, which
+        # clients can retry themselves).
+        logger.error(
+            f"Could not obtain a healthy upstream segment at byte {abs_start} "
+            f"for {path} after {reconnects} reconnects / {refreshes} refreshes."
+        )
+        return await _request_with_timeout(method, url, base_headers), None
+
+
+async def body_iterator(resp, first, base_headers, path, abs_start, abs_end,
+                        seg_expect, seg_got):
+    """Stream bytes to the client, transparently resuming on stall / truncation.
+    Runs against the shared session, so it is safe after the handler returns.
+    Never writes any file. / are absolute byte offsets of the
+    logical response the client is receiving; / describe the
+    current upstream segment.  is the already-read primed chunk (or None)."""
+    delivered = seg_got  # bytes yielded within the current logical response
+    total = abs_end - abs_start + 1 if abs_end is not None else None
+    reconnects = 0
+    refreshes = 0
+
+    # window for speed-limit (curl -Y) checking
+    win_start = time.monotonic()
+    win_bytes = 0
+
+    while True:
+        cur = resp
+        first_local = first
+        first = None
+        try:
+            if first_local is not None:
+                if not first_local and total is not None and delivered < total:
+                    raise _Truncated()
+                if first_local:
+                    yield first_local
+                    delivered += len(first_local)
+                    win_bytes += len(first_local)
+                    seg_got += len(first_local)
+
+            while True:
+                # remaining bytes for the whole logical response
+                if total is not None and delivered >= total:
+                    return
+                to = _read_timeout()
+                try:
+                    if to:
+                        chunk = await asyncio.wait_for(cur.content.read(CHUNK), timeout=to)
+                    else:
+                        chunk = await cur.content.read(CHUNK)
+                except asyncio.TimeoutError:
+                    raise _Stalled()
+                except aiohttp.ClientPayloadError:
+                    raise _Truncated()
+                except aiohttp.ClientError as e:
+                    raise _Broken(str(e))
+
+                if not chunk:
+                    if cur.status == 206 or cur.status == 200:
+                        if seg_expect is None:
+                            return  # chunked / unknown length: EOF is normal
+                        if seg_got < seg_expect:
+                            raise _Truncated()
+                    return
+
+                yield chunk
+                delivered += len(chunk)
+                seg_got += len(chunk)
+                win_bytes += len(chunk)
+
+                if SPEED_LIMIT > 0:
+                    elapsed = time.monotonic() - win_start
+                    if elapsed >= SPEED_TIME:
+                        rate = win_bytes / elapsed if elapsed else 0
+                        if rate < SPEED_LIMIT:
+                            raise _Stalled(f"rate {rate:.0f} B/s < {SPEED_LIMIT}")
+                        win_start = time.monotonic()
+                        win_bytes = 0
+            return
+        except (_Truncated, _Stalled, _Broken) as why:
+            cur.close()
+            reason = why.args[0] if why.args and isinstance(why.args[0], str) else type(why).__name__
+            logger.warning(f"Stream broke at byte {delivered} ({reason}); attempting resume.")
+
+            # cannot resume if we have nothing to resume from and no total known
+            if total is None and delivered == 0:
+                logger.error("Empty reply with unknown length; nothing to resume.")
+                return
+
+            if delivered and (total is None or delivered < total):
+                new_abs_start = abs_start + delivered
+                try:
+                    resp, first = await _acquire(
+                        "GET", base_headers, path, new_abs_start, abs_end, False
+                    )
+                except (aiohttp.ClientError, asyncio.TimeoutError, RuntimeError) as e:
+                    logger.error(f"Resume acquire failed: {e}; ending stream.")
+                    return
+                status = resp.status
+                if status == 206:
+                    # recompute segment expectation from the resumed response
+                    seg_expect = _seg_expect(resp, status)
+                    seg_got = 0
+                    reconnects += 1
+                    logger.info(f"Resumed at byte {delivered} (segment reconnect {reconnects}).")
+                    continue
+                if status == 200 and delivered == 0:
+                    # upstream ignored Range but we are at the very start: fine
+                    seg_expect = _seg_expect(resp, status)
+                    seg_got = 0
+                    reconnects += 1
+                    continue
+                # upstream did not honour the resume range -> we cannot stitch
+                # transparently without corrupting the byte stream.
+                logger.error(
+                    f"Upstream returned {status} on resume (Range not honored); "
+                    f"cannot continue without corrupting the stream. Aborting body."
+                )
+                resp.close()
+                return
+            else:
+                # delivered == total (or nothing delivered): treat as done
+                return
+        except GeneratorExit:
+            cur.close()
+            raise
+        finally:
+            # close whatever we are holding when the loop truly exits
+            try:
+                cur.close()
+            except Exception:
+                pass
+
+
+class _Truncated(Exception):
+    pass
+
+
+class _Stalled(Exception):
+    pass
+
+
+class _Broken(Exception):
+    pass
 
 
 async def directory_listing(request: Request):
@@ -314,6 +575,24 @@ async def directory_listing(request: Request):
     return HTMLResponse(html_content)
 
 
+def _parse_range(range_header, filesize):
+    """Return (abs_start, abs_end_or_None) for a single-range request."""
+    if not range_header or not range_header.startswith("bytes="):
+        return 0, None
+    spec = range_header[len("bytes="):].split(",")[0].strip()
+    if "-" not in spec:
+        return 0, None
+    start_s, _, end_s = spec.partition("-")
+    start = int(start_s) if start_s.isdigit() else 0
+    if end_s.isdigit():
+        end = int(end_s)
+    elif filesize:
+        end = filesize - 1
+    else:
+        end = None
+    return start, end
+
+
 async def proxy_handler(request: Request):
     path = request.url.path
 
@@ -332,8 +611,7 @@ async def proxy_handler(request: Request):
     for key in ["user-agent", "accept", "accept-language", "range"]:
         if key in request.headers:
             upstream_headers[key] = request.headers[key]
-    # NOTE: accept-encoding is intentionally NOT forwarded so the streamed
-    # byte count matches the Content-Length we publish.
+    # accept-encoding is intentionally NOT forwarded so streamed bytes match CL.
     for k, v in target["headers"].items():
         upstream_headers[k.lower()] = str(v)
 
@@ -341,18 +619,38 @@ async def proxy_handler(request: Request):
     if not mime_type:
         mime_type = "application/octet-stream"
 
-    # open upstream (handles refresh + network retries); resp is LIVE here
+    is_head = request.method == "HEAD"
+    abs_start, abs_end = _parse_range(
+        upstream_headers.get("range"), routes[path].get("filesize")
+    )
+
     try:
-        resp = await open_upstream(request.method, upstream_headers, path)
+        resp, first = await _acquire(
+            request.method, upstream_headers, path, abs_start, abs_end, is_head
+        )
     except (aiohttp.ClientError, asyncio.TimeoutError, RuntimeError) as e:
         logger.error(f"Upstream open failed for {path}: {e}")
         return JSONResponse({"detail": f"Upstream error: {e}"}, status_code=502)
 
-    # reflect the real upstream status and range semantics
     status_code = resp.status
-    out_headers = {"Content-Type": mime_type, "Accept-Ranges": "bytes"}
     content_range = resp.headers.get("Content-Range")
 
+    if is_head:
+        out_headers = {"Content-Type": mime_type, "Accept-Ranges": "bytes"}
+        if content_range:
+            out_headers["Content-Range"] = content_range
+        cl = resp.headers.get("Content-Length")
+        if cl and cl.isdigit():
+            out_headers["Content-Length"] = cl
+        elif routes[path].get("filesize"):
+            out_headers["Content-Length"] = str(routes[path]["filesize"])
+        await resp.release()
+        return Response(
+            content=b"", status_code=status_code, headers=out_headers,
+            media_type=mime_type,
+        )
+
+    out_headers = {"Content-Type": mime_type, "Accept-Ranges": "bytes"}
     if status_code == 206 and content_range:
         out_headers["Content-Range"] = content_range
         partial_len = content_range.rsplit("/", 1)[-1]
@@ -369,24 +667,29 @@ async def proxy_handler(request: Request):
             out_headers["Content-Length"] = str(routes[path]["filesize"])
 
     # HEAD: headers only, release the connection, no streaming generator
-    if request.method == "HEAD":
-        await resp.release()
-        return Response(
-            content=b"", status_code=status_code, headers=out_headers,
-            media_type=mime_type,
+    if status_code >= 400:
+        # error page: stream it out plainly, no resume logic
+        return StreamingResponse(
+            body_iterator(resp, first, upstream_headers, path,
+                          abs_start, abs_end, _seg_expect(resp, status_code), 0),
+            status_code=status_code, headers=out_headers, media_type=mime_type,
         )
 
+    seg_expect = _seg_expect(resp, status_code)
     return StreamingResponse(
-        body_iterator(resp, request.method),
-        status_code=status_code,
-        headers=out_headers,
-        media_type=mime_type,
+        body_iterator(resp, first, upstream_headers, path,
+                      abs_start, abs_end, seg_expect,
+                      len(first) if first else 0),
+        status_code=status_code, headers=out_headers, media_type=mime_type,
     )
 
 
 @asynccontextmanager
 async def lifespan(app):
     global _session
+    # sock_read left None at the session level; per-read stall timeouts are
+    # applied explicitly in _acquire / body_iterator so a live-but-idle
+    # connection is detected instead of hanging forever.
     timeout = aiohttp.ClientTimeout(total=None, sock_connect=30, sock_read=None)
     connector = aiohttp.TCPConnector(limit=0, ttl_dns_cache=300)
     # Shared, long-lived session: survives past the handler return so streaming
