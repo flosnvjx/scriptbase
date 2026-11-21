@@ -11,12 +11,28 @@ SYNOPSIS
 
 DESCRIPTION
     A memory-only reverse proxy that serves streams extracted by yt-dlp.
-    It supports HTTP Range requests (for video seeking), automatically maps
-    MIME types, and handles upstream HTTP headers (Cookies, Referer, etc.).
-    In Wrapper Mode, it intercepts yt-dlp CLI arguments, injects `--dump-json`
-    if missing, and parses the output on the fly. If an upstream URL expires
-    (e.g., HTTP 403), it automatically re-invokes yt-dlp in the background to
-    refresh the routing table without interrupting the client.
+    Uses Starlette (no Pydantic) and a shared, long-lived aiohttp session for
+    maximum compatibility on ARM. Supports HTTP Range requests, automatic MIME
+    mapping, upstream header forwarding, precise Content-Length / Content-Range
+    synchronization from the real upstream response, HTML directory listing,
+    and asyncio.Lock-protected URL refresh to prevent redundant yt-dlp calls.
+
+DASH / requested_formats SPLIT (this revision)
+    Adaptive sources (bilibili DASH, YouTube, etc.) expose a "merge placeholder"
+    that has a filename and an ext but NO top-level url -- the real signed URLs
+    live in `requested_formats[]` (a video-only stream plus an audio-only
+    stream, each with its own headers). We now parse and split that:
+      * a download with a direct `url` is served as-is (kind = "direct");
+      * a placeholder with `requested_formats` is decomposed into separate
+        routable streams named `<base>[<format_id>].video.<ext>` and
+        `<base>[<format_id>].audio.<ext>`, each reverse-proxying its own signed
+        URL and carrying the full per-stream headers (Referer is mandatory for
+        bilibili or the upstream 403s). The directory listing labels them
+        `DASH - video` / `DASH - audio`; a single playable file must be merged
+        client-side (the proxy never muxes or touches the disk).
+    Both dump shapes are handled: -J/--dump-single-json (placeholder under
+    `requested_downloads[0]`) and -j/--dump-json (the top-level entry IS the
+    placeholder). Refresh is idempotent per part+format_id.
 
 ROBUST STREAM HANDLING (this revision)
     Two failure modes that a naive proxy silently mis-serves are now handled:
@@ -69,12 +85,14 @@ REQUIREMENTS
 
 import sys
 import os
+import re
 import json
 import time
 import asyncio
 import mimetypes
 import logging
 import html as html_module
+from urllib.parse import quote
 from contextlib import asynccontextmanager
 
 import aiohttp
@@ -106,6 +124,7 @@ PORT = int(os.environ.get("YT_DLP_HTTPD_PORT", 8000))
 CHUNK = 65536
 
 routes = {}
+_by_identity = {}  # identity tuple -> canonical route path (stable across refresh)
 ytdlp_args = []
 is_wrapper_mode = False
 _refresh_lock = asyncio.Lock()
@@ -129,28 +148,214 @@ def _read_timeout():
     return STALL_TIMEOUT if STALL_TIMEOUT and STALL_TIMEOUT > 0 else None
 
 
+def _free_path(base):
+    """Return base, or base_1 / base_2 ... if base is already taken.
+
+    yt-dlp's own filename uniquification (_1/_2 suffixes) only triggers against
+    files that already EXIST ON DISK. This proxy never touches the disk, so two
+    entries that resolve to the same output filename would silently overwrite
+    each other in `routes`. We de-duplicate the route KEY in-memory instead.
+    """
+    if base not in routes:
+        return base
+    root, ext = os.path.splitext(base)
+    n = 1
+    cand = f"{root}_{n}{ext}"
+    while cand in routes:
+        n += 1
+        cand = f"{root}_{n}{ext}"
+    return cand
+
+
+def _content_disposition(name):
+    """inline; keeps browser playback while preserving the intended save name.
+    RFC 5987/6266 filename* carries non-ASCII (e.g. CJK bilibili titles)."""
+    name = name or "video"
+    ascii_fallback = name.encode("ascii", "ignore").decode().strip() or "video"
+    return f"inline; filename=\"{ascii_fallback}\"; filename*=UTF-8''{quote(name)}"
+
+
+def _merge_headers(*dicts):
+    """Merge upstream header dicts (later wins). Skips None. yt-dlp puts the
+    authoritative per-stream headers (User-Agent/Referer/Sec-Fetch-Mode) on the
+    individual format, while a bare Referer may only live on the top entry. The
+    merged result MUST carry Referer or bilibili 403s the stream."""
+    merged = {}
+    for d in dicts:
+        if not d:
+            continue
+        for k, v in d.items():
+            merged[k] = str(v)
+    return merged
+
+
+def _norm_ext(x):
+    """yt-dlp uses the literal string 'none' to mean 'this stream has no
+    video/audio track' (e.g. bilibili DASH). Treat 'none'/empty as absent."""
+    if not x:
+        return ""
+    s = str(x).strip().lower()
+    return "" if s == "none" else s
+
+
+def _classify_fmt(f):
+    """Label a requested_format as 'video' / 'audio' / 'both' using yt-dlp's
+    own video_ext/audio_ext plus codec hints (robust across extractors)."""
+    vext = _norm_ext(f.get("video_ext"))
+    aext = _norm_ext(f.get("audio_ext"))
+    if vext and aext:
+        return "both"
+    if vext and not aext:
+        return "video"
+    if aext and not vext:
+        return "audio"
+    # fall back to codec presence when ext hints are absent
+    has_v = f.get("vcodec") not in (None, "none")
+    has_a = f.get("acodec") not in (None, "none")
+    if has_v and has_a:
+        return "both"
+    if has_v:
+        return "video"
+    if has_a:
+        return "audio"
+    return "video"
+
+
+def _entry_identity(data, dl, fname, extra=None):
+    """Stable identity for one output stream, independent of `.id` alone.
+
+    Different videos may share the same `.id` (e.g. a bilibili multi-P video:
+    every part carries the BV number as `id`). We fold in the per-part fields
+    (video_id / playlist_index / num / title) so distinct parts stay distinct.
+    For a DASH merge that we split, `extra` carries the sub-format's
+    (format_id, kind) so the video and audio halves of the SAME part are two
+    distinct, coexisting streams -- and a re-invocation of the same part+format
+    refreshes in place instead of spawning a copy."""
+    ident = (
+        data.get("id"),
+        data.get("video_id") or dl.get("video_id"),
+        data.get("playlist_index"),
+        data.get("num") or dl.get("num"),
+        data.get("title") or dl.get("title"),
+        fname,
+    )
+    if extra is not None:
+        ident = ident + tuple(extra)
+    return ident
+
+
+def _register_stream(ident, desired_path, *, url, headers, ext, filesize,
+                     webpage_url, download_name, kind, format_id, pair_group):
+    """Insert/update one route under a stable identity, de-colliding the path."""
+    if ident in _by_identity:
+        path = _by_identity[ident]
+    else:
+        path = _free_path(desired_path)
+        _by_identity[ident] = path
+        if path != desired_path:
+            logger.warning(
+                f"Duplicate output filename '{desired_path.lstrip('/')}'; "
+                f"serving it at '{path.lstrip('/')}'"
+            )
+    routes[path] = {
+        "url": url,
+        "headers": headers,
+        "ext": ext,
+        "filesize": filesize,
+        "webpage_url": webpage_url,
+        "download_name": download_name,
+        "kind": kind,
+        "format_id": format_id,
+        "pair_group": pair_group,
+        "last_error": None,
+    }
+    return path
+
+
 def process_entry(data):
+    # Two container shapes (this is the bug we are fixing):
+    #   -J / --dump-single-json : the merge placeholder lives in
+    #     data["requested_downloads"][0];
+    #   -j / --dump-json        : with a single video the top entry IS the merge
+    #     placeholder (filename / requested_formats at top level, no
+    #     requested_downloads).
+    base_headers = data.get("http_headers")
+    webpage_url = data.get("webpage_url")
     downloads = data.get("requested_downloads") or [data]
+
+    registered = 0
     for dl in downloads:
+        dl_headers = _merge_headers(base_headers, dl.get("http_headers"))
         fname = (
             dl.get("filename")
             or dl.get("_filename")
             or f"{data.get('id', 'video')}.{dl.get('ext', 'mp4')}"
         )
-        path = "/" + fname.replace("\\", "/").lstrip("/")
-        routes[path] = {
-            "url": dl.get("url"),
-            "headers": dl.get("http_headers", {}),
-            "ext": dl.get("ext", "mp4"),
-            "filesize": dl.get("filesize") or dl.get("filesize_approx"),
-            "webpage_url": data.get("webpage_url"),
-            "last_error": None,
-        }
+        root, parent_ext = os.path.splitext(fname)
+        dl_url = dl.get("url")
+        req_fmts = dl.get("requested_formats")
+
+        if dl_url:
+            # A resolved single stream we can just reverse-proxy.
+            ident = _entry_identity(data, dl, fname)
+            desired = "/" + fname.replace("\\", "/").lstrip("/")
+            _register_stream(
+                ident, desired,
+                url=dl_url, headers=dl_headers,
+                ext=(parent_ext[1:] if parent_ext else dl.get("ext", "mp4")),
+                filesize=dl.get("filesize") or dl.get("filesize_approx"),
+                webpage_url=webpage_url,
+                download_name=os.path.basename(fname),
+                kind="direct", format_id=dl.get("format_id"), pair_group=None,
+            )
+            registered += 1
+        elif isinstance(req_fmts, list) and req_fmts:
+            # DASH/adaptive merge: no single URL. Expose each sub-format as its
+            # own routable stream (video half + audio half ...), each carrying
+            # its own signed URL and the full per-stream headers.
+            for f in req_fmts:
+                f_url = f.get("url")
+                if not f_url:
+                    continue
+                kind = _classify_fmt(f)
+                ext = _norm_ext(f.get("ext")) or (
+                    _norm_ext(f.get("video_ext")) if kind in ("video", "both")
+                    else _norm_ext(f.get("audio_ext")) if kind == "audio"
+                    else ""
+                ) or (parent_ext[1:] if parent_ext else "bin")
+                suffix = {"video": ".video", "audio": ".audio", "both": ""}[kind]
+                fid = f.get("format_id") or "fmt"
+                part_name = f"{root}[{fid}]{suffix}.{ext}"
+                ident = _entry_identity(
+                    data, dl, fname, extra=("dash", fid, kind)
+                )
+                desired = "/" + part_name.replace("\\", "/").lstrip("/")
+                _register_stream(
+                    ident, desired,
+                    url=f_url,
+                    headers=_merge_headers(dl_headers, f.get("http_headers")),
+                    ext=ext,
+                    filesize=f.get("filesize") or f.get("filesize_approx"),
+                    webpage_url=webpage_url,
+                    download_name=part_name,
+                    kind=f"dash-{kind}",
+                    format_id=fid,
+                    pair_group=os.path.basename(root),
+                )
+                registered += 1
+        else:
+            # Placeholder with neither a URL nor sub-formats: nothing to serve.
+            logger.error(
+                f"Entry {data.get('id')} / '{fname}': no URL and no "
+                f"requested_formats; cannot serve. Pick a playable format "
+                f"(e.g. -f 'bv*+ba/b' that yields a single stream, or a "
+                f"merged mp4/webm with audio)."
+            )
+
     logger.info(
-        f"Loaded/Updated {len(downloads)} route(s) "
+        f"Loaded/Updated {registered} stream route(s) "
         f"from entry ID: {data.get('id', 'unknown')}"
     )
-
 
 async def parse_jsonl_stream(reader):
     while True:
@@ -226,14 +431,17 @@ async def _locked_refresh(path, before):
         logger.info("Refresh complete, lock released.")
 
 
+_CR_RE = re.compile(r"(\d+)\s*-\s*(\d+)\s*/\s*(\d+|\*)")
+
+
 def _seg_expect(resp, status):
-    """Bytes this response segment should deliver, or None if unknown (chunked)."""
+    """Bytes this response segment should deliver, or None if unknown (chunked).
+    Parses Content-Range robustly (handles the 'bytes ' prefix and */total)."""
     cr = resp.headers.get("Content-Range")
-    if status == 206 and cr and "/" in cr:
-        rng, _, total = cr.partition("/")
-        span = rng.split("-")
-        if len(span) == 2 and span[0].isdigit() and span[1].isdigit():
-            return int(span[1]) - int(span[0]) + 1
+    if status == 206 and cr:
+        m = _CR_RE.search(cr)
+        if m:
+            return int(m.group(2)) - int(m.group(1)) + 1
     cl = resp.headers.get("Content-Length")
     if cl and cl.isdigit():
         return int(cl)
@@ -540,10 +748,20 @@ async def directory_listing(request: Request):
                 f'<a href="{html_module.escape(webpage)}" '
                 f'target="_blank" rel="noopener">source</a>'
             )
+        kind = target.get("kind", "direct")
+        if kind == "direct":
+            kind_html = '<span class="k-direct">direct</span>'
+        else:
+            sub = kind.split("-", 1)[1] if "-" in kind else kind
+            grp = html_module.escape(target.get("pair_group") or "")
+            kind_html = (
+                f'<span class="k-dash">DASH &middot; {sub}</span>'
+                f'<div class="grp">{grp}</div>'
+            )
         rows.append(
             f'<tr><td><a href="{safe_path}">{safe_name}</a></td>'
             f'<td style="text-align:right">{size_str}</td>'
-            f"<td>{mime_str}</td><td>{source_link}</td></tr>"
+            f"<td>{mime_str}</td><td>{kind_html}</td><td>{source_link}</td></tr>"
         )
     html_content = f"""<!DOCTYPE html>
 <html lang="en">
@@ -561,13 +779,16 @@ async def directory_listing(request: Request):
   a {{ color: #4fc3f7; text-decoration: none; }}
   a:hover {{ text-decoration: underline; }}
   .count {{ color: #888; font-size: 0.9em; }}
+  .k-direct {{ color: #7CFC9B; }}
+  .k-dash {{ color: #ffb454; }}
+  .grp {{ color: #666; font-size: 0.8em; }}
 </style>
 </head>
 <body>
 <h1>yt-dlp-httpd Stream Directory</h1>
-<p class="count">{len(routes)} stream(s) available &middot; Sizes are updated live from real upstream responses.</p>
+<p class="count">{len(routes)} stream(s) available &middot; Sizes are updated live from real upstream responses. DASH streams are split into separate video/audio routes (a single file needs the client to merge them).</p>
 <table>
-<thead><tr><th>Filename</th><th style="text-align:right">Size</th><th>MIME Type</th><th>Source</th></tr></thead>
+<thead><tr><th>Filename</th><th style="text-align:right">Size</th><th>MIME Type</th><th>Type</th><th>Source</th></tr></thead>
 <tbody>{"".join(rows)}</tbody>
 </table>
 </body>
@@ -637,6 +858,7 @@ async def proxy_handler(request: Request):
 
     if is_head:
         out_headers = {"Content-Type": mime_type, "Accept-Ranges": "bytes"}
+        out_headers["Content-Disposition"] = _content_disposition(target.get("download_name"))
         if content_range:
             out_headers["Content-Range"] = content_range
         cl = resp.headers.get("Content-Length")
@@ -651,11 +873,16 @@ async def proxy_handler(request: Request):
         )
 
     out_headers = {"Content-Type": mime_type, "Accept-Ranges": "bytes"}
-    if status_code == 206 and content_range:
-        out_headers["Content-Range"] = content_range
-        partial_len = content_range.rsplit("/", 1)[-1]
-        if partial_len.isdigit():
-            out_headers["Content-Length"] = partial_len
+    out_headers["Content-Disposition"] = _content_disposition(target.get("download_name"))
+    if status_code == 206:
+        if content_range:
+            out_headers["Content-Range"] = content_range
+        # Content-Length is the size of THIS segment, not the whole file.
+        seg_len = _seg_expect(resp, status_code)
+        if seg_len is None and abs_end is not None:
+            seg_len = abs_end - abs_start + 1
+        if seg_len is not None:
+            out_headers["Content-Length"] = str(seg_len)
     elif status_code == 416:
         if content_range:
             out_headers["Content-Range"] = content_range
