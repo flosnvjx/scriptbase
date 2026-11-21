@@ -1,0 +1,387 @@
+#!/usr/bin/env python3
+"""
+Single-file LessPass CLI reconstructed by Deepseek LLM.
+Combines the original password generation logic with an improved argument parser
+that supports optional positional args, reading master password from a file/stdin,
+and interactive editing via --ask.
+"""
+
+import argparse
+import getpass
+import hashlib
+import os
+import sys
+
+__version__ = "10.2.1"
+
+# ---------------------------------------------------------------------------
+# Password generation core (adapted from lesspass/password.py)
+# ---------------------------------------------------------------------------
+
+CHARACTER_SUBSETS = {
+    "lowercase": "abcdefghijklmnopqrstuvwxyz",
+    "uppercase": "ABCDEFGHIJKLMNOPQRSTUVWXYZ",
+    "digits": "0123456789",
+    "symbols": "!\"#$%&'()*+,-./:;<=>?@[\\]^_`{|}~",
+}
+
+
+class ExcludeAllCharsAvailable(Exception):
+    pass
+
+
+def _calc_entropy(password_profile, master_password):
+    salt = (
+        password_profile["site"]
+        + password_profile["login"]
+        + hex(password_profile["counter"])[2:]
+    )
+    hex_entropy = hashlib.pbkdf2_hmac(
+        "sha256",
+        master_password.encode("utf-8"),
+        salt.encode("utf-8"),
+        100000,
+        32,
+    ).hex()
+    return int(hex_entropy, 16)
+
+
+def _remove_excluded_chars(string, exclude):
+    new_string = "".join(c for c in string if c not in exclude)
+    if len(new_string) == 0:
+        raise ExcludeAllCharsAvailable
+    return new_string
+
+
+def _get_set_of_characters(rules=None, exclude=""):
+    if rules is None:
+        return (
+            CHARACTER_SUBSETS["lowercase"]
+            + CHARACTER_SUBSETS["uppercase"]
+            + CHARACTER_SUBSETS["digits"]
+            + CHARACTER_SUBSETS["symbols"]
+        )
+    pool_of_chars = ""
+    for rule in rules:
+        pool_of_chars += CHARACTER_SUBSETS[rule]
+    return _remove_excluded_chars(pool_of_chars, exclude)
+
+
+def _consume_entropy(generated_password, quotient, set_of_characters, max_length):
+    if len(generated_password) >= max_length:
+        return [generated_password, quotient]
+    quotient, remainder = divmod(quotient, len(set_of_characters))
+    generated_password += set_of_characters[remainder]
+    return _consume_entropy(generated_password, quotient, set_of_characters, max_length)
+
+
+def _insert_string_pseudo_randomly(generated_password, entropy, string):
+    for letter in string:
+        quotient, remainder = divmod(entropy, len(generated_password))
+        generated_password = (
+            generated_password[:remainder] + letter + generated_password[remainder:]
+        )
+        entropy = quotient
+    return generated_password
+
+
+def _get_one_char_per_rule(entropy, rules, exclude=""):
+    one_char_per_rules = ""
+    for rule in rules:
+        available_chars = _remove_excluded_chars(CHARACTER_SUBSETS[rule], exclude)
+        value, entropy = _consume_entropy("", entropy, available_chars, 1)
+        one_char_per_rules += value
+    return [one_char_per_rules, entropy]
+
+
+def _get_configured_rules(password_profile):
+    rules = ["lowercase", "uppercase", "digits", "symbols"]
+    if "numbers" in password_profile:
+        password_profile["digits"] = password_profile["numbers"]
+    return [rule for rule in rules if rule in password_profile and password_profile[rule]]
+
+
+def _render_password(entropy, password_profile):
+    rules = _get_configured_rules(password_profile)
+    excluded_chars = password_profile["exclude"] if "exclude" in password_profile else ""
+    set_of_characters = _get_set_of_characters(rules, excluded_chars)
+    password, password_entropy = _consume_entropy(
+        "", entropy, set_of_characters, password_profile["length"] - len(rules)
+    )
+    characters_to_add, character_entropy = _get_one_char_per_rule(
+        password_entropy, rules, excluded_chars
+    )
+    return _insert_string_pseudo_randomly(
+        password, character_entropy, characters_to_add
+    )
+
+
+def generate_password(password_profile, master_password):
+    entropy = _calc_entropy(password_profile, master_password)
+    return _render_password(entropy, password_profile)
+
+
+# ---------------------------------------------------------------------------
+# CLI helpers
+# ---------------------------------------------------------------------------
+
+def _get_config_path():
+    DEFAULT_XDG_CONFIG_HOME = os.path.join(os.path.expanduser("~"), ".config")
+    data_home_path = os.environ.get("XDG_CONFIG_HOME", DEFAULT_XDG_CONFIG_HOME)
+    return os.path.join(data_home_path, "lesspass")
+
+
+def _range_type(value_string):
+    value = int(value_string)
+    if value not in range(5, 35 + 1):
+        raise argparse.ArgumentTypeError("%s is out of range, choose in [5-35]" % value)
+    return value
+
+
+def _read_master_password_from_file(path):
+    """Read master password from a file or stdin (if path is '-')."""
+    if path == "-":
+        # Read the entire stdin, strip trailing newline(s)
+        return sys.stdin.read().rstrip("\n")
+    with open(path, "r", encoding="utf-8") as f:
+        return f.read().rstrip("\n")
+
+
+def _prompt_if_tty(prompt_text, current_value=None):
+    """Prompt for a value only if stdin is a TTY. If current_value is given,
+    show it as default and return it when the user presses Enter."""
+    if not sys.stdin.isatty():
+        return current_value
+    if current_value is not None:
+        # Interactive edit with default
+        new_value = input(f"{prompt_text} [{current_value}]: ").strip()
+        return new_value if new_value else current_value
+    else:
+        return input(f"{prompt_text}: ").strip()
+
+
+def _ask_master_password(prompt_text="Master Password: ", no_fingerprint=False):
+    """Prompt for the master password. Uses getpass unless fingerprint is disabled."""
+    if no_fingerprint:
+        return getpass.getpass(prompt_text)
+    # Fallback to standard getpass if fingerprint module is unavailable
+    try:
+        from lesspass.fingerprint import getpass_with_fingerprint
+        return getpass_with_fingerprint(prompt_text)
+    except ImportError:
+        return getpass.getpass(prompt_text)
+
+
+# ---------------------------------------------------------------------------
+# Argument parser
+# ---------------------------------------------------------------------------
+
+def parse_args(args):
+    parser = argparse.ArgumentParser(
+        usage="lesspass [SITE] [LOGIN] [MASTER_PASSWORD] [OPTIONS]",
+        description="LessPass - stateless password generator",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""examples:
+  lesspass site login masterpassword
+  lesspass site login masterpassword -L 20 -d
+  lesspass --ask
+  echo "mypass" | lesspass site login -F -
+""",
+    )
+
+    parser.add_argument("-v", "--version", action="version", version=__version__)
+
+    # Positional arguments – all optional now
+    parser.add_argument("site", nargs="?", help="site used in the password generation")
+    parser.add_argument("login", nargs="?", default="", help="login used in the password generation")
+    parser.add_argument(
+        "master_password",
+        nargs="?",
+        default=os.environ.get("LESSPASS_MASTER_PASSWORD"),
+        help="master password (or use -F / env LESSPASS_MASTER_PASSWORD)",
+    )
+
+    # -F / --file  : read master password from file or stdin ("-")
+    parser.add_argument(
+        "-F",
+        "--file",
+        dest="master_password_file",
+        metavar="FILE",
+        help="read master password from FILE (use '-' for stdin)",
+    )
+
+    # --ask : interactively edit every parameter even if supplied
+    parser.add_argument(
+        "--ask",
+        action="store_true",
+        help="interactively edit all parameters (overrides supplied values)",
+    )
+
+    # Existing LessPass options
+    parser.add_argument("-L", "--length", default=16, choices=range(5, 35 + 1), type=_range_type,
+                        help="password length (default: 16, min: 5, max: 35)", metavar="[5-35]")
+    parser.add_argument("-C", "--counter", default=1, type=int, help="password counter (default: 1)")
+    parser.add_argument("-p", "--prompt", dest="prompt", action="store_true",
+                        help="prompt for values interactively")
+    parser.add_argument("-c", "--copy", dest="clipboard", action="store_true",
+                        help="copy the password to clipboard")
+    parser.add_argument("--exclude", default=None, help="exclude char from generated password")
+    parser.add_argument("--no-fingerprint", dest="no_fingerprint", action="store_true",
+                        help="hide visual fingerprint of the master password when you type")
+    parser.add_argument("-l", "--lowercase", action="store_true", help="add lowercase in password")
+    parser.add_argument("-u", "--uppercase", action="store_true", help="add uppercase in password")
+    parser.add_argument("-d", "--digits", action="store_true", help="add digits in password")
+    parser.add_argument("-s", "--symbols", action="store_true", help="add symbols in password")
+    parser.add_argument("--no-lowercase", action="store_true", help="remove lowercase from password")
+    parser.add_argument("--no-uppercase", action="store_true", help="remove uppercase from password")
+    parser.add_argument("--no-digits", action="store_true", help="remove digits from password")
+    parser.add_argument("--no-symbols", action="store_true", help="remove symbols from password")
+
+    # LessPass connected mode (save/load/logout/export) – kept for compatibility
+    config_home_path = _get_config_path()
+    backup_file = os.path.join(config_home_path, "profiles.json")
+    parser.add_argument("--logout", dest="logout", action="store_true",
+                        help=f"Remove {os.path.join(config_home_path, 'config.json')} file")
+    parser.add_argument("--save", dest="save_path", nargs="?", const=backup_file, default=None,
+                        help=f"[beta] Save your password profiles. (default: {backup_file})")
+    parser.add_argument("--load", dest="load_path", default=None,
+                        help="[beta] Load your password profiles file")
+    parser.add_argument("--export", dest="export_file_path", default=None,
+                        help="Export all your passwords from LessPass database")
+
+    return parser.parse_args(args)
+
+
+# ---------------------------------------------------------------------------
+# Main
+# ---------------------------------------------------------------------------
+
+def main(args=None):
+    if args is None:
+        args = sys.argv[1:]
+    args = parse_args(args)
+
+    # ---- Helper to determine if we are in interactive mode ----
+    interactive = sys.stdin.isatty()
+
+    # ---- 1. --ask overrides everything: edit each param interactively ----
+    if args.ask:
+        if not interactive:
+            print("error: --ask requires an interactive terminal (stdin is not a tty)", file=sys.stderr)
+            sys.exit(1)
+        # Site
+        args.site = _prompt_if_tty("Site", args.site or None) or ""
+        if not args.site:
+            print("error: Site is required", file=sys.stderr)
+            sys.exit(1)
+        # Login
+        args.login = _prompt_if_tty("Login", args.login) or ""
+        # Master password
+        current_mp = args.master_password
+        if args.master_password_file:
+            try:
+                current_mp = _read_master_password_from_file(args.master_password_file)
+            except Exception as e:
+                print(f"error: cannot read master password file: {e}", file=sys.stderr)
+                sys.exit(1)
+        new_mp = _prompt_if_tty("Master Password", current_mp)
+        if new_mp:
+            args.master_password = new_mp
+        # If still no master password, prompt with getpass
+        if not args.master_password:
+            args.master_password = _ask_master_password(no_fingerprint=args.no_fingerprint)
+        if not args.master_password:
+            print("error: Master password is required", file=sys.stderr)
+            sys.exit(1)
+    else:
+        # ---- 2. Normal flow (no --ask) ----
+        # If site is missing, prompt if TTY else error
+        if not args.site:
+            if interactive:
+                args.site = _prompt_if_tty("Site") or ""
+            if not args.site:
+                print("error: argument SITE is required but was not provided.", file=sys.stderr)
+                sys.exit(4)
+
+        # If login is missing and we are in prompt mode, ask
+        if args.prompt and not args.login and interactive:
+            args.login = _prompt_if_tty("Login") or ""
+        # If login still None (should not happen because default=""), keep ""
+
+        # ---- Master password resolution ----
+        # Priority: explicit arg > -F file/stdin > env (already in default) > prompt
+        if args.master_password_file:
+            try:
+                args.master_password = _read_master_password_from_file(args.master_password_file)
+            except Exception as e:
+                print(f"error: cannot read master password file: {e}", file=sys.stderr)
+                sys.exit(1)
+        elif not args.master_password:
+            # No master password provided and no file: prompt if TTY, else error
+            if interactive:
+                args.master_password = _ask_master_password(no_fingerprint=args.no_fingerprint)
+            if not args.master_password:
+                print("error: argument MASTER_PASSWORD is required but was not provided", file=sys.stderr)
+                sys.exit(5)
+
+    # ---- Build password profile ----
+    # Determine which character sets are enabled.
+    # Default: all four. If any positive flag is given, only those are enabled.
+    positive_flags = args.lowercase or args.uppercase or args.digits or args.symbols
+    if positive_flags:
+        profile = {
+            "lowercase": args.lowercase,
+            "uppercase": args.uppercase,
+            "digits": args.digits,
+            "symbols": args.symbols,
+        }
+    else:
+        profile = {"lowercase": True, "uppercase": True, "digits": True, "symbols": True}
+
+    # Apply negative flags
+    if args.no_lowercase:
+        profile["lowercase"] = False
+    if args.no_uppercase:
+        profile["uppercase"] = False
+    if args.no_digits:
+        profile["digits"] = False
+    if args.no_symbols:
+        profile["symbols"] = False
+
+    # If no character set is left, error out early.
+    if not any(profile.values()):
+        print("error: you can't exclude all chars available", file=sys.stderr)
+        sys.exit(6)
+
+    profile["site"] = args.site
+    profile["login"] = args.login
+    profile["counter"] = args.counter
+    profile["length"] = args.length
+    if args.exclude is not None:
+        profile["exclude"] = args.exclude
+
+    # ---- Generate password ----
+    try:
+        password = generate_password(profile, args.master_password)
+    except ExcludeAllCharsAvailable:
+        print("error: you can't exclude all chars available", file=sys.stderr)
+        sys.exit(6)
+    except Exception as e:
+        print(f"error: failed to generate password: {e}", file=sys.stderr)
+        sys.exit(7)
+
+    # ---- Output ----
+    if args.clipboard:
+        try:
+            from lesspass.clipboard import copy
+            copy(password)
+            print("Copied to clipboard")
+        except Exception:
+            print("Copy failed, displaying password instead:", file=sys.stderr)
+            print(password)
+    else:
+        print(password)
+
+
+if __name__ == "__main__":
+    main()
