@@ -8,7 +8,6 @@ import argparse
 import getpass
 import hashlib
 import hmac
-import math
 import string
 import sys
 
@@ -102,19 +101,37 @@ def derive_password(
 def read_master_password_from_file(filepath: str) -> str:
     """Read master password from file or named pipe, stripping trailing newline."""
     try:
-        with open(filepath, "r") as f:
+        with open(filepath, "r", encoding="utf-8") as f:
             content = f.read()
-        # Strip only trailing newlines (preserve leading/trailing spaces intentionally)
-        return content.rstrip("\n").rstrip("\r")
     except FileNotFoundError:
         print(f"Error: File not found: {filepath}", file=sys.stderr)
         sys.exit(1)
     except PermissionError:
         print(f"Error: Permission denied: {filepath}", file=sys.stderr)
         sys.exit(1)
+    except UnicodeDecodeError:
+        print(f"Error: File is not valid UTF-8 text: {filepath}", file=sys.stderr)
+        sys.exit(1)
     except OSError as e:
         print(f"Error reading {filepath}: {e}", file=sys.stderr)
         sys.exit(1)
+
+    # Strip only trailing newlines (preserve leading/trailing spaces intentionally)
+    stripped = content.rstrip("\n").rstrip("\r")
+    if not stripped:
+        print(f"Error: Master password file/pipe is empty: {filepath}", file=sys.stderr)
+        sys.exit(1)
+        
+    return stripped
+
+
+def validate_charset_flags(args):
+    """Fail early if all character sets are disabled."""
+    if args.no_lowercase and args.no_uppercase and args.no_digits and args.no_symbols:
+        print("Error: At least one character set must be enabled "
+              "(do not disable all of --no-lowercase/--no-uppercase/--no-digits/--no-symbols).",
+              file=sys.stderr)
+        sys.exit(2)
 
 
 def prompt_params(args, master_password_from_file: str | None) -> dict:
@@ -200,15 +217,26 @@ def main():
     parser = build_parser()
     args = parser.parse_args()
 
-    # Read master password from file if -F specified (before prompting)
-    master_password_from_file = None
-    if args.password_file and not args.ask:
-        master_password_from_file = read_master_password_from_file(args.password_file)
+    # --- Early Validations (No I/O, safe to run outside try) ---
+    validate_charset_flags(args)
+    
+    if args.length <= 0:
+        print(f"Error: Password length must be positive (got {args.length})", file=sys.stderr)
+        sys.exit(2)
+    if args.counter < 0:
+        print(f"Error: Counter must be non-negative (got {args.counter})", file=sys.stderr)
+        sys.exit(2)
 
-    # Resolve parameters (interactive if needed)
-    params = prompt_params(args, master_password_from_file)
-
+    # --- I/O and Derivation (Wrapped in KeyboardInterrupt handler) ---
     try:
+        # Read master password from file if -F specified (before prompting)
+        master_password_from_file = None
+        if args.password_file and not args.ask:
+            master_password_from_file = read_master_password_from_file(args.password_file)
+
+        # Resolve parameters (interactive if needed)
+        params = prompt_params(args, master_password_from_file)
+
         password = derive_password(
             site=params["site"],
             login=params["login"],
@@ -221,6 +249,7 @@ def main():
             use_symbols=not args.no_symbols,
         )
         print(password)
+        
     except ValueError as e:
         print(f"Error: {e}", file=sys.stderr)
         sys.exit(1)
