@@ -1,0 +1,869 @@
+#!/usr/bin/env perl
+# Single-file LessPass CLI (password derivation only) - Perl port.
+#
+# Compatible with Perl 5.8+ on:
+#   Linux / macOS / BSD / Haiku / Solaris / AIX / NonStop (POSIX)
+#   Windows (including XP)
+#   OpenVMS
+#
+# Bundled fallbacks:
+#   - Digest::SHA (HMAC-SHA256) when not available in core
+#   - Term::ReadKey-free terminal handling via stty / SET TERMINAL
+#
+# Usage:
+#   lesspass SITE LOGIN MASTER_PASSWORD [OPTIONS]
+#   lesspass SITE LOGIN -F MASTER_PASSWORD_FILE [OPTIONS]
+#   echo "mypass" | lesspass SITE LOGIN -F - [OPTIONS]
+#   lesspass --ask [OPTIONS]
+
+use strict;
+use warnings;
+use Getopt::Long;
+use Math::BigInt;
+
+our $VERSION = "10.2.1";
+
+# ---------------------------------------------------------------------------
+# Character subsets (from LessPass)
+# ---------------------------------------------------------------------------
+
+my %CHARACTER_SUBSETS = (
+    lowercase => 'abcdefghijklmnopqrstuvwxyz',
+    uppercase => 'ABCDEFGHIJKLMNOPQRSTUVWXYZ',
+    digits    => '0123456789',
+    symbols   => '!"#$%&\'()*+,-./:;<=>?@[\\]^_`{|}~',
+);
+
+# ---------------------------------------------------------------------------
+# SHA-256 / HMAC-SHA256 backend
+#
+# Prefer Digest::SHA if present at runtime; otherwise use the bundled pure-
+# Perl implementation below.  Note: Digest::SHA entered core in Perl 5.9.3,
+# so 5.8 installations need the fallback.
+# ---------------------------------------------------------------------------
+
+my $hmac_sha256_sub;
+
+# 32-bit rotate-right, safe on 32-bit Perls (no intermediate > 2^32).
+sub _rotr32 {
+    my ($x, $n) = @_;
+    $x &= 0xFFFFFFFF;
+    my $low_mask = (1 << $n) - 1;
+    my $wrap = ($x & $low_mask) << (32 - $n);
+    return (($x >> $n) | $wrap) & 0xFFFFFFFF;
+}
+
+my @SHA256_K = (
+    0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5,
+    0x3956c25b, 0x59f111f1, 0x923f82a4, 0xab1c5ed5,
+    0xd807aa98, 0x12835b01, 0x243185be, 0x550c7dc3,
+    0x72be5d74, 0x80deb1fe, 0x9bdc06a7, 0xc19bf174,
+    0xe49b69c1, 0xefbe4786, 0x0fc19dc6, 0x240ca1cc,
+    0x2de92c6f, 0x4a7484aa, 0x5cb0a9dc, 0x76f988da,
+    0x983e5152, 0xa831c66d, 0xb00327c8, 0xbf597fc7,
+    0xc6e00bf3, 0xd5a79147, 0x06ca6351, 0x14292967,
+    0x27b70a85, 0x2e1b2138, 0x4d2c6dfc, 0x53380d13,
+    0x650a7354, 0x766a0abb, 0x81c2c92e, 0x92722c85,
+    0xa2bfe8a1, 0xa81a664b, 0xc24b8b70, 0xc76c51a3,
+    0xd192e819, 0xd6990624, 0xf40e3585, 0x106aa070,
+    0x19a4c116, 0x1e376c08, 0x2748774c, 0x34b0bcb5,
+    0x391c0cb3, 0x4ed8aa4a, 0x5b9cca4f, 0x682e6ff3,
+    0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208,
+    0x90befffa, 0xa4506ceb, 0xbef9a3f7, 0xc67178f2,
+);
+
+sub _sha256 {
+    my ($msg) = @_;
+    my @h = (
+        0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a,
+        0x510e527f, 0x9b05688c, 0x1f83d9ab, 0x5be0cd19,
+    );
+
+    my $bitlen = length($msg) * 8;
+    $msg .= "\x80";
+    $msg .= "\x00" while (length($msg) % 64) != 56;
+    my $hi = int($bitlen / 4294967296);
+    my $lo = $bitlen % 4294967296;
+    $msg .= pack('NN', $hi, $lo);
+
+    my $msg_len = length($msg);
+    for (my $off = 0; $off < $msg_len; $off += 64) {
+        my @w;
+        for my $i (0 .. 15) {
+            $w[$i] = unpack('N', substr($msg, $off + $i * 4, 4));
+        }
+        for my $i (16 .. 63) {
+            my $s0 = _rotr32($w[$i-15], 7)
+                   ^ _rotr32($w[$i-15], 18)
+                   ^ ($w[$i-15] >> 3);
+            my $s1 = _rotr32($w[$i-2], 17)
+                   ^ _rotr32($w[$i-2], 19)
+                   ^ ($w[$i-2] >> 10);
+            $w[$i] = ($w[$i-16] + $s0 + $w[$i-7] + $s1) & 0xFFFFFFFF;
+        }
+
+        my ($a, $b, $c, $d, $e, $f, $g, $h) = @h;
+
+        for my $i (0 .. 63) {
+            my $S1 = _rotr32($e, 6)
+                   ^ _rotr32($e, 11)
+                   ^ _rotr32($e, 25);
+            my $ch = ($e & $f) ^ (($e ^ 0xFFFFFFFF) & $g);
+            my $temp1 = ($h + $S1 + $ch + $SHA256_K[$i] + $w[$i]) & 0xFFFFFFFF;
+            my $S0 = _rotr32($a, 2)
+                   ^ _rotr32($a, 13)
+                   ^ _rotr32($a, 22);
+            my $maj = ($a & $b) ^ ($a & $c) ^ ($b & $c);
+            my $temp2 = ($S0 + $maj) & 0xFFFFFFFF;
+
+            $h = $g;
+            $g = $f;
+            $f = $e;
+            $e = ($d + $temp1) & 0xFFFFFFFF;
+            $d = $c;
+            $c = $b;
+            $b = $a;
+            $a = ($temp1 + $temp2) & 0xFFFFFFFF;
+        }
+
+        $h[0] = ($h[0] + $a) & 0xFFFFFFFF;
+        $h[1] = ($h[1] + $b) & 0xFFFFFFFF;
+        $h[2] = ($h[2] + $c) & 0xFFFFFFFF;
+        $h[3] = ($h[3] + $d) & 0xFFFFFFFF;
+        $h[4] = ($h[4] + $e) & 0xFFFFFFFF;
+        $h[5] = ($h[5] + $f) & 0xFFFFFFFF;
+        $h[6] = ($h[6] + $g) & 0xFFFFFFFF;
+        $h[7] = ($h[7] + $h) & 0xFFFFFFFF;
+    }
+
+    return pack('N8', @h);
+}
+
+# Byte-wise XOR of two equal-length strings (avoids Perl's numeric coercion).
+sub _xor_bytes {
+    my ($a, $b) = @_;
+    my @x = unpack('N*', $a);
+    my @y = unpack('N*', $b);
+    my @z;
+    for my $i (0 .. $#x) {
+        $z[$i] = ($x[$i] ^ $y[$i]) & 0xFFFFFFFF;
+    }
+    return pack('N*', @z);
+}
+
+sub _fallback_hmac_sha256 {
+    my ($data, $key) = @_;
+    my $block = 64;
+    $key = _sha256($key) if length($key) > $block;
+    $key .= "\x00" x ($block - length($key));
+    my $o_key_pad = $key ^ ("\x5c" x $block);
+    my $i_key_pad = $key ^ ("\x36" x $block);
+    return _sha256($o_key_pad . _sha256($i_key_pad . $data));
+}
+
+BEGIN {
+    if (eval { require Digest::SHA; Digest::SHA->can('hmac_sha256') }) {
+        $hmac_sha256_sub = \&Digest::SHA::hmac_sha256;
+    } else {
+        $hmac_sha256_sub = \&_fallback_hmac_sha256;
+    }
+}
+
+# PBKDF2-HMAC-SHA256 (RFC 2898).
+sub _pbkdf2_sha256 {
+    my ($password, $salt, $iterations, $keylen) = @_;
+    my $h_len      = 32;
+    my $num_blocks = int(($keylen + $h_len - 1) / $h_len);
+    my $output     = '';
+    for my $i (1 .. $num_blocks) {
+        my $u = $hmac_sha256_sub->($salt . pack('N', $i), $password);
+        my $t = $u;
+        for (my $j = 1; $j < $iterations; $j++) {
+            $u = $hmac_sha256_sub->($u, $password);
+            $t = _xor_bytes($t, $u);
+        }
+        $output .= $t;
+    }
+    return substr($output, 0, $keylen);
+}
+
+# ---------------------------------------------------------------------------
+# Password derivation core (from LessPass)
+# ---------------------------------------------------------------------------
+
+sub _calc_entropy {
+    my ($profile, $master_password) = @_;
+    my $counter = $profile->{counter};
+    my $counter_hex;
+    if ($counter < 0) {
+        # Mirror Python's hex(-n)[2:] quirk:  hex(-5) == '-0x5'  =>  'x5'
+        $counter_hex = 'x' . sprintf('%x', -$counter);
+    } else {
+        $counter_hex = sprintf('%x', $counter);
+    }
+    my $salt = $profile->{site} . $profile->{login} . $counter_hex;
+    my $raw  = _pbkdf2_sha256($master_password, $salt, 100_000, 32);
+    my $hex  = unpack('H*', $raw);
+    return Math::BigInt->new("0x$hex");
+}
+
+sub _remove_excluded_chars {
+    my ($string, $exclude) = @_;
+    $exclude = '' unless defined $exclude;
+    my $new_string = '';
+    for my $c (split //, $string) {
+        $new_string .= $c unless index($exclude, $c) >= 0;
+    }
+    die "ExcludeAllCharsAvailable\n" if length($new_string) == 0;
+    return $new_string;
+}
+
+sub _get_set_of_characters {
+    my ($rules, $exclude) = @_;
+    $exclude = '' unless defined $exclude;
+    if (!defined $rules) {
+        return $CHARACTER_SUBSETS{lowercase}
+             . $CHARACTER_SUBSETS{uppercase}
+             . $CHARACTER_SUBSETS{digits}
+             . $CHARACTER_SUBSETS{symbols};
+    }
+    my $pool = '';
+    for my $rule (@$rules) {
+        $pool .= $CHARACTER_SUBSETS{$rule};
+    }
+    return _remove_excluded_chars($pool, $exclude);
+}
+
+sub _consume_entropy {
+    my ($generated, $quotient, $set_of_chars, $max_length) = @_;
+    my $len = length($set_of_chars);
+    while (length($generated) < $max_length) {
+        my ($q, $r) = $quotient->copy->bdiv($len);
+        $quotient   = $q;
+        $generated .= substr($set_of_chars, $r->numify, 1);
+    }
+    return ($generated, $quotient);
+}
+
+sub _insert_string_pseudo_randomly {
+    my ($generated, $entropy, $string) = @_;
+    for my $letter (split //, $string) {
+        my ($q, $r) = $entropy->copy->bdiv(length($generated));
+        my $pos = $r->numify;
+        $generated = substr($generated, 0, $pos)
+                   . $letter
+                   . substr($generated, $pos);
+        $entropy = $q;
+    }
+    return $generated;
+}
+
+sub _get_one_char_per_rule {
+    my ($entropy, $rules, $exclude) = @_;
+    $exclude = '' unless defined $exclude;
+    my $one_char_per_rules = '';
+    for my $rule (@$rules) {
+        my $available =
+            _remove_excluded_chars($CHARACTER_SUBSETS{$rule}, $exclude);
+        my ($value, $new_entropy) =
+            _consume_entropy('', $entropy, $available, 1);
+        $one_char_per_rules .= $value;
+        $entropy = $new_entropy;
+    }
+    return ($one_char_per_rules, $entropy);
+}
+
+sub _get_configured_rules {
+    my ($profile) = @_;
+    return grep { $profile->{$_} } qw(lowercase uppercase digits symbols);
+}
+
+sub _render_password {
+    my ($entropy, $profile) = @_;
+    my @rules        = _get_configured_rules($profile);
+    my $excluded     = defined $profile->{exclude} ? $profile->{exclude} : '';
+    my $set_of_chars = _get_set_of_characters(\@rules, $excluded);
+    my ($password, $password_entropy) = _consume_entropy(
+        '', $entropy, $set_of_chars,
+        $profile->{length} - scalar(@rules)
+    );
+    my ($chars_to_add, $character_entropy) =
+        _get_one_char_per_rule($password_entropy, \@rules, $excluded);
+    return _insert_string_pseudo_randomly(
+        $password, $character_entropy, $chars_to_add
+    );
+}
+
+sub generate_password {
+    my ($profile, $master_password) = @_;
+    my $entropy = _calc_entropy($profile, $master_password);
+    return _render_password($entropy, $profile);
+}
+
+# ---------------------------------------------------------------------------
+# Terminal I/O helpers
+#
+# Priority:
+#   masked  : Term::ReadKey (with '*' echo) -> getpass_plain
+#   no-echo : Term::ReadKey -> VMS SET TERMINAL -> stty -echo -> warn+read
+# ---------------------------------------------------------------------------
+
+sub _read_line_from_stdin {
+    my $line = <STDIN>;
+    return undef unless defined $line;
+    chomp $line;
+    return $line;
+}
+
+sub _read_line_after_prompt {
+    my ($prompt) = @_;
+    print $prompt;
+    my $line = _read_line_from_stdin();
+    print "\n" if defined $line;
+    return $line;
+}
+
+my $_have_term_readkey;
+sub _have_term_readkey {
+    return $_have_term_readkey if defined $_have_term_readkey;
+    $_have_term_readkey = eval { require Term::ReadKey; 1 } ? 1 : 0;
+    return $_have_term_readkey;
+}
+
+# --- no-echo reading -------------------------------------------------------
+
+sub _getpass_plain {
+    my ($prompt) = @_;
+
+    unless (-t STDIN) {
+        return _read_line_from_stdin() if print $prompt;
+        return _read_line_from_stdin();
+    }
+
+    # OpenVMS: ReadKey is unreliable; use DCL terminal control instead.
+    if ($^O eq 'VMS') {
+        return _getpass_vms($prompt);
+    }
+
+    # Preferred path: Term::ReadKey.
+    if (_have_term_readkey()) {
+        print $prompt;
+        Term::ReadKey::ReadMode('noecho');
+        my $line = _read_line_from_stdin();
+        Term::ReadKey::ReadMode('normal');
+        print "\n";
+        return $line;
+    }
+
+    # Windows without Term::ReadKey: cannot suppress echo reliably.
+    if ($^O eq 'MSWin32') {
+        warn "warning: Term::ReadKey not available; master password will echo\n";
+        return _read_line_after_prompt($prompt);
+    }
+
+    # POSIX fallback: stty -echo.
+    return _getpass_stty($prompt);
+}
+
+sub _getpass_vms {
+    my ($prompt) = @_;
+    my $rc = system('SET TERMINAL/NOECHO');
+    if ($rc != 0) {
+        warn "warning: SET TERMINAL/NOECHO failed; password will echo\n";
+        return _read_line_after_prompt($prompt);
+    }
+
+    print $prompt;
+
+    my $line;
+    my $fatal_sig;
+    my $restore = sub { system('SET TERMINAL/ECHO') };
+
+    my $ok = eval {
+        local $SIG{INT}  = sub { $fatal_sig = 2;  die "Interrupted\n" };
+        local $SIG{QUIT} = sub { $fatal_sig = 3;  die "Quit\n" };
+        local $SIG{TERM} = sub { $fatal_sig = 15; die "Terminated\n" };
+        local $SIG{HUP}  = sub { $fatal_sig = 1;  die "Hangup\n" };
+        $line = _read_line_from_stdin();
+        1;
+    };
+    my $err = $@;
+
+    $restore->();
+    print "\n" if $ok;
+
+    if (!$ok) {
+        if ($fatal_sig) {
+            local $SIG{INT}  = 'DEFAULT';
+            local $SIG{QUIT} = 'DEFAULT';
+            local $SIG{TERM} = 'DEFAULT';
+            local $SIG{HUP}  = 'DEFAULT';
+            kill $fatal_sig, $$;
+            exit(128 + $fatal_sig);
+        }
+        die $err;
+    }
+
+    return $line;
+}
+
+sub _getpass_stty {
+    my ($prompt) = @_;
+
+    # Save the original tty state.
+    my $saved = `stty -g 2>/dev/null`;
+    if ($? != 0 || !defined $saved || $saved eq '') {
+        warn "warning: cannot disable terminal echo; password will echo\n";
+        return _read_line_after_prompt($prompt);
+    }
+    chomp $saved;
+
+    if (system('stty', '-echo') != 0) {
+        warn "warning: stty -echo failed; password will echo\n";
+        return _read_line_after_prompt($prompt);
+    }
+
+    print $prompt;
+
+    my $line;
+    my $fatal_sig;
+    my $restore = sub { system('stty', $saved) };
+
+    my $ok = eval {
+        # Fatal signals: clean up, then re-raise with the default
+        # disposition so the shell sees the conventional exit status
+        # (128 + signal number).
+        local $SIG{INT}  = sub { $fatal_sig = 2;  die "Interrupted\n" };
+        local $SIG{QUIT} = sub { $fatal_sig = 3;  die "Quit\n" };
+        local $SIG{TERM} = sub { $fatal_sig = 15; die "Terminated\n" };
+        local $SIG{HUP}  = sub { $fatal_sig = 1;  die "Hangup\n" };
+
+        # ^Z: restore echo, stop ourselves, then re-disable echo after
+        # SIGCONT.  The handler re-installs itself so repeated ^Z works.
+        my $tstp;
+        $tstp = sub {
+            $restore->();
+            $SIG{TSTP} = 'DEFAULT';
+            kill 'TSTP', $$;
+            # Resumed here via SIGCONT:
+            system('stty', '-echo');
+            $SIG{TSTP} = $tstp;
+        };
+        local $SIG{TSTP} = $tstp;
+
+        $line = _read_line_from_stdin();
+        1;
+    };
+    my $err = $@;
+
+    # Always restore, however we got here.
+    $restore->();
+    print "\n" if $ok;
+
+    if (!$ok) {
+        if ($fatal_sig) {
+            local $SIG{INT}  = 'DEFAULT';
+            local $SIG{QUIT} = 'DEFAULT';
+            local $SIG{TERM} = 'DEFAULT';
+            local $SIG{HUP}  = 'DEFAULT';
+            kill $fatal_sig, $$;
+            # Fallback if the signal was blocked / delivery was deferred.
+            exit(128 + $fatal_sig);
+        }
+        die $err;
+    }
+
+    return $line;
+}
+
+# --- masked reading ('*' per char) ----------------------------------------
+
+sub _getpass_masked {
+    my ($prompt) = @_;
+
+    unless (-t STDIN) {
+        print $prompt;
+        return _read_line_from_stdin();
+    }
+
+    if (_have_term_readkey() && $^O ne 'VMS') {
+        return _getpass_masked_readkey($prompt);
+    }
+
+    # No per-character masking available on this platform; degrade to
+    # no-echo (or plain read if even that fails).
+    return _getpass_plain($prompt);
+}
+
+sub _getpass_masked_readkey {
+    my ($prompt) = @_;
+    print $prompt;
+
+    my $buf         = '';
+    my $eof         = 0;
+    my $interrupted = 0;
+    my $fatal_sig;
+
+    my $ok = eval {
+        local $SIG{INT}  = sub { $fatal_sig = 2;  die "Interrupted\n" };
+        local $SIG{QUIT} = sub { $fatal_sig = 3;  die "Quit\n" };
+        local $SIG{TERM} = sub { $fatal_sig = 15; die "Terminated\n" };
+        local $SIG{HUP}  = sub { $fatal_sig = 1;  die "Hangup\n" };
+
+        Term::ReadKey::ReadMode('noecho');
+        while (1) {
+            my $c = Term::ReadKey::ReadKey(0);
+            last unless defined $c;
+            last if $c eq "\r" || $c eq "\n";
+            if ($c eq "\x03") { $interrupted = 1; last; }
+            if ($c eq "\x04") {
+                if (length $buf) { next; }
+                $eof = 1;
+                last;
+            }
+            if ($c eq "\x7f" || $c eq "\b") {
+                if (length $buf) {
+                    chop $buf;
+                    print "\b \b";
+                }
+                next;
+            }
+            $buf .= $c;
+            print '*';
+        }
+        1;
+    };
+    my $err = $@;
+
+    # Best-effort restore, even on signal abort.
+    eval { Term::ReadKey::ReadMode('normal'); 1 };
+
+    print "\n" if $ok;
+
+    if (!$ok) {
+        if ($fatal_sig) {
+            local $SIG{INT}  = 'DEFAULT';
+            local $SIG{QUIT} = 'DEFAULT';
+            local $SIG{TERM} = 'DEFAULT';
+            local $SIG{HUP}  = 'DEFAULT';
+            kill $fatal_sig, $$;
+            exit(128 + $fatal_sig);
+        }
+        die $err;
+    }
+
+    die "Interrupted\n" if $interrupted;
+    die "EOF\n"         if $eof;
+    return $buf;
+}
+
+# ---------------------------------------------------------------------------
+# CLI helpers
+# ---------------------------------------------------------------------------
+
+sub _read_master_password_from_file {
+    my ($path) = @_;
+    my $content;
+    if ($path eq '-') {
+        local $/;
+        $content = <STDIN>;
+    } else {
+        open my $fh, '<', $path or die "cannot open $path: $!\n";
+        local $/;
+        $content = <$fh>;
+        close $fh;
+    }
+    $content = '' unless defined $content;
+    $content =~ s/\n+\z//;
+    return $content;
+}
+
+sub _print_help {
+    print <<"HELP";
+LessPass $VERSION - stateless password generator
+
+Usage:
+  lesspass [SITE] [LOGIN] [MASTER_PASSWORD] [OPTIONS]
+
+Options:
+  -v, --version          Show version and exit
+  -h, --help             Show this help and exit
+  -F, --file FILE        Read master password from FILE ('-' for stdin)
+      --ask              Interactively edit all three parameters
+      --no-mask          Don't echo '*' while typing master password
+                         (alias: --no-fingerprint)
+  -L, --length N         Password length (default: 16, min: 5, max: 35)
+  -C, --counter N        Password counter (default: 1)
+      --exclude CHARS    Exclude these characters from generated password
+  -l, --lowercase        Add lowercase to password
+  -u, --uppercase        Add uppercase to password
+  -d, --digits           Add digits to password
+  -s, --symbols          Add symbols to password
+      --no-lowercase     Remove lowercase from password
+      --no-uppercase     Remove uppercase from password
+      --no-digits        Remove digits from password
+      --no-symbols       Remove symbols from password
+
+Notes:
+  On platforms without Term::ReadKey (e.g. some OpenVMS builds), the
+  master password is read without echo; '*' masking is only available
+  where single-character terminal control is supported.
+
+Examples:
+  lesspass site login masterpassword
+  lesspass site login masterpassword -L 20 -d
+  lesspass --ask
+  echo "mypass" | lesspass site login -F -
+HELP
+}
+
+sub _parse_args {
+    my @argv = @_;
+    my %opts = (length => 16, counter => 1);
+
+    Getopt::Long::Configure(qw(no_ignore_case permute));
+
+    my $ok = GetOptions(
+        'v|version' => sub { print "$VERSION\n"; exit 0 },
+        'h|help'    => sub { _print_help(); exit 0 },
+        'F|file=s'  => \$opts{master_password_file},
+        'ask'       => \$opts{ask},
+        'no-mask|no-fingerprint' => \$opts{no_mask},
+        'L|length=i' => sub {
+            my (undef, $v) = @_;
+            if ($v < 5 || $v > 35) {
+                print STDERR
+                    "error: length is out of range, choose in [5-35]\n";
+                exit 2;
+            }
+            $opts{length} = $v;
+        },
+        'C|counter=i'  => \$opts{counter},
+        'exclude=s'    => \$opts{exclude},
+        'l|lowercase'  => \$opts{lowercase},
+        'u|uppercase'  => \$opts{uppercase},
+        'd|digits'     => \$opts{digits},
+        's|symbols'    => \$opts{symbols},
+        'no-lowercase' => \$opts{no_lowercase},
+        'no-uppercase' => \$opts{no_uppercase},
+        'no-digits'    => \$opts{no_digits},
+        'no-symbols'   => \$opts{no_symbols},
+    );
+
+    if (!$ok) {
+        print STDERR "Run with --help for usage.\n";
+        exit 2;
+    }
+
+    $opts{site}            = shift @ARGV if @ARGV;
+    $opts{login}           = shift @ARGV if @ARGV;
+    $opts{master_password} = shift @ARGV if @ARGV;
+
+    if (@ARGV) {
+        print STDERR "error: unrecognized arguments: @ARGV\n";
+        exit 2;
+    }
+
+    return %opts;
+}
+
+# ---------------------------------------------------------------------------
+# Main
+# ---------------------------------------------------------------------------
+
+sub main {
+    my %opts = _parse_args(@_);
+
+    my $stdin_is_tty = (-t STDIN) ? 1 : 0;
+
+    my $read_secret = sub {
+        my ($prompt) = @_;
+        return $opts{no_mask}
+            ? _getpass_plain($prompt)
+            : _getpass_masked($prompt);
+    };
+
+    # -F resolution.  '-' consumes stdin, so no further prompting is possible.
+    # Refuse to accept the master password from two sources at once.
+    if (defined $opts{master_password_file} && defined $opts{master_password}) {
+        print STDERR "error: master password supplied both as a positional "
+                   . "argument and via -F; choose one\n";
+        exit 2;
+    }
+    if (defined $opts{master_password_file}) {
+        if ($opts{master_password_file} eq '-') {
+            my $content = eval { _read_master_password_from_file('-') };
+            if ($@) {
+                my $err = $@;
+                chomp $err;
+                print STDERR
+                    "error: cannot read master password from stdin: $err\n";
+                exit 1;
+            }
+            $opts{master_password} = $content;
+            $stdin_is_tty = 0;
+        } else {
+            my $content = eval {
+                _read_master_password_from_file($opts{master_password_file})
+            };
+            if ($@) {
+                my $err = $@;
+                chomp $err;
+                print STDERR
+                    "error: cannot read master password file: $err\n";
+                exit 1;
+            }
+            $opts{master_password} = $content;
+        }
+        delete $opts{master_password_file};
+    }
+
+    # --ask: edit all three interactively.
+    if ($opts{ask}) {
+        if (!$stdin_is_tty) {
+            print STDERR
+                "error: --ask requires an interactive terminal\n";
+            exit 1;
+        }
+
+        my ($site, $login, $mp);
+
+        if (defined $opts{site}) {
+            print "Site [$opts{site}]: ";
+            $site = _read_line_from_stdin();
+            $site = '' unless defined $site;
+            $site =~ s/^\s+//;
+            $site =~ s/\s+\z//;
+            $site = $opts{site} unless length $site;
+        } else {
+            print "Site: ";
+            $site = _read_line_from_stdin();
+            $site = '' unless defined $site;
+            $site =~ s/^\s+//;
+            $site =~ s/\s+\z//;
+        }
+        if (!length $site) {
+            print STDERR "error: Site is required\n";
+            exit 1;
+        }
+
+        if (defined $opts{login}) {
+            print "Login [$opts{login}]: ";
+            $login = _read_line_from_stdin();
+            $login = '' unless defined $login;
+            $login =~ s/^\s+//;
+            $login =~ s/\s+\z//;
+            $login = $opts{login} unless length $login;
+        } else {
+            print "Login: ";
+            $login = _read_line_from_stdin();
+            $login = '' unless defined $login;
+            $login =~ s/^\s+//;
+            $login =~ s/\s+\z//;
+        }
+        if (!length $login) {
+            print STDERR "error: Login is required\n";
+            exit 1;
+        }
+
+        if (defined $opts{master_password}) {
+            $mp = $read_secret->(
+                "Master Password (leave blank to keep current): "
+            );
+            $mp = $opts{master_password}
+                unless defined $mp && length $mp;
+        } else {
+            $mp = $read_secret->("Master Password: ");
+        }
+        if (!defined $mp || !length $mp) {
+            print STDERR "error: Master Password is required\n";
+            exit 1;
+        }
+
+        $opts{site}            = $site;
+        $opts{login}           = $login;
+        $opts{master_password} = $mp;
+    }
+
+    # Every parameter must have a concrete value: from CLI, from -F, or (when
+    # stdin is a TTY) prompted for.  Otherwise -> hard error.
+    my $resolve = sub {
+        my ($name, $value, $secret) = @_;
+        return $value if defined $value;
+        if ($stdin_is_tty) {
+            my $v;
+            if ($secret) {
+                $v = $read_secret->("$name: ");
+            } else {
+                print "$name: ";
+                $v = _read_line_from_stdin();
+                $v = '' unless defined $v;
+                $v =~ s/^\s+//;
+                $v =~ s/\s+\z//;
+            }
+            return $v if defined $v && length $v;
+        }
+        print STDERR
+            "error: $name is required (not provided and cannot prompt)\n";
+        exit 4;
+    };
+
+    my $site            = $resolve->("Site",            $opts{site},            0);
+    my $login           = $resolve->("Login",           $opts{login},           0);
+    my $master_password = $resolve->("Master Password", $opts{master_password}, 1);
+
+    # Character set selection (default: all four).
+    my %profile;
+    my $positive =
+        $opts{lowercase} || $opts{uppercase} ||
+        $opts{digits}    || $opts{symbols};
+
+    if ($positive) {
+        %profile = (
+            lowercase => ($opts{lowercase} ? 1 : 0),
+            uppercase => ($opts{uppercase} ? 1 : 0),
+            digits    => ($opts{digits}    ? 1 : 0),
+            symbols   => ($opts{symbols}   ? 1 : 0),
+        );
+    } else {
+        %profile = (
+            lowercase => 1, uppercase => 1,
+            digits    => 1, symbols   => 1,
+        );
+    }
+
+    $profile{lowercase} = 0 if $opts{no_lowercase};
+    $profile{uppercase} = 0 if $opts{no_uppercase};
+    $profile{digits}    = 0 if $opts{no_digits};
+    $profile{symbols}   = 0 if $opts{no_symbols};
+
+    if (!$profile{lowercase} && !$profile{uppercase} &&
+        !$profile{digits}    && !$profile{symbols}) {
+        print STDERR "error: you can't exclude all chars available\n";
+        exit 6;
+    }
+
+    $profile{site}    = $site;
+    $profile{login}   = $login;
+    $profile{counter} = $opts{counter};
+    $profile{length}  = $opts{length};
+    $profile{exclude} = $opts{exclude} if defined $opts{exclude};
+
+    my $password;
+    my $ok = eval {
+        $password = generate_password(\%profile, $master_password);
+        1;
+    };
+    if (!$ok) {
+        my $err = $@;
+        if (defined $err && $err =~ /^ExcludeAllCharsAvailable/) {
+            print STDERR "error: you can't exclude all chars available\n";
+            exit 6;
+        }
+        die $err;
+    }
+
+    print "$password\n";
+}
+
+main();
