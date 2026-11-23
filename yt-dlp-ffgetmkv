@@ -1,0 +1,232 @@
+#!/usr/bin/env python3
+"""
+Read a yt‑dlp .info.json file and use ffmpeg to download & mux to MKV in one pass.
+
+Features:
+• Supports separate audio/video (requested_formats) and single combined formats.
+• Injects HTTP headers from the info.json (cookies, user-agent, etc.).
+• Embeds metadata (title, uploader, description, date, source URL).
+• Embeds chapters from the info.json (if present).
+• Adds ffmpeg flags -hide_banner and -avoid_negative_ts make_zero for compatibility.
+• --dry-run prints the ffmpeg command without executing.
+• --ffmpeg-input-options allows per‑input ffmpeg flags (e.g., "0:-ss 30").
+• --ffmpeg-output-options (alias --downloader-args) adds extra flags before the output file.
+• Aborts on ffmpeg error (exit code ≠ 0).
+
+Usage:
+    python infojson_to_mkv.py <info.json> [output.mkv] [options]
+
+Examples:
+    # Basic usage (output filename derived from _filename in JSON)
+    python infojson_to_mkv.py "Video Title.info.json"
+
+    # Specify output name and dry‑run
+    python infojson_to_mkv.py info.json custom.mkv --dry-run
+
+    # Add per‑input seek and increase analysis duration
+    python infojson_to_mkv.py info.json \
+        --ffmpeg-input-options "0:-ss 30" \
+        --ffmpeg-input-options "1:-analyzeduration 100M"
+
+    # Pass extra output flags (equivalent to --downloader-args)
+    python infojson_to_mkv.py info.json \
+        --ffmpeg-output-options "-max_interleave_delta 0 -threads 4"
+"""
+
+import sys
+import json
+import subprocess
+import tempfile
+import os
+import argparse
+from pathlib import Path
+
+
+def build_ffmpeg_command(info, output_path, input_opts=None, output_opts=""):
+    """
+    Construct the ffmpeg command list from the parsed info dict.
+    Returns (cmd_list, temp_files) where temp_files is a list of paths to clean up.
+    """
+    cmd = ['ffmpeg', '-y', '-hide_banner', '-avoid_negative_ts', 'make_zero']
+    temp_files = []
+
+    # --- Input URLs and headers ---
+    if 'requested_formats' in info:
+        # Separate audio/video streams
+        video_fmt = next(f for f in info['requested_formats'] if f.get('vcodec') != 'none')
+        audio_fmt = next(f for f in info['requested_formats'] if f.get('acodec') != 'none')
+        urls = [video_fmt['url'], audio_fmt['url']]
+        # Merge headers from both (usually identical)
+        headers = {}
+        for fmt in (video_fmt, audio_fmt):
+            hdrs = fmt.get('http_headers', {})
+            if isinstance(hdrs, dict):
+                headers.update(hdrs)
+    else:
+        # Single combined format
+        urls = [info['url']]
+        headers = info.get('http_headers', {})
+
+    # Global input options (applied before any -i)
+    if input_opts and None in input_opts:
+        cmd.extend(input_opts[None])
+
+    # Inject HTTP headers for every input
+    for key, value in headers.items():
+        cmd.extend(['-headers', f'{key}: {value}'])
+
+    # Add input URLs with per‑index options
+    for idx, url in enumerate(urls):
+        if input_opts and idx in input_opts:
+            cmd.extend(input_opts[idx])
+        cmd.extend(['-i', url])
+
+    # --- Stream mapping and codec copy ---
+    # Map all streams from all inputs (video, audio, subtitles if any)
+    cmd.extend(['-map', '0:v?', '-map', '0:a?', '-map', '1:a?'])
+    cmd.extend(['-c', 'copy', '-f', 'matroska'])
+
+    # --- Metadata embedding ---
+    meta_map = {
+        'title': 'title',
+        'uploader': 'artist',
+        'description': 'comment',
+        'upload_date': 'date',
+        'webpage_url': 'source_link',
+    }
+    for yt_key, ff_key in meta_map.items():
+        val = info.get(yt_key)
+        if val:
+            cmd.extend(['-metadata', f'{ff_key}={val}'])
+
+    # --- Chapter embedding ---
+    chapters = info.get('chapters')
+    if chapters:
+        # Write a temporary FFmetadata file with chapter entries
+        meta_lines = [';FFMETADATA1']
+        for i, ch in enumerate(chapters):
+            start_ms = int(ch['start_time'] * 1000)  # ms
+            end_ms = int(ch['end_time'] * 1000)
+            meta_lines.append('[CHAPTER]')
+            meta_lines.append('TIMEBASE=1/1000')
+            meta_lines.append(f'START={start_ms}')
+            meta_lines.append(f'END={end_ms}')
+            meta_lines.append(f'title={ch.get("title", f"Chapter {i+1}")}')
+        # Write to temp file
+        tmp = tempfile.NamedTemporaryFile(mode='w', suffix='.meta', delete=False)
+        tmp.write('\n'.join(meta_lines))
+        tmp.close()
+        temp_files.append(tmp.name)
+        cmd.extend(['-i', tmp.name, '-map_metadata', '2'])  # third input is metadata
+
+    # --- Output options (insert before output file) ---
+    if output_opts:
+        cmd.extend(output_opts.split())
+
+    # --- Output file ---
+    cmd.append(output_path)
+    return cmd, temp_files
+
+
+def parse_input_options(opt_list):
+    """Convert list of strings like '0:-ss 30' into dict {idx: [flags]}."""
+    result = {}
+    for item in opt_list:
+        if ':' in item:
+            idx_str, rest = item.split(':', 1)
+            try:
+                idx = int(idx_str)
+            except ValueError:
+                print(f"Warning: invalid index in '{item}', ignoring.", file=sys.stderr)
+                continue
+        else:
+            idx = None
+            rest = item
+        flags = rest.split()
+        result.setdefault(idx, []).extend(flags)
+    return result
+
+
+def main():
+    parser = argparse.ArgumentParser(
+        description="Use ffmpeg to download & mux streams from a yt‑dlp info.json into MKV."
+    )
+    parser.add_argument('info_json', help='Path to the .info.json file')
+    parser.add_argument('output', nargs='?', help='Output MKV filename (optional)')
+    parser.add_argument('--dry-run', action='store_true',
+                        help='Print the ffmpeg command and exit without running')
+    parser.add_argument('--ffmpeg-input-options', action='append', default=[],
+                        help='Per‑input ffmpeg flags. Format: [N:]flags (e.g. "0:-ss 30")')
+    parser.add_argument('--ffmpeg-output-options', default='',
+                        help='Extra ffmpeg flags placed before the output file (alias: --downloader-args)')
+    parser.add_argument('--downloader-args', dest='ffmpeg_output_options', default='',
+                        help='Alias for --ffmpeg-output-options')
+    args = parser.parse_args()
+
+    # Load the info json
+    try:
+        with open(args.info_json, 'r', encoding='utf-8') as f:
+            info = json.load(f)
+    except FileNotFoundError:
+        print(f"Error: file '{args.info_json}' not found.", file=sys.stderr)
+        sys.exit(1)
+    except json.JSONDecodeError as e:
+        print(f"Error: invalid JSON in '{args.info_json}': {e}", file=sys.stderr)
+        sys.exit(1)
+
+    # Determine output filename if not given
+    if args.output:
+        output_path = args.output
+    else:
+        # Use the _filename field that yt‑dlp computed (includes template)
+        base = info.get('_filename')
+        if base:
+            # Change extension to .mkv (or keep original if already mkv)
+            p = Path(base)
+            output_path = str(p.with_suffix('.mkv'))
+        else:
+            # Fallback to title
+            title = info.get('title', 'output')
+            safe_title = "".join(c if c.isalnum() or c in ' _.-' else '_' for c in title)
+            output_path = f"{safe_title}.mkv"
+
+    # Parse per‑input options
+    input_opts = parse_input_options(args.ffmpeg_input_options)
+
+    # Build the ffmpeg command
+    cmd, temp_files = build_ffmpeg_command(
+        info, output_path,
+        input_opts=input_opts,
+        output_opts=args.ffmpeg_output_options
+    )
+
+    # Dry‑run: print command and exit
+    if args.dry_run:
+        print(" ".join(cmd))
+        # Clean up temp files (if any were created during command building)
+        for f in temp_files:
+            try:
+                os.unlink(f)
+            except OSError:
+                pass
+        sys.exit(0)
+
+    # Execute ffmpeg
+    print(f"[*] Running: {' '.join(cmd)}", file=sys.stderr)
+    try:
+        subprocess.run(cmd, check=True)
+        print(f"[✓] Successfully created {output_path}", file=sys.stderr)
+    except subprocess.CalledProcessError as e:
+        print(f"[!] ffmpeg exited with code {e.returncode}", file=sys.stderr)
+        sys.exit(e.returncode)
+    finally:
+        # Clean up temporary metadata file
+        for f in temp_files:
+            try:
+                os.unlink(f)
+            except OSError:
+                pass
+
+
+if __name__ == '__main__':
+    main()
