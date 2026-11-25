@@ -287,6 +287,10 @@ Notes:
   is read without echo; '*' masking is only available where
   single-character terminal control is supported.
 
+  Interactive prompts for Site and Login strip leading and trailing
+  whitespace from the entered value.  Master password, and values
+  supplied on the command line are used verbatim.
+
 Examples:
   lesspass site login masterpassword
   lesspass site login masterpassword -L 20 -d
