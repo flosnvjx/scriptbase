@@ -12,6 +12,25 @@ BEGIN {
     _init_constants()
     _ord_init()
     _init_mode()
+    _check_fp_portability()
+}
+
+# ----------------------------------------------------------------------
+# Reject non-IEEE 754 floating point:
+#   - VAX D/F/G float (NetBSD/VAX)
+#   - IBM hex float (z/OS USS 31-bit FLOAT(HEX), S/360/S/370 native)
+# AIX and z/OS 64-bit FLOAT(IEEE) use IEEE binary64 for double and pass.
+# ----------------------------------------------------------------------
+function _check_fp_portability(    h) {
+    # IEEE binary64: normal range 2.2e-308 .. 1.8e308.
+    # VAX D-float:   normal range 2.9e-39  .. 1.7e38.
+    # IBM hex dbl:   normal range 5.4e-80  .. 7.2e75.
+    # 1e-300 is normal on IEEE, underflows to 0 on VAX and IBM hex float.
+    # Underflow-to-zero is the standard non-trapping behavior;
+    # overflow (1e400) is not, hence the low-end probe only.
+    if (!(1e-300 > 0))
+        die("sha256.awk: non-IEEE 754 floating point detected " \
+            "(e.g. VAX, IBM z/OS 31-bit FLOAT(HEX), S/360); aborting")
 }
 
 {
