@@ -1,12 +1,17 @@
 #!/usr/bin/awk -f
-# Portable SHA-256 in POSIX awk
-# No gawk extensions; bit operations are emulated arithmetically.
+# Portable SHA-256 in POSIX awk.
+# Bit operations are emulated arithmetically.
 
 BEGIN {
+    # 0: abort only when input contains a wide char
+    # 1: abort whenever gawk is in multibyte mode
+    STRICT_BYTE_MODE = 0
+
     pow2_init()
     _init_bit_tables()
     _init_constants()
     _ord_init()
+    _init_mode()
 }
 
 {
@@ -15,6 +20,43 @@ BEGIN {
 
 END {
     printf("SHA256= %s\n", sha256(content))
+}
+
+# ----------------------------------------------------------------------
+# gawk / multibyte detection
+# ----------------------------------------------------------------------
+function _init_mode(    v) {
+    IS_GAWK = (PROCINFO["version"] != "")
+    MB_CUR_MAX = 1
+
+    if (IS_GAWK) {
+        v = PROCINFO["mb_cur_max"]
+        if (v != "")
+            MB_CUR_MAX = v + 0
+    }
+
+    if (IS_GAWK && MB_CUR_MAX > 1 && STRICT_BYTE_MODE)
+        die("sha256.awk: gawk is in multibyte mode; " \
+            "rerun with --characters-as-bytes or LC_ALL=C")
+}
+
+function die(msg) {
+    print msg > "/dev/stderr"
+    exit 1
+}
+
+# Refuse input that cannot be treated as a byte string.
+# In non-strict mode this only rejects characters outside the 0..255 table.
+function _check_input_bytes(s,    i, c) {
+    if (!IS_GAWK || MB_CUR_MAX <= 1)
+        return
+
+    for (i = 1; i <= length(s); i++) {
+        c = substr(s, i, 1)
+        if (!(c in _ord_))
+            die("sha256.awk: input contains a character wider than one byte; " \
+                "rerun with --characters-as-bytes or LC_ALL=C")
+    }
 }
 
 # ----------------------------------------------------------------------
@@ -125,20 +167,25 @@ function xor32(a, b,    r, s, av, bv) {
     }
     return r
 }
+
 function not32(a) {
     return xor32(a, 4294967295)
 }
+
 function lshift32(a, n) {
     if (n == 0) return a
     return (a % POW2[32-n]) * POW2[n]
 }
+
 function rshift32(a, n) {
     if (n == 0) return a
     return int(a / POW2[n])
 }
+
 function rotr32(a, n) {
     return or32(rshift32(a, n), lshift32(a, 32 - n))
 }
+
 function add32(a, b) {
     return (a + b) % 4294967296
 }
@@ -151,6 +198,8 @@ function sha256(input,    nbytes, i, nwords, j, a, b, c, d, e, f, g, h,
                         bit_len_hi, bit_len_lo, bytes, words, state, W) {
 
     # 1. string -> byte array
+    _check_input_bytes(input)
+
     nbytes = length(input)
     for (i = 0; i < nbytes; i++)
         bytes[i] = ord(substr(input, i+1, 1))
