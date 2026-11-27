@@ -13,16 +13,46 @@ local VERSION = "10.2.1"
 
 local IS_POSIX = package.config:sub(1, 1) == "/"
 
-local bit = require("bit")  -- LuaJIT
+local ok_bit, bit = pcall(require, "bit")
+if not ok_bit then
+    io.stderr:write(
+        "error: this program requires LuaJIT 2.x (built-in 'bit' library).\n")
+    os.exit(1)
+end
+
 local band   = bit.band
 local bor    = bit.bor
 local bxor   = bit.bxor
 local bnot   = bit.bnot
 local rshift = bit.rshift
 local ror    = bit.ror
+local tobit  = bit.tobit
 
 local M32 = 4294967296
 local unpack = table.unpack or unpack
+
+local function assert_bit_sanity()
+    -- NOTE: LuaJIT bit operations return signed 32-bit integers.
+    -- So compare against bit.tobit(...), not raw 0xFFFFFFFF / 0x80000000.
+    local checks = {
+        {bxor(0xFFFFFFFF, 0xFFFFFFFF), 0},
+        {bxor(0x00FF00FF, 0xFF00FF00), tobit(0xFFFFFFFF)},
+        {band(0xF0F0F0F0, 0x0F0F0F0F), 0},
+        {rshift(0x80000000, 31), 1},
+        {ror(0x00000001, 1), tobit(0x80000000)},
+    }
+    for i = 1, #checks do
+        local got, want = checks[i][1], checks[i][2]
+        if got ~= want then
+            io.stderr:write(
+                "error: LuaJIT 32-bit bitwise operations behave unexpectedly.\n" ..
+                "This build cannot produce reliable LessPass output.\n" ..
+                "Please use a maintained LuaJIT 2.x (2.1 recommended).\n")
+            os.exit(1)
+        end
+    end
+end
+
 
 -- ---------------------------------------------------------------------------
 -- SHA-256 (pure LuaJIT)
@@ -601,6 +631,9 @@ end
 
 local function _main(argv)
     local args = parse_args(argv)
+
+    assert_bit_sanity()
+
     local stdin_available = isatty()
 
     if args.master_password_file ~= nil and args.master_password ~= nil then
