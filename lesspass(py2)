@@ -1,0 +1,761 @@
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+"""
+Single-file LessPass CLI (password derivation only).
+
+Compatible with Python 2.5+ and 3.0+.
+
+Usage:
+  lesspass SITE LOGIN MASTER_PASSWORD [OPTIONS]
+  lesspass SITE LOGIN -F MASTER_PASSWORD_FILE [OPTIONS]
+  echo "mypass" | lesspass SITE LOGIN -F - [OPTIONS]
+  lesspass --ask [OPTIONS]
+
+Performance:
+  The fast path uses hashlib.pbkdf2_hmac (Python 3.4+ and 2.7.8+).
+  If unavailable, PBKDF2 (100,000 iterations) falls back to pure Python
+  and will take tens of seconds.  A warning is printed on startup, and
+  (when stderr is a TTY) a fixed-width progress bar is shown.
+"""
+
+from __future__ import absolute_import, division
+
+import binascii
+import hashlib
+import hmac
+import os
+import struct
+import sys
+
+__version__ = "10.2.1"
+
+# --- Python 2.5+ / 3.0+ compatibility aliases -----------------------------
+
+try:
+    bytes
+except NameError:                # Python 2.5
+    bytes = str
+
+try:
+    xrange
+except NameError:                # Python 3.x
+    xrange = range
+
+try:
+    _HAVE_TERMIOS = True
+    import termios
+    import tty
+except ImportError:
+    _HAVE_TERMIOS = False
+
+# Whether the fast C implementation is available.
+_HAVE_PBKDF2_HMAC = hasattr(hashlib, "pbkdf2_hmac")
+
+# Byte literals are only available on 2.6+.  Build them portably.
+_EMPTY = b"" if sys.version_info[0] < 3 else b""
+
+
+def _to_bytes(s):
+    """Return raw bytes for str/unicode on 2.5+ and 3.0+."""
+    if isinstance(s, bytes):
+        return s
+    # In Python 3 str -> bytes via UTF-8; in Python 2 unicode -> bytes.
+    return s.encode("utf-8")
+
+
+# Pre-compute control-byte constants used by the raw reader.
+_CR      = _to_bytes("\r")
+_LF      = _to_bytes("\n")
+_CTRL_C  = _to_bytes("\x03")
+_CTRL_D  = _to_bytes("\x04")
+_BS      = _to_bytes("\x7f")
+_BS2     = _to_bytes("\b")
+
+
+def _eprint(s):
+    sys.stderr.write(s)
+    sys.stderr.flush()
+
+
+def _oprint(s):
+    sys.stdout.write(s)
+    sys.stdout.flush()
+
+
+# ---------------------------------------------------------------------------
+# Password derivation core (from LessPass)
+# ---------------------------------------------------------------------------
+
+CHARACTER_SUBSETS = {
+    "lowercase": "abcdefghijklmnopqrstuvwxyz",
+    "uppercase": "ABCDEFGHIJKLMNOPQRSTUVWXYZ",
+    "digits":    "0123456789",
+    "symbols":   "!\"#$%&'()*+,-./:;<=>?@[\\]^_`{|}~",
+}
+
+
+class ExcludeAllCharsAvailable(Exception):
+    pass
+
+
+# --- Pure-Python PBKDF2-HMAC-SHA256 ---------------------------------------
+
+_PROGRESS_LAST_PCT = -1
+
+
+def _print_progress_bar(pct):
+    """Fixed 10-cell bar; safe on any terminal (no width detection)."""
+    global _PROGRESS_LAST_PCT
+    if pct == _PROGRESS_LAST_PCT:
+        return
+    _PROGRESS_LAST_PCT = pct
+    done = pct // 10
+    if done >= 10:
+        bar = "=" * 10
+    else:
+        bar = "=" * done + ">" + "-" * (9 - done)
+    sys.stderr.write("\r[%s] %3d%%" % (bar, pct))
+    sys.stderr.flush()
+
+
+def _xor_bytes(a, b):
+    """Byte-wise XOR of two equal-length byte strings."""
+    if sys.version_info[0] < 3:
+        return "".join(chr(ord(x) ^ ord(y)) for x, y in zip(a, b))
+    return bytes(x ^ y for x, y in zip(a, b))
+
+
+def _pbkdf2_pure(password, salt, iterations, keylen, progress=None):
+    """PBKDF2-HMAC-SHA256, pure Python.  Inputs/outputs are bytes."""
+    h_len = 32
+    num_blocks = (keylen + h_len - 1) // h_len
+    total_iters = iterations * num_blocks
+    step = total_iters // 10
+    if step < 1:
+        step = 1
+    done = 0
+    output = []
+
+    for i in xrange(1, num_blocks + 1):
+        # U1 = PRF(password, salt || INT(i))
+        mac = hmac.new(password, salt + struct.pack(">I", i), hashlib.sha256)
+        u = mac.digest()
+        t = u
+        for _ in xrange(1, iterations):
+            mac = hmac.new(password, u, hashlib.sha256)
+            u = mac.digest()
+            t = _xor_bytes(t, u)
+            done += 1
+            if progress is not None and done % step == 0:
+                progress(done * 100 // total_iters)
+        output.append(t)
+
+    result = _EMPTY.join(output)
+    return result[:keylen]
+
+
+def _pbkdf2(password_bytes, salt_bytes, iterations, keylen):
+    """Dispatch to the C or pure-Python PBKDF2 implementation."""
+    global _PROGRESS_LAST_PCT
+    if _HAVE_PBKDF2_HMAC:
+        return hashlib.pbkdf2_hmac(
+            "sha256", password_bytes, salt_bytes, iterations, keylen)
+    show_bar = sys.stderr.isatty()
+    if show_bar:
+        _PROGRESS_LAST_PCT = -1
+        _print_progress_bar(0)
+    result = _pbkdf2_pure(password_bytes, salt_bytes, iterations, keylen,
+                          _print_progress_bar if show_bar else None)
+    if show_bar:
+        _print_progress_bar(100)
+        _eprint("\n")
+    return result
+
+
+# --- Password rendering ---------------------------------------------------
+
+def _calc_entropy(password_profile, master_password):
+    salt_text = (
+        password_profile["site"]
+        + password_profile["login"]
+        + hex(password_profile["counter"])[2:]
+    )
+    raw = _pbkdf2(
+        _to_bytes(master_password),
+        _to_bytes(salt_text),
+        100000,
+        32,
+    )
+    # Python 2.5-safe hex conversion (bytes.hex() is 3.5+, binascii.hexlify
+    # returns bytes on 3.x).
+    hex_entropy = binascii.hexlify(raw).decode("ascii")
+    return int(hex_entropy, 16)
+
+
+def _remove_excluded_chars(string, exclude):
+    new_string = "".join(c for c in string if c not in exclude)
+    if len(new_string) == 0:
+        raise ExcludeAllCharsAvailable()
+    return new_string
+
+
+def _get_set_of_characters(rules=None, exclude=""):
+    if rules is None:
+        return (
+            CHARACTER_SUBSETS["lowercase"]
+            + CHARACTER_SUBSETS["uppercase"]
+            + CHARACTER_SUBSETS["digits"]
+            + CHARACTER_SUBSETS["symbols"]
+        )
+    pool_of_chars = ""
+    for rule in rules:
+        pool_of_chars += CHARACTER_SUBSETS[rule]
+    return _remove_excluded_chars(pool_of_chars, exclude)
+
+
+def _consume_entropy(generated_password, quotient, set_of_characters, max_length):
+    while len(generated_password) < max_length:
+        quotient, remainder = divmod(quotient, len(set_of_characters))
+        generated_password += set_of_characters[remainder]
+    return [generated_password, quotient]
+
+
+def _insert_string_pseudo_randomly(generated_password, entropy, string):
+    for letter in string:
+        quotient, remainder = divmod(entropy, len(generated_password))
+        generated_password = (
+            generated_password[:remainder] + letter + generated_password[remainder:]
+        )
+        entropy = quotient
+    return generated_password
+
+
+def _get_one_char_per_rule(entropy, rules, exclude=""):
+    one_char_per_rules = ""
+    for rule in rules:
+        available_chars = _remove_excluded_chars(CHARACTER_SUBSETS[rule], exclude)
+        value, entropy = _consume_entropy("", entropy, available_chars, 1)
+        one_char_per_rules += value
+    return [one_char_per_rules, entropy]
+
+
+def _get_configured_rules(password_profile):
+    rules = ["lowercase", "uppercase", "digits", "symbols"]
+    return [rule for rule in rules if password_profile.get(rule)]
+
+
+def _render_password(entropy, password_profile):
+    rules = _get_configured_rules(password_profile)
+    excluded_chars = password_profile.get("exclude", "") or ""
+    set_of_characters = _get_set_of_characters(rules, excluded_chars)
+    password, password_entropy = _consume_entropy(
+        "", entropy, set_of_characters, password_profile["length"] - len(rules)
+    )
+    characters_to_add, character_entropy = _get_one_char_per_rule(
+        password_entropy, rules, excluded_chars
+    )
+    return _insert_string_pseudo_randomly(
+        password, character_entropy, characters_to_add
+    )
+
+
+def generate_password(password_profile, master_password):
+    entropy = _calc_entropy(password_profile, master_password)
+    return _render_password(entropy, password_profile)
+
+
+# ---------------------------------------------------------------------------
+# Terminal I/O helpers
+#
+# All interactive prompts (and the '*' masked echo) go to stderr so that
+# stdout carries only the generated password.
+# ---------------------------------------------------------------------------
+
+def _read_line_trimmed():
+    """Read one line from stdin, strip CR/LF and surrounding whitespace."""
+    line = sys.stdin.readline()
+    if line.endswith("\n"):
+        line = line[:-1]
+    if line.endswith("\r"):
+        line = line[:-1]
+    return line.strip()
+
+
+def _read_password_raw_posix(prompt, mask):
+    fd = sys.stdin.fileno()
+    old_settings = termios.tcgetattr(fd)
+    _eprint(prompt)
+    chars = []
+    try:
+        tty.setraw(fd)
+        while True:
+            ch = os.read(fd, 1)
+            if not ch:
+                break
+            if ch == _CR or ch == _LF:
+                break
+            if ch == _CTRL_C:
+                raise KeyboardInterrupt
+            if ch == _CTRL_D:
+                if not chars:
+                    raise EOFError
+                continue
+            if ch == _BS or ch == _BS2:
+                if chars:
+                    chars.pop()
+                    if mask:
+                        _eprint("\b \b")
+                continue
+            chars.append(ch)
+            if mask:
+                _eprint("*")
+    finally:
+        termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
+    _eprint("\n")
+    return _EMPTY.join(chars)
+
+
+def _read_password_raw_windows(prompt, mask):
+    import msvcrt
+    # getwch is 2.6+; on 2.5 use getch (returns bytes).
+    if hasattr(msvcrt, "getwch"):
+        get_char = msvcrt.getwch
+        _match_cr  = lambda c: c in ("\r", "\n")
+        _match_bs  = lambda c: c == "\b"
+        _match_cc  = lambda c: c == "\x03"
+        _match_cd  = lambda c: c == "\x04"
+    else:
+        get_char = msvcrt.getch
+        _cr_b = b"\r"; _lf_b = b"\n"; _bs_b = b"\b"
+        _cc_b = b"\x03"; _cd_b = b"\x04"
+        _match_cr = lambda c: c == _cr_b or c == _lf_b
+        _match_bs = lambda c: c == _bs_b
+        _match_cc = lambda c: c == _cc_b
+        _match_cd = lambda c: c == _cd_b
+    _eprint(prompt)
+    chars = []
+    while True:
+        ch = get_char()
+        if _match_cr(ch):
+            break
+        if _match_cc(ch):
+            raise KeyboardInterrupt
+        if _match_cd(ch):
+            if not chars:
+                raise EOFError
+            continue
+        if _match_bs(ch):
+            if chars:
+                chars.pop()
+                if mask:
+                    _eprint("\b \b")
+            continue
+        chars.append(ch)
+        if mask:
+            _eprint("*")
+    _eprint("\n")
+    # Normalize to bytes for consistency with the POSIX path.
+    if sys.version_info[0] < 3:
+        return _to_bytes("".join(chars))
+    return bytes(ord(c) if isinstance(c, str) else c for c in chars)
+
+
+def _read_secret(prompt, mask):
+    """Read a secret.  mask=True echoes '*'; mask=False suppresses echo."""
+    if not sys.stdin.isatty():
+        _eprint(prompt)
+        line = sys.stdin.readline()
+        if line.endswith("\n"):
+            line = line[:-1]
+        if line.endswith("\r"):
+            line = line[:-1]
+        return line
+    if _HAVE_TERMIOS:
+        return _read_password_raw_posix(prompt, mask)
+    if os.name == "nt":
+        return _read_password_raw_windows(prompt, mask)
+    _eprint(
+        "warning: cannot disable terminal echo; password will echo\n"
+    )
+    _eprint(prompt)
+    line = sys.stdin.readline()
+    if line.endswith("\n"):
+        line = line[:-1]
+    if line.endswith("\r"):
+        line = line[:-1]
+    return line
+
+
+# ---------------------------------------------------------------------------
+# CLI helpers
+# ---------------------------------------------------------------------------
+
+HELP_TEXT = """\
+LessPass {version} - stateless password generator
+
+Usage:
+  lesspass [SITE] [LOGIN] [MASTER_PASSWORD] [OPTIONS]
+
+Options:
+  -v, --version          Show version and exit
+  -h, --help             Show this help and exit
+  -F, --file FILE        Read master password from FILE ('-' for stdin)
+      --ask              Interactively edit all three parameters
+      --no-mask          Don't echo '*' while typing master password
+                         (alias: --no-fingerprint)
+  -L, --length N         Password length (default: 16, min: 5, max: 35)
+  -C, --counter N        Password counter (default: 1)
+      --exclude CHARS    Exclude these characters from generated password
+  -l, --lowercase        Add lowercase to password
+  -u, --uppercase        Add uppercase to password
+  -d, --digits           Add digits to password
+  -s, --symbols          Add symbols to password
+      --no-lowercase     Remove lowercase from password
+      --no-uppercase     Remove uppercase from password
+      --no-digits        Remove digits from password
+      --no-symbols       Remove symbols from password
+
+Notes:
+  Interactive prompts for Site and Login strip leading and trailing
+  whitespace from the entered value.  Values supplied on the command
+  line, via -F, or as a positional MASTER_PASSWORD are used verbatim.
+  On platforms lacking reliable terminal control, the master password
+  is read without echo; '*' masking is only available where
+  single-character terminal control is supported.
+
+Performance:
+  The fast path uses hashlib.pbkdf2_hmac (Python 3.4+ and 2.7.8+).
+  If it is unavailable, PBKDF2 (100,000 iterations) falls back to pure
+  Python and will take tens of seconds.  A warning is printed on
+  startup, and a fixed-width progress bar is shown when stderr is a
+  terminal.  Upgrade Python to restore the fast path.
+
+Examples:
+  lesspass site login masterpassword
+  lesspass site login masterpassword -L 20 -d
+  lesspass --ask
+  echo "mypass" | lesspass site login -F -
+""".format(version=__version__)
+
+
+def _read_master_password_from_file(path):
+    """Read the master password from a file or stdin, verbatim."""
+    if path == "-":
+        if sys.version_info[0] < 3:
+            return sys.stdin.read()
+        return sys.stdin.buffer.read()
+    f = open(path, "rb")
+    try:
+        return f.read()
+    finally:
+        f.close()
+
+
+def _parse_args(argv):
+    opts = {
+        "length": 16,
+        "counter": 1,
+        "lowercase": False,
+        "uppercase": False,
+        "digits": False,
+        "symbols": False,
+        "no_lowercase": False,
+        "no_uppercase": False,
+        "no_digits": False,
+        "no_symbols": False,
+        "ask": False,
+        "no_mask": False,
+        "master_password_file": None,
+        "master_password": None,
+        "site": None,
+        "login": None,
+        "exclude": None,
+    }
+    positional = []
+    i = 0
+    n = len(argv)
+    while i < n:
+        arg = argv[i]
+        if arg == "--":
+            i += 1
+            positional.extend(argv[i:])
+            break
+        elif arg in ("-v", "--version"):
+            _oprint(__version__ + "\n")
+            sys.exit(0)
+        elif arg in ("-h", "--help"):
+            _oprint(HELP_TEXT)
+            sys.exit(0)
+        elif arg == "--ask":
+            opts["ask"] = True
+        elif arg in ("--no-mask", "--no-fingerprint"):
+            opts["no_mask"] = True
+        elif arg in ("-l", "--lowercase"):
+            opts["lowercase"] = True
+        elif arg in ("-u", "--uppercase"):
+            opts["uppercase"] = True
+        elif arg in ("-d", "--digits"):
+            opts["digits"] = True
+        elif arg in ("-s", "--symbols"):
+            opts["symbols"] = True
+        elif arg == "--no-lowercase":
+            opts["no_lowercase"] = True
+        elif arg == "--no-uppercase":
+            opts["no_uppercase"] = True
+        elif arg == "--no-digits":
+            opts["no_digits"] = True
+        elif arg == "--no-symbols":
+            opts["no_symbols"] = True
+        elif arg in ("-L", "--length"):
+            i += 1
+            if i >= n:
+                _eprint("error: -L requires an argument\n")
+                sys.exit(2)
+            try:
+                val = int(argv[i])
+            except ValueError:
+                _eprint("error: length must be an integer\n")
+                sys.exit(2)
+            if val < 5 or val > 35:
+                _eprint(
+                    "error: length is out of range, choose in [5-35]\n"
+                )
+                sys.exit(2)
+            opts["length"] = val
+        elif arg in ("-C", "--counter"):
+            i += 1
+            if i >= n:
+                _eprint("error: -C requires an argument\n")
+                sys.exit(2)
+            try:
+                opts["counter"] = int(argv[i])
+            except ValueError:
+                _eprint("error: counter must be an integer\n")
+                sys.exit(2)
+        elif arg in ("-F", "--file"):
+            i += 1
+            if i >= n:
+                _eprint("error: -F requires an argument\n")
+                sys.exit(2)
+            opts["master_password_file"] = argv[i]
+        elif arg == "--exclude":
+            i += 1
+            if i >= n:
+                _eprint("error: --exclude requires an argument\n")
+                sys.exit(2)
+            opts["exclude"] = argv[i]
+        elif arg.startswith("-") and arg != "-":
+            _eprint("error: unrecognized option: %s\n" % arg)
+            _eprint("Run with --help for usage.\n")
+            sys.exit(2)
+        else:
+            positional.append(arg)
+        i += 1
+
+    if len(positional) > 0:
+        opts["site"] = positional[0]
+    if len(positional) > 1:
+        opts["login"] = positional[1]
+    if len(positional) > 2:
+        opts["master_password"] = positional[2]
+    if len(positional) > 3:
+        _eprint(
+            "error: unrecognized arguments: %s\n" % " ".join(positional[3:])
+        )
+        sys.exit(2)
+
+    return opts
+
+
+# ---------------------------------------------------------------------------
+# Main
+# ---------------------------------------------------------------------------
+
+def _main(argv):
+    opts = _parse_args(argv)
+    stdin_available = sys.stdin.isatty()
+
+    def read_secret(prompt):
+        return _read_secret(prompt, mask=not opts["no_mask"])
+
+    # Refuse ambiguous master-password sources up front.
+    if (opts["master_password_file"] is not None
+            and opts["master_password"] is not None):
+        _eprint(
+            "error: master password supplied both as a positional argument "
+            "and via -F; choose one\n"
+        )
+        sys.exit(2)
+
+    # --ask needs an interactive terminal, but -F - consumes stdin.
+    if opts["ask"] and opts["master_password_file"] == "-":
+        _eprint(
+            "error: --ask cannot be combined with -F - because -F - "
+            "consumes stdin\n"
+        )
+        sys.exit(2)
+
+    # -F resolution.  '-' consumes stdin.
+    if opts["master_password_file"] == "-":
+        try:
+            opts["master_password"] = _read_master_password_from_file("-")
+        except Exception:
+            e = sys.exc_info()[1]
+            _eprint(
+                "error: cannot read master password from stdin: %s\n" % e
+            )
+            sys.exit(1)
+        opts["master_password_file"] = None
+        stdin_available = False
+    elif opts["master_password_file"]:
+        try:
+            opts["master_password"] = _read_master_password_from_file(
+                opts["master_password_file"])
+        except Exception:
+            e = sys.exc_info()[1]
+            _eprint(
+                "error: cannot read master password file: %s\n" % e
+            )
+            sys.exit(1)
+
+    # --ask: edit all three interactively (blank keeps current value).
+    if opts["ask"]:
+        if not stdin_available:
+            _eprint("error: --ask requires an interactive terminal\n")
+            sys.exit(1)
+
+        if opts["site"] is not None:
+            _eprint("Site [%s]: " % opts["site"])
+            site = _read_line_trimmed()
+            if not site:
+                site = opts["site"]
+        else:
+            _eprint("Site: ")
+            site = _read_line_trimmed()
+        if not site:
+            _eprint("error: Site is required\n")
+            sys.exit(1)
+
+        if opts["login"] is not None:
+            _eprint("Login [%s]: " % opts["login"])
+            login = _read_line_trimmed()
+            if not login:
+                login = opts["login"]
+        else:
+            _eprint("Login: ")
+            login = _read_line_trimmed()
+        if not login:
+            _eprint("error: Login is required\n")
+            sys.exit(1)
+
+        if opts["master_password"] is not None:
+            mp = read_secret(
+                "Master Password (leave blank to keep current): ")
+            if not mp:
+                mp = opts["master_password"]
+        else:
+            mp = read_secret("Master Password: ")
+        if not mp:
+            _eprint("error: Master Password is required\n")
+            sys.exit(1)
+
+        opts["site"] = site
+        opts["login"] = login
+        opts["master_password"] = mp
+
+    # Every parameter must have a concrete value.
+    def resolve(name, value, secret=False):
+        if value is not None:
+            return value
+        if stdin_available:
+            if secret:
+                v = read_secret("%s: " % name)
+            else:
+                _eprint("%s: " % name)
+                v = _read_line_trimmed()
+            if v:
+                return v
+        _eprint(
+            "error: %s is required (not provided and cannot prompt)\n" % name
+        )
+        sys.exit(4)
+
+    site = resolve("Site", opts["site"])
+    login = resolve("Login", opts["login"])
+    master_password = resolve(
+        "Master Password", opts["master_password"], secret=True
+    )
+
+    # Character set selection (default: all four).
+    positive_flags = (opts["lowercase"] or opts["uppercase"]
+                      or opts["digits"] or opts["symbols"])
+    if positive_flags:
+        profile = {
+            "lowercase": opts["lowercase"],
+            "uppercase": opts["uppercase"],
+            "digits": opts["digits"],
+            "symbols": opts["symbols"],
+        }
+    else:
+        profile = {
+            "lowercase": True,
+            "uppercase": True,
+            "digits": True,
+            "symbols": True,
+        }
+
+    if opts["no_lowercase"]:
+        profile["lowercase"] = False
+    if opts["no_uppercase"]:
+        profile["uppercase"] = False
+    if opts["no_digits"]:
+        profile["digits"] = False
+    if opts["no_symbols"]:
+        profile["symbols"] = False
+
+    if not any(profile.values()):
+        _eprint("error: you can't exclude all chars available\n")
+        sys.exit(6)
+
+    profile["site"] = site
+    profile["login"] = login
+    profile["counter"] = opts["counter"]
+    profile["length"] = opts["length"]
+    if opts["exclude"] is not None:
+        profile["exclude"] = opts["exclude"]
+
+    # Startup warning when we are about to use the slow pure-Python path.
+    if not _HAVE_PBKDF2_HMAC:
+        _eprint(
+            "warning: hashlib.pbkdf2_hmac not available; using pure-Python "
+            "PBKDF2-HMAC-SHA256.\n"
+            "         PBKDF2 (100,000 iterations) will be slow.\n"
+            "         Upgrade Python to 3.4+ or 2.7.8+ for the fast path.\n"
+        )
+
+    try:
+        password = generate_password(profile, master_password)
+    except ExcludeAllCharsAvailable:
+        _eprint("error: you can't exclude all chars available\n")
+        sys.exit(6)
+
+    _oprint(password + "\n")
+
+
+def main(argv=None):
+    if argv is None:
+        argv = sys.argv[1:]
+    try:
+        _main(argv)
+    except KeyboardInterrupt:
+        # Raw-mode readers restore the terminal in their finally-block;
+        # here we only need to print a newline and exit cleanly.
+        _eprint("\n")
+        sys.exit(130)
+    except EOFError:
+        _eprint("\n")
+        sys.exit(1)
+
+
+if __name__ == "__main__":
+    main()
