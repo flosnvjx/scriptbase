@@ -6,6 +6,13 @@
 #   Windows (including XP)
 #   OpenVMS
 #
+# Performance:
+#   Fast path: Digest::SHA (core since Perl 5.9.3) for HMAC-SHA256.
+#   Slow path: pure-Perl SHA-256 / HMAC fallback.  Expect PBKDF2
+#   (100,000 iterations) to take tens of seconds to a couple of minutes.
+#   A warning is printed to STDERR on startup, and (when STDERR is a TTY)
+#   a fixed-width progress bar is shown.  Install Digest::SHA to fix this.
+#
 # Bundled fallbacks:
 #   - Digest::SHA (HMAC-SHA256) when not available in core
 #   - Term::ReadKey-free terminal handling via stty / SET TERMINAL
@@ -44,7 +51,8 @@ my %CHARACTER_SUBSETS = (
 
 my $hmac_sha256_sub;
 
-# 32-bit rotate-right, safe on 32-bit Perls (no intermediate > 2^32).
+# 32-bit rotate-right.  Kept for non-hot-path callers; the hot loops inline
+# the equivalent expression.
 sub _rotr32 {
     my ($x, $n) = @_;
     $x &= 0xFFFFFFFF;
@@ -92,27 +100,31 @@ sub _sha256 {
         for my $i (0 .. 15) {
             $w[$i] = unpack('N', substr($msg, $off + $i * 4, 4));
         }
+        # Message schedule: inline _rotr32 for speed.
         for my $i (16 .. 63) {
-            my $s0 = _rotr32($w[$i-15], 7)
-                   ^ _rotr32($w[$i-15], 18)
-                   ^ ($w[$i-15] >> 3);
-            my $s1 = _rotr32($w[$i-2], 17)
-                   ^ _rotr32($w[$i-2], 19)
-                   ^ ($w[$i-2] >> 10);
+            my $w15 = $w[$i-15];
+            my $w2  = $w[$i-2];
+            my $s0 = ((($w15 >> 7)  | (($w15 & 0x7F)    << 25)) & 0xFFFFFFFF)
+                   ^ ((($w15 >> 18) | (($w15 & 0x3FFFF) << 14)) & 0xFFFFFFFF)
+                   ^ ($w15 >> 3);
+            my $s1 = ((($w2 >> 17)  | (($w2 & 0x1FFFF)  << 15)) & 0xFFFFFFFF)
+                   ^ ((($w2 >> 19)  | (($w2 & 0x7FFFF)  << 13)) & 0xFFFFFFFF)
+                   ^ ($w2 >> 10);
             $w[$i] = ($w[$i-16] + $s0 + $w[$i-7] + $s1) & 0xFFFFFFFF;
         }
 
         my ($a, $b, $c, $d, $e, $f, $g, $h) = @h;
 
+        # Compression: inline _rotr32 for speed.
         for my $i (0 .. 63) {
-            my $S1 = _rotr32($e, 6)
-                   ^ _rotr32($e, 11)
-                   ^ _rotr32($e, 25);
+            my $S1 = ((($e >> 6)  | (($e & 0x3F)       << 26)) & 0xFFFFFFFF)
+                   ^ ((($e >> 11) | (($e & 0x7FF)      << 21)) & 0xFFFFFFFF)
+                   ^ ((($e >> 25) | (($e & 0x1FFFFFF)  << 7))  & 0xFFFFFFFF);
             my $ch = ($e & $f) ^ (($e ^ 0xFFFFFFFF) & $g);
             my $temp1 = ($h + $S1 + $ch + $SHA256_K[$i] + $w[$i]) & 0xFFFFFFFF;
-            my $S0 = _rotr32($a, 2)
-                   ^ _rotr32($a, 13)
-                   ^ _rotr32($a, 22);
+            my $S0 = ((($a >> 2)  | (($a & 0x3)        << 30)) & 0xFFFFFFFF)
+                   ^ ((($a >> 13) | (($a & 0x1FFF)     << 19)) & 0xFFFFFFFF)
+                   ^ ((($a >> 22) | (($a & 0x3FFFFF)   << 10)) & 0xFFFFFFFF);
             my $maj = ($a & $b) ^ ($a & $c) ^ ($b & $c);
             my $temp2 = ($S0 + $maj) & 0xFFFFFFFF;
 
@@ -139,18 +151,6 @@ sub _sha256 {
     return pack('N8', @h);
 }
 
-# Byte-wise XOR of two equal-length strings (avoids Perl's numeric coercion).
-sub _xor_bytes {
-    my ($a, $b) = @_;
-    my @x = unpack('N*', $a);
-    my @y = unpack('N*', $b);
-    my @z;
-    for my $i (0 .. $#x) {
-        $z[$i] = ($x[$i] ^ $y[$i]) & 0xFFFFFFFF;
-    }
-    return pack('N*', @z);
-}
-
 sub _fallback_hmac_sha256 {
     my ($data, $key) = @_;
     my $block = 64;
@@ -169,21 +169,78 @@ BEGIN {
     }
 }
 
+# ---------------------------------------------------------------------------
+# Progress bar (only shown on the pure-Perl fallback path)
+#
+# Fixed 10-cell bar, one cell per 10% of PBKDF2 work, so it never needs
+# terminal-width detection (OpenVMS-safe).  Written to STDERR with '\r'
+# to overwrite the same line; a final newline is printed at 100%.
+# ---------------------------------------------------------------------------
+
+my $_progress_last_pct = -1;
+
+sub _print_progress_bar {
+    my ($pct) = @_;
+    return if $pct == $_progress_last_pct;
+    $_progress_last_pct = $pct;
+
+    my $done = int($pct / 10);
+    my $bar;
+    if ($done >= 10) {
+        $bar = '=' x 10;
+    } else {
+        $bar = ('=' x $done) . '>' . ('-' x (9 - $done));
+    }
+    print STDERR "\r[", $bar, "] ", sprintf("%3d", $pct), "%";
+}
+
 # PBKDF2-HMAC-SHA256 (RFC 2898).
 sub _pbkdf2_sha256 {
     my ($password, $salt, $iterations, $keylen) = @_;
     my $h_len      = 32;
     my $num_blocks = int(($keylen + $h_len - 1) / $h_len);
     my $output     = '';
+
+    my $is_fallback     = ($hmac_sha256_sub == \&_fallback_hmac_sha256);
+    my $show_progress   = $is_fallback && -t STDERR;
+    my $total_iters     = $iterations * $num_blocks;
+    my $progress_step   = int($total_iters / 10);
+    $progress_step = 1 if $progress_step < 1;
+
+    if ($show_progress) {
+        $_progress_last_pct = -1;
+        _print_progress_bar(0);
+    }
+
     for my $i (1 .. $num_blocks) {
         my $u = $hmac_sha256_sub->($salt . pack('N', $i), $password);
         my $t = $u;
         for (my $j = 1; $j < $iterations; $j++) {
             $u = $hmac_sha256_sub->($u, $password);
-            $t = _xor_bytes($t, $u);
+
+            # Inlined _xor_bytes: XOR the 8 32-bit words of $t and $u in place.
+            my @x = unpack('N*', $t);
+            my @y = unpack('N*', $u);
+            for my $k (0 .. $#x) {
+                $x[$k] = ($x[$k] ^ $y[$k]) & 0xFFFFFFFF;
+            }
+            $t = pack('N*', @x);
+
+            if ($show_progress) {
+                my $done = ($i - 1) * $iterations + $j + 1;
+                if ($done % $progress_step == 0) {
+                    _print_progress_bar(int($done * 100 / $total_iters));
+                }
+            }
         }
         $output .= $t;
     }
+
+    if ($show_progress) {
+        _print_progress_bar(100);
+        print STDERR "\n";
+    }
+
     return substr($output, 0, $keylen);
 }
 
@@ -626,13 +683,14 @@ Options:
       --no-symbols       Remove symbols from password
 
 Notes:
+  Interactive prompts for Site and Login strip leading and trailing
+  whitespace from the entered value.  Values supplied on the command
+  line, or via -F, are used verbatim.
+
   On platforms lacking reliable terminal control, the master password
   is read without echo; '*' masking is only available where
   single-character terminal control is supported.
 
-  Interactive prompts for Site and Login strip leading and trailing
-  whitespace from the entered value.  Master password, and values
-  supplied on the command line are used verbatim.
 
 Examples:
   lesspass site login masterpassword
@@ -884,6 +942,14 @@ sub main {
     $profile{counter} = $opts{counter};
     $profile{length}  = $opts{length};
     $profile{exclude} = $opts{exclude} if defined $opts{exclude};
+
+    # Startup warning when we are about to use the slow pure-Perl path.
+    if ($hmac_sha256_sub == \&_fallback_hmac_sha256) {
+        print STDERR
+            "warning: Digest::SHA not available; using pure-Perl SHA-256.\n",
+            "         PBKDF2 (100,000 iterations) will be slow.\n",
+            "         Install Digest::SHA (core since Perl 5.9.3) for a fast path.\n";
+    }
 
     my $password;
     my $ok = eval {
